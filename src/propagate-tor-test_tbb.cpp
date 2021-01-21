@@ -34,7 +34,7 @@ see README.txt for instructions
 #endif
 
 #ifndef nthreads
-#define nthreads 64
+#define nthreads 1
 #endif
 
 using namespace tbb;
