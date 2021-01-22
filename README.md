@@ -19,6 +19,5 @@ add the following to create detailed optimization report: `-qopt-report=5`
 ```
 module load intel
 module load tbb
-icc -Wall -I. -O3 -fopenmp -march=native -xHost -qopt-zmm-usage=high propagate-tor-test_tbb.cpp -Wl,-rpath,/lib -ltbb -o propagate-tor-test.exe
-./propagate-tor-test.exe
+python build.py -t tbb -c icc -v
 ```

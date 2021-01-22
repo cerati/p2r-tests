@@ -11,10 +11,11 @@ import collections
 prefix = "propagate-tor-test"
 
 compilers = [
-    "gcc"
+    "gcc",
+    "icc"
 ]
 technologies = {
-    "tbb": ["gcc"]
+    "tbb": ["icc","gcc"]
 }
 
 # with default values
@@ -34,6 +35,9 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
     cmd = []
     if compiler == "gcc":
         cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native"])
+
+    if compiler == "icc":
+        cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
 
     cmd.extend(["-o", target, source])
         
@@ -101,6 +105,8 @@ def run(opts, exe, scanPoint):
             return
         
     out = execute(cmd, opts.verbose)
+    if opts.verbose:
+        for line in out.split("\n"): print(line)
     try:
         return throughput(out)
     except Exception as e:
