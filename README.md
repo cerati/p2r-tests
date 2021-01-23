@@ -24,6 +24,8 @@ python build.py -t tbb -c icc -v
 ```
 Example commands:
 ```
+#print out compile command
+python build.py -t tbb -c icc -v --dryRun
 #build and scan with multiple threads
 python build.py -t tbb -c icc -v -nthreads 1,2,3,4,5
 #Scan for two compilers with multiple threads

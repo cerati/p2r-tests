@@ -168,10 +168,9 @@ def main(opts):
                 for p in scanProduct(opts):
                     scanPoint = ScanPoint(*p)
                     scanPoint_tuple = tuple([getattr(scanPoint,name) for name in sorted(ScanPoint._fields)])
-                    if scanPoint_tuple in alreadyExists:
+                    if scanPoint_tuple in alreadyExists and not opts.dryRun:
                         print('Alread found this point in result, skipping:', scanPoint_tuple)
                         continue 
-                    print(scanPoint)
                     try:
                         exe = build(opts, source, comp, tech, scanPoint)
                     except ExeException as e:
@@ -188,8 +187,9 @@ def main(opts):
                     if opts.dryRun:
                         continue
                     print("Throughput {} tracks/second".format(result['throughput']))
-                with open(outputJson, "w") as out:
-                    json.dump(data, out, indent=2)
+                if not opts.dryRun:
+                    with open(outputJson, "w") as out:
+                        json.dump(data, out, indent=2)
 
     return 0
 
