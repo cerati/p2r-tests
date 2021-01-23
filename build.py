@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import re
+import os
 import sys
 import glob
+import json
 import argparse
 import itertools
 import subprocess
@@ -103,12 +105,16 @@ def run(opts, exe, scanPoint):
         print(" ".join(cmd))
         if opts.dryRun:
             return
-        
+  
+    result = {} 
+    for name in scanPoint._fields:
+        result.update({name:getattr(scanPoint,name)})
     out = execute(cmd, opts.verbose)
     if opts.verbose:
         for line in out.split("\n"): print(line)
     try:
-        return throughput(out)
+        result['throughput']=throughput(out)
+        return result 
     except Exception as e:
         print("Caught exception, printout of the program", " ".join(cmd))
         print(out)
@@ -134,9 +140,27 @@ def main(opts):
                 print("Skipping", comp)
                 continue
 
+            data = dict(
+                compiler=comp,
+                results=[]
+            )
+
+            outputJson = opts.output+"_{}.json".format(comp)
+            alreadyExists = set()
+            if not opts.overwrite and os.path.exists(outputJson):
+                with open(outputJson) as inp:
+                    data = json.load(inp)
+            if not opts.append:
+                for res in data["results"]:
+                    alreadyExists.add( tuple([res[k] for k in sorted(ScanPoint._fields) ]) )
+  
             for p in scanProduct(opts):
                 scanPoint = ScanPoint(*p)
-                print()
+                scanPoint_tuple = tuple([getattr(scanPoint,name) for name in sorted(ScanPoint._fields)])
+                if scanPoint_tuple in alreadyExists:
+                    print('Alread found this point in result, skipping:', scanPoint_tuple)
+                    continue 
+                print(scanPoint)
                 try:
                     exe = build(opts, source, comp, tech, scanPoint)
                 except ExeException as e:
@@ -146,12 +170,15 @@ def main(opts):
                     continue
 
                 try:
-                    throughput = run(opts, exe, scanPoint)
+                    result = run(opts, exe, scanPoint)
+                    data["results"].append(result)
                 except ExeException as e:
                     return e.errorCode()
                 if opts.dryRun:
                     continue
-                print("Throughput {} tracks/second".format(throughput))
+                print("Throughput {} tracks/second".format(result['throughput']))
+            with open(outputJson, "w") as out:
+                json.dump(data, out, indent=2)
 
     return 0
 
@@ -169,6 +196,13 @@ if __name__ == "__main__":
                         help="Comma separated list of compilers, default 'gcc' ({})".format(",".join(sorted(compilers))))
     parser.add_argument("-t", "--technologies", type=str, default="",
                         help="Comma separated list of technologies, default is all ({})".format(",".join(sorted(technologies.keys()))))
+    parser.add_argument("-o", "--output", type=str, default="result",
+                        help="Prefix of output JSON and log files. If the output JSON file exists, it will be updated (see also --overwrite) (default: 'result')")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Overwrite the output JSON instead of updating it")
+    parser.add_argument("--append", action="store_true",
+                        help="Append new (stream, threads) results insteads of ignoring already existing point")
+
 
     for par, default in scanParameters:
         parser.add_argument("--"+par, type=str, default=str(default),
