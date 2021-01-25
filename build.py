@@ -113,7 +113,7 @@ def run(opts, exe, scanPoint):
   
     result = {} 
     for name in scanPoint._fields:
-        result.update({name:getattr(scanPoint,name)})
+        result.update({name:float(getattr(scanPoint,name))})
     out = execute(cmd, opts.verbose)
     if opts.verbose:
         for line in out.split("\n"): print(line)
