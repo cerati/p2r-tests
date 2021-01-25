@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import re
+import os
 import sys
 import glob
+import json
 import argparse
 import itertools
 import subprocess
@@ -10,11 +12,17 @@ import collections
 
 prefix = "propagate-tor-test"
 
-compilers = [
-    "gcc"
-]
+
 technologies = {
-    "tbb": ["gcc"]
+    "tbb": {
+       "threads":["icc","gcc"],
+    }
+    #"kokkos": {
+    #  "serial": ["icc", "gcc"],
+    #  "threads": ["icc", "gcc"],
+    #  "cuda": ["nvcc"],
+    #  "hip": ["hipcc"]
+    #}
 }
 
 # with default values
@@ -34,6 +42,9 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
     cmd = []
     if compiler == "gcc":
         cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native"])
+
+    if compiler == "icc":
+        cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
 
     cmd.extend(["-o", target, source])
         
@@ -99,10 +110,16 @@ def run(opts, exe, scanPoint):
         print(" ".join(cmd))
         if opts.dryRun:
             return
-        
+  
+    result = {} 
+    for name in scanPoint._fields:
+        result.update({name:getattr(scanPoint,name)})
     out = execute(cmd, opts.verbose)
+    if opts.verbose:
+        for line in out.split("\n"): print(line)
     try:
-        return throughput(out)
+        result['throughput']=throughput(out)
+        return result 
     except Exception as e:
         print("Caught exception, printout of the program", " ".join(cmd))
         print(out)
@@ -122,30 +139,57 @@ def main(opts):
         if len(opts.technologies) > 0 and tech not in opts.technologies:
             print("Skipping", tech)
             continue
-        compilers = technologies[tech]
-        for comp in compilers:
-            if len(opts.compilers) > 0 and comp not in opts.compilers:
-                print("Skipping", comp)
+        backends = technologies[tech]
+        for backend,compilers in backends.items():
+            if len(opts.backends) > 0 and backend not in opts.backends:
+                print("Skipping", backend)
                 continue
 
-            for p in scanProduct(opts):
-                scanPoint = ScanPoint(*p)
-                print()
-                try:
-                    exe = build(opts, source, comp, tech, scanPoint)
-                except ExeException as e:
-                    return e.errorCode()
-
-                if opts.build:
+            for comp in compilers:
+                if len(opts.compilers) > 0 and comp not in opts.compilers:
+                    print("Skipping", comp)
                     continue
 
-                try:
-                    throughput = run(opts, exe, scanPoint)
-                except ExeException as e:
-                    return e.errorCode()
-                if opts.dryRun:
-                    continue
-                print("Throughput {} tracks/second".format(throughput))
+                data = dict(
+                    backend=backend,
+                    compiler=comp,
+                    results=[]
+                )
+
+                outputJson = opts.output+"_{}.json".format("_".join([tech,backend,comp]))
+                alreadyExists = set()
+                if not opts.overwrite and os.path.exists(outputJson):
+                    with open(outputJson) as inp:
+                        data = json.load(inp)
+                if not opts.append:
+                    for res in data["results"]:
+                        alreadyExists.add( tuple([res[k] for k in sorted(ScanPoint._fields) ]) )
+  
+                for p in scanProduct(opts):
+                    scanPoint = ScanPoint(*p)
+                    scanPoint_tuple = tuple([getattr(scanPoint,name) for name in sorted(ScanPoint._fields)])
+                    if scanPoint_tuple in alreadyExists and not opts.dryRun:
+                        print('Alread found this point in result, skipping:', scanPoint_tuple)
+                        continue 
+                    try:
+                        exe = build(opts, source, comp, tech, scanPoint)
+                    except ExeException as e:
+                        return e.errorCode()
+
+                    if opts.build:
+                        continue
+
+                    try:
+                        result = run(opts, exe, scanPoint)
+                        data["results"].append(result)
+                    except ExeException as e:
+                        return e.errorCode()
+                    if opts.dryRun:
+                        continue
+                    print("Throughput {} tracks/second".format(result['throughput']))
+                if not opts.dryRun:
+                    with open(outputJson, "w") as out:
+                        json.dump(data, out, indent=2)
 
     return 0
 
@@ -159,10 +203,19 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Print out compilation commands and compiler outputs")
 
-    parser.add_argument("-c", "--compilers", type=str, default="gcc",
-                        help="Comma separated list of compilers, default 'gcc' ({})".format(",".join(sorted(compilers))))
+    parser.add_argument("-c", "--compilers", type=str, default="",
+                        help="Comma separated list of compilers, default is all compilers for each technology")
+    parser.add_argument("--backends", type=str, default="",
+                        help="Comma separated list of backends, default is all backends for each technology")
     parser.add_argument("-t", "--technologies", type=str, default="",
                         help="Comma separated list of technologies, default is all ({})".format(",".join(sorted(technologies.keys()))))
+    parser.add_argument("-o", "--output", type=str, default="result",
+                        help="Prefix of output JSON and log files. If the output JSON file exists, it will be updated (see also --overwrite) (default: 'result')")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Overwrite the output JSON instead of updating it")
+    parser.add_argument("--append", action="store_true",
+                        help="Append new (stream, threads) results insteads of ignoring already existing point")
+
 
     for par, default in scanParameters:
         parser.add_argument("--"+par, type=str, default=str(default),
@@ -173,6 +226,11 @@ if __name__ == "__main__":
         opts.compilers = []
     else:
         opts.compilers = opts.compilers.split(",")
+    if opts.backends == "":
+        opts.backends = []
+    else:
+        opts.backends = opts.backends.split(",")
+
     if opts.technologies == "":
         opts.technologies = []
     else:

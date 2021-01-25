@@ -19,6 +19,17 @@ add the following to create detailed optimization report: `-qopt-report=5`
 ```
 module load intel
 module load tbb
-icc -Wall -I. -O3 -fopenmp -march=native -xHost -qopt-zmm-usage=high propagate-tor-test_tbb.cpp -Wl,-rpath,/lib -ltbb -o propagate-tor-test.exe
-./propagate-tor-test.exe
+#Build and run once with icc as compiler
+python build.py -t tbb -c icc -v
+```
+Example commands:
+```
+#print out compile command
+python build.py -t tbb -c icc -v --dryRun
+#build and scan with multiple threads
+python build.py -t tbb -c icc -v -nthreads 1,2,3,4,5
+#Scan for two compilers with multiple threads
+python build.py -t tbb -c icc,gcc -v -nthreads 1,2,3,4,5
+#Append results to the same result json (Default is to skip existing scan points)
+python build.py -t tbb -c icc -v -nthreads 1,2,3,4,5 --append
 ```
