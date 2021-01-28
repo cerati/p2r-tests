@@ -11,11 +11,15 @@ import subprocess
 import collections
 
 prefix = "propagate-tor-test"
+#prefix = "propagate-toz-test"
 
 
 technologies = {
     "tbb": {
        "threads":["icc","gcc"],
+    },
+    "cuda":{
+        "cuda":['nvcc']
     }
     #"kokkos": {
     #  "serial": ["icc", "gcc"],
@@ -45,6 +49,9 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
 
     if compiler == "icc":
         cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
+
+    if compiler == "nvcc":
+        cmd.extend(["nvcc",'-arch=sm_70',"-std=c++17"])
 
     cmd.extend(["-o", target, source])
         
@@ -126,16 +133,18 @@ def run(opts, exe, scanPoint):
         raise
 
 def main(opts):
-    fname_re = re.compile(prefix+"_(?P<tech>.*)\.cpp")
+    fname_re = re.compile(prefix+"_(?P<tech>.*)\.(cpp|cu)")
 
-    sources = sorted(glob.glob("src/*.cpp"))
+    sources = sorted(glob.glob("src/*.cu")+glob.glob("src/*.cpp"))
 
     for source in sources:
         m = fname_re.search(source)
         if not m:
-            raise Exception("Source file name {} does not follow the expected pattern".format(source))
+#            raise Exception("Source file name {} does not follow the expected pattern".format(source))
+            continue
         tech = m.group("tech")
 
+        print(source)
         if len(opts.technologies) > 0 and tech not in opts.technologies:
             print("Skipping", tech)
             continue
@@ -155,8 +164,8 @@ def main(opts):
                     compiler=comp,
                     results=[]
                 )
-
-                outputJson = opts.output+"_{}.json".format("_".join([tech,backend,comp]))
+                print(comp,backend)
+                outputJson = "result_{}.json".format("_".join(filter(None,[tech,backend,comp,opts.output])))
                 alreadyExists = set()
                 if not opts.overwrite and os.path.exists(outputJson):
                     with open(outputJson) as inp:
@@ -209,8 +218,8 @@ if __name__ == "__main__":
                         help="Comma separated list of backends, default is all backends for each technology")
     parser.add_argument("-t", "--technologies", type=str, default="",
                         help="Comma separated list of technologies, default is all ({})".format(",".join(sorted(technologies.keys()))))
-    parser.add_argument("-o", "--output", type=str, default="result",
-                        help="Prefix of output JSON and log files. If the output JSON file exists, it will be updated (see also --overwrite) (default: 'result')")
+    parser.add_argument("-o", "--output", type=str, default="",
+                        help="Suffix of output JSON and log files. If the output JSON file exists, it will be updated (see also --overwrite) (default: '')")
     parser.add_argument("--overwrite", action="store_true",
                         help="Overwrite the output JSON instead of updating it")
     parser.add_argument("--append", action="store_true",
