@@ -2,6 +2,9 @@
 see README.txt for instructions
 */
 
+#include <cudaCheck.h>
+#include <cuda_profiler_api.h>
+#include "cuda_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -32,21 +35,30 @@ see README.txt for instructions
 #define nlayer 20
 #endif
 
+#ifndef num_streams
+#define num_streams 10
+#endif
+
+#ifndef threadsperblock
+#define threadsperblock 1000
+#endif
+
 #ifndef nthreads
 #define nthreads 1
 #endif
 
+#define HOSTDEV __host__ __device__
 
-size_t PosInMtrx(size_t i, size_t j, size_t D) {
+HOSTDEV size_t PosInMtrx(size_t i, size_t j, size_t D) {
   return i*D+j;
 }
 
-size_t SymOffsets33(size_t i) {
+HOSTDEV size_t SymOffsets33(size_t i) {
   const size_t offs[9] = {0, 1, 3, 1, 2, 4, 3, 4, 5};
   return offs[i];
 }
 
-size_t SymOffsets66(size_t i) {
+HOSTDEV size_t SymOffsets66(size_t i) {
   const size_t offs[36] = {0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
   return offs[i];
 }
@@ -142,104 +154,105 @@ float randn(float mu, float sigma) {
   return (mu + sigma * (float) X1);
 }
 
-MPTRK* bTk(MPTRK* tracks, size_t ev, size_t ib) {
+HOSTDEV MPTRK* bTk(MPTRK* tracks, size_t ev, size_t ib) {
   return &(tracks[ib + nb*ev]);
 }
 
-const MPTRK* bTk(const MPTRK* tracks, size_t ev, size_t ib) {
+HOSTDEV const MPTRK* bTk(const MPTRK* tracks, size_t ev, size_t ib) {
   return &(tracks[ib + nb*ev]);
 }
 
-float q(const MP1I* bq, size_t it){
+HOSTDEV float q(const MP1I* bq, size_t it){
   return (*bq).data[it];
 }
 //
-float par(const MP6F* bpars, size_t it, size_t ipar){
+HOSTDEV float par(const MP6F* bpars, size_t it, size_t ipar){
   return (*bpars).data[it + ipar*bsize];
 }
-float x    (const MP6F* bpars, size_t it){ return par(bpars, it, 0); }
-float y    (const MP6F* bpars, size_t it){ return par(bpars, it, 1); }
-float z    (const MP6F* bpars, size_t it){ return par(bpars, it, 2); }
-float ipt  (const MP6F* bpars, size_t it){ return par(bpars, it, 3); }
-float phi  (const MP6F* bpars, size_t it){ return par(bpars, it, 4); }
-float theta(const MP6F* bpars, size_t it){ return par(bpars, it, 5); }
+HOSTDEV float x    (const MP6F* bpars, size_t it){ return par(bpars, it, 0); }
+HOSTDEV float y    (const MP6F* bpars, size_t it){ return par(bpars, it, 1); }
+HOSTDEV float z    (const MP6F* bpars, size_t it){ return par(bpars, it, 2); }
+HOSTDEV float ipt  (const MP6F* bpars, size_t it){ return par(bpars, it, 3); }
+HOSTDEV float phi  (const MP6F* bpars, size_t it){ return par(bpars, it, 4); }
+HOSTDEV float theta(const MP6F* bpars, size_t it){ return par(bpars, it, 5); }
 //
-float par(const MPTRK* btracks, size_t it, size_t ipar){
+HOSTDEV float par(const MPTRK* btracks, size_t it, size_t ipar){
   return par(&(*btracks).par,it,ipar);
 }
-float x    (const MPTRK* btracks, size_t it){ return par(btracks, it, 0); }
-float y    (const MPTRK* btracks, size_t it){ return par(btracks, it, 1); }
-float z    (const MPTRK* btracks, size_t it){ return par(btracks, it, 2); }
-float ipt  (const MPTRK* btracks, size_t it){ return par(btracks, it, 3); }
-float phi  (const MPTRK* btracks, size_t it){ return par(btracks, it, 4); }
-float theta(const MPTRK* btracks, size_t it){ return par(btracks, it, 5); }
+HOSTDEV float x    (const MPTRK* btracks, size_t it){ return par(btracks, it, 0); }
+HOSTDEV float y    (const MPTRK* btracks, size_t it){ return par(btracks, it, 1); }
+HOSTDEV float z    (const MPTRK* btracks, size_t it){ return par(btracks, it, 2); }
+HOSTDEV float ipt  (const MPTRK* btracks, size_t it){ return par(btracks, it, 3); }
+HOSTDEV float phi  (const MPTRK* btracks, size_t it){ return par(btracks, it, 4); }
+HOSTDEV float theta(const MPTRK* btracks, size_t it){ return par(btracks, it, 5); }
 //
-float par(const MPTRK* tracks, size_t ev, size_t tk, size_t ipar){
+HOSTDEV float par(const MPTRK* tracks, size_t ev, size_t tk, size_t ipar){
   size_t ib = tk/bsize;
   const MPTRK* btracks = bTk(tracks, ev, ib);
   size_t it = tk % bsize;
   return par(btracks, it, ipar);
 }
-float x    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 0); }
-float y    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 1); }
-float z    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 2); }
-float ipt  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 3); }
-float phi  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 4); }
-float theta(const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 5); }
+HOSTDEV float x    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 0); }
+HOSTDEV float y    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 1); }
+HOSTDEV float z    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 2); }
+HOSTDEV float ipt  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 3); }
+HOSTDEV float phi  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 4); }
+HOSTDEV float theta(const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 5); }
 //
-void setpar(MP6F* bpars, size_t it, size_t ipar, float val){
+HOSTDEV void setpar(MP6F* bpars, size_t it, size_t ipar, float val){
   (*bpars).data[it + ipar*bsize] = val;
 }
-void setx    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 0, val); }
-void sety    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 1, val); }
-void setz    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 2, val); }
-void setipt  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 3, val); }
-void setphi  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 4, val); }
-void settheta(MP6F* bpars, size_t it, float val){ setpar(bpars, it, 5, val); }
+HOSTDEV void setx    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 0, val); }
+HOSTDEV void sety    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 1, val); }
+HOSTDEV void setz    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 2, val); }
+HOSTDEV void setipt  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 3, val); }
+HOSTDEV void setphi  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 4, val); }
+HOSTDEV void settheta(MP6F* bpars, size_t it, float val){ setpar(bpars, it, 5, val); }
 //
-void setpar(MPTRK* btracks, size_t it, size_t ipar, float val){
+HOSTDEV void setpar(MPTRK* btracks, size_t it, size_t ipar, float val){
   setpar(&(*btracks).par,it,ipar,val);
 }
-void setx    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 0, val); }
-void sety    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 1, val); }
-void setz    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 2, val); }
-void setipt  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 3, val); }
-void setphi  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 4, val); }
-void settheta(MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 5, val); }
+HOSTDEV void setx    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 0, val); }
+HOSTDEV void sety    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 1, val); }
+HOSTDEV void setz    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 2, val); }
+HOSTDEV void setipt  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 3, val); }
+HOSTDEV void setphi  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 4, val); }
+HOSTDEV void settheta(MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 5, val); }
 
-const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib) {
+HOSTDEV const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib) {
   return &(hits[ib + nb*ev]);
 }
-const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib,size_t lay) {
+HOSTDEV const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib,size_t lay) {
 return &(hits[lay + (ib*nlayer) +(ev*nlayer*nb)]);
 }
 //
-float pos(const MP3F* hpos, size_t it, size_t ipar){
+HOSTDEV float pos(const MP3F* hpos, size_t it, size_t ipar){
   return (*hpos).data[it + ipar*bsize];
 }
-float x(const MP3F* hpos, size_t it)    { return pos(hpos, it, 0); }
-float y(const MP3F* hpos, size_t it)    { return pos(hpos, it, 1); }
-float z(const MP3F* hpos, size_t it)    { return pos(hpos, it, 2); }
+HOSTDEV float x(const MP3F* hpos, size_t it)    { return pos(hpos, it, 0); }
+HOSTDEV float y(const MP3F* hpos, size_t it)    { return pos(hpos, it, 1); }
+HOSTDEV float z(const MP3F* hpos, size_t it)    { return pos(hpos, it, 2); }
 //
-float pos(const MPHIT* hits, size_t it, size_t ipar){
+HOSTDEV float pos(const MPHIT* hits, size_t it, size_t ipar){
   return pos(&(*hits).pos,it,ipar);
 }
-float x(const MPHIT* hits, size_t it)    { return pos(hits, it, 0); }
-float y(const MPHIT* hits, size_t it)    { return pos(hits, it, 1); }
-float z(const MPHIT* hits, size_t it)    { return pos(hits, it, 2); }
+HOSTDEV float x(const MPHIT* hits, size_t it)    { return pos(hits, it, 0); }
+HOSTDEV float y(const MPHIT* hits, size_t it)    { return pos(hits, it, 1); }
+HOSTDEV float z(const MPHIT* hits, size_t it)    { return pos(hits, it, 2); }
 //
-float pos(const MPHIT* hits, size_t ev, size_t tk, size_t ipar){
+HOSTDEV float pos(const MPHIT* hits, size_t ev, size_t tk, size_t ipar){
   size_t ib = tk/bsize;
   const MPHIT* bhits = bHit(hits, ev, ib);
   size_t it = tk % bsize;
   return pos(bhits,it,ipar);
 }
-float x(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 0); }
-float y(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 1); }
-float z(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 2); }
+HOSTDEV float x(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 0); }
+HOSTDEV float y(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 1); }
+HOSTDEV float z(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 2); }
 
 MPTRK* prepareTracks(ATRK inputtrk) {
-  MPTRK* result = (MPTRK*) malloc(nevts*nb*sizeof(MPTRK)); //fixme, align?
+  MPTRK* result ; 
+  cudaCheck(cudaMallocHost((void**)&result,nevts*nb*sizeof(MPTRK)));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t ie=0;ie<nevts;++ie) {
     for (size_t ib=0;ib<nb;++ib) {
@@ -254,6 +267,7 @@ MPTRK* prepareTracks(ATRK inputtrk) {
 	      }
 	      //q
 	      result[ib + nb*ie].q.data[it] = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);//fixme check
+        //if((ib + nb*ie)%10==0 ) printf("prep trk index = %i ,track = (%.3f)\n ", ib+nb*ie);
       }
     }
   }
@@ -261,7 +275,8 @@ MPTRK* prepareTracks(ATRK inputtrk) {
 }
 
 MPHIT* prepareHits(AHIT inputhit) {
-  MPHIT* result = (MPHIT*) malloc(nlayer*nevts*nb*sizeof(MPHIT));  //fixme, align?
+  MPHIT* result;  //fixme, align?
+  cudaCheck(cudaMallocHost((void**)&result,nlayer*nevts*nb*sizeof(MPHIT)));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
     for (size_t ie=0;ie<nevts;++ie) {
@@ -283,7 +298,7 @@ MPHIT* prepareHits(AHIT inputhit) {
 }
 
 #define N bsize
-void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
+HOSTDEV void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
@@ -329,7 +344,7 @@ void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
   }//);
 }
 
-void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
+HOSTDEV void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
@@ -411,12 +426,12 @@ void KalmanGain(const MP6x6SF* A, const MP3x3* B, MP3x6* C) {
   }
 }
 
-inline float hipo(float x, float y)
+HOSTDEV inline float hipo(float x, float y)
 {
   return std::sqrt(x*x + y*y);
 }
 
-void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP){
+__device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP){
   
   MP1F rotT00;
   MP1F rotT01;
@@ -621,7 +636,7 @@ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3
   trkErr = &newErr;
 }
 
-inline void sincos4(const float x, float& sin, float& cos)
+HOSTDEV inline void sincos4(const float x, float& sin, float& cos)
 {
    // Had this writen with explicit division by factorial.
    // The *whole* fitting test ran like 2.5% slower on MIC, sigh.
@@ -633,7 +648,7 @@ inline void sincos4(const float x, float& sin, float& cos)
 
 constexpr float kfact= 100/3.8;
 constexpr int Niter=5;
-void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
+__device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
                   const MP3F* msP, MP6x6SF* outErr, MP6F* outPar) {
   
   MP6x6F errorProp, temp;
@@ -787,6 +802,52 @@ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg,
   MultHelixPropTransp(&errorProp, &temp, outErr);
 }
 
+inline void transferAsyncTrk(MPTRK* trk_dev, MPTRK* trk, cudaStream_t stream){
+
+  cudaMemcpyAsync(trk_dev, trk, nevts*nb*sizeof(MPTRK), cudaMemcpyHostToDevice, stream);
+  cudaMemcpyAsync(&trk_dev->par, &trk->par, sizeof(MP6F), cudaMemcpyHostToDevice, stream);
+  cudaMemcpyAsync(&((trk_dev->par).data), &((trk->par).data), 6*bsize*sizeof(float), cudaMemcpyHostToDevice, stream);
+  cudaMemcpyAsync(&trk_dev->cov, &trk->cov, sizeof(MP6x6SF), cudaMemcpyHostToDevice, stream);
+  cudaMemcpyAsync(&((trk_dev->cov).data), &((trk->cov).data), 36*bsize*sizeof(float), cudaMemcpyHostToDevice, stream);
+  cudaMemcpyAsync(&trk_dev->q, &trk->q, sizeof(MP1I), cudaMemcpyHostToDevice, stream);
+  cudaMemcpyAsync(&((trk_dev->q).data), &((trk->q).data), 1*bsize*sizeof(int), cudaMemcpyHostToDevice, stream);  
+}
+inline void transferAsyncHit(MPHIT* hit_dev, MPHIT* hit, cudaStream_t stream){
+
+    cudaMemcpyAsync(hit_dev,hit,nlayer*nevts*nb*sizeof(MPHIT), cudaMemcpyHostToDevice, stream);
+    cudaMemcpyAsync(&hit_dev->pos,&hit->pos,sizeof(MP3F), cudaMemcpyHostToDevice, stream);
+    cudaMemcpyAsync(&(hit_dev->pos).data,&(hit->pos).data,3*bsize*sizeof(float), cudaMemcpyHostToDevice, stream);
+    cudaMemcpyAsync(&hit_dev->cov,&hit->cov,sizeof(MP3x3SF), cudaMemcpyHostToDevice, stream);
+    cudaMemcpyAsync(&(hit_dev->cov).data,&(hit->cov).data,6*bsize*sizeof(float), cudaMemcpyHostToDevice, stream);
+}
+inline void transfer_backAsync(MPTRK* trk_host, MPTRK* trk,cudaStream_t stream){
+  cudaMemcpyAsync(trk_host, trk, nevts*nb*sizeof(MPTRK), cudaMemcpyDeviceToHost, stream);
+  cudaMemcpyAsync(&trk_host->par, &trk->par, sizeof(MP6F), cudaMemcpyDeviceToHost, stream);
+  cudaMemcpyAsync(&((trk_host->par).data), &((trk->par).data), 6*bsize*sizeof(float), cudaMemcpyDeviceToHost,stream);
+  cudaMemcpyAsync(&trk_host->cov, &trk->cov, sizeof(MP6x6SF), cudaMemcpyDeviceToHost, stream);
+  cudaMemcpyAsync(&((trk_host->cov).data), &((trk->cov).data), 36*bsize*sizeof(float), cudaMemcpyDeviceToHost, stream);
+  cudaMemcpyAsync(&trk_host->q, &trk->q, sizeof(MP1I), cudaMemcpyDeviceToHost, stream);
+  cudaMemcpyAsync(&((trk_host->q).data), &((trk->q).data), 1*bsize*sizeof(int), cudaMemcpyDeviceToHost, stream);
+}
+
+__global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int stream){
+  ///*__shared__*/ struct MP6x6F errorProp, temp; // shared memory here causes a race condition. Probably move to inside the p2z function? i forgot why I did it this way to begin with. maybe to make it shared?
+
+  int index = threadIdx.x + blockIdx.x * blockDim.x;
+
+  const MPTRK* btracks = &(trk[index]);
+  MPTRK* obtracks = &(outtrk[index]);
+
+  for (int layer=0;layer<nlayer;++layer){	
+        const MPHIT* bhits = &(hit[layer + index*nlayer]);
+        propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, 
+                     &(*obtracks).cov, &(*obtracks).par);
+        KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
+
+  }
+  //if((index)%10==0 &&index>2500) printf("index = %i ,track = (%.3f)\n ", index,&(*btracks).par.data[8]);
+}
+
 int main (int argc, char* argv[]) {
 
    int itr;
@@ -818,29 +879,67 @@ int main (int argc, char* argv[]) {
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
    MPTRK* trk = prepareTracks(inputtrk);
    MPHIT* hit = prepareHits(inputhit);
-   MPTRK* outtrk = (MPTRK*) malloc(nevts*nb*sizeof(MPTRK));
+   MPTRK* outtrk ;
+   cudaMallocHost((void**)&outtrk,nevts*nb*sizeof(MPTRK)); 
+   //device pointers
+   MPTRK* trk_dev;
+   MPHIT* hit_dev;
+   MPTRK* outtrk_dev;
+   cudaMalloc((MPTRK**)&trk_dev,nevts*nb*sizeof(MPTRK));
+   cudaMalloc((MPHIT**)&hit_dev,nlayer*nevts*nb*sizeof(MPHIT));
+   cudaMalloc((MPTRK**)&outtrk_dev,nevts*nb*sizeof(MPTRK));
+
+   //for (size_t ie=0;ie<nevts;++ie) {
+   //  for (size_t it=0;it<ntrks;++it) {
+   //    float x_ = x(trk,ie,it);
+   //    float y_ = y(trk,ie,it);
+   //    float z_ = z(trk,ie,it);
+   //    float r_ = sqrtf(x_*x_ + y_*y_);
+   //    if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
+   //  }
+   //}
+
+   int device = -1;
+   cudaGetDevice(&device);
+
+  int stream_chunk = ((int)(nevts*ntrks/num_streams));
+  int stream_remainder = ((int)((nevts*ntrks)%num_streams));
+  int stream_range;
+  if (stream_remainder == 0){ stream_range =num_streams;}
+  else{stream_range = num_streams+1;}
+  cudaStream_t streams[stream_range];
+  for (int s = 0; s<stream_range;s++){
+    //cudaStreamCreateWithFlags(&streams[s],cudaStreamNonBlocking);
+    cudaStreamCreate(&streams[s]);
+  }
+
+
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
    printf("done preparing!\n");
+ 
+   printf("Number of struct MPTRK trk[] = %ld\n", nevts*nb);
+   printf("Number of struct MPTRK outtrk[] = %ld\n", nevts*nb);
+   printf("Number of struct struct MPHIT hit[] = %ld\n", nevts*nb);
+  
+   printf("Size of struct MPTRK trk[] = %ld\n", nevts*nb*sizeof(struct MPTRK));
+   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(struct MPTRK));
+   printf("Size of struct struct MPHIT hit[] = %ld\n", nlayer*nevts*nb*sizeof(struct MPHIT));
+
    
-
-
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(itr=0; itr<NITER; itr++) {
-      for(size_t ie =0; ie<nevts;++ie){
-        for(size_t ib =0; ib<nb;++ib){
-          const MPTRK* btracks = bTk(trk, ie, ib);
-          MPTRK* obtracks = bTk(outtrk, ie, ib);
-          for(size_t layer=0; layer<nlayer; ++layer) {
-            const MPHIT* bhits = bHit(hit, ie, ib, layer);
-            propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
-            KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
-          }
-        };
-      };
+    for (int s = 0; s<num_streams;s++){
+       transferAsyncTrk(trk_dev, trk,streams[s]);
+       transferAsyncHit(hit_dev, hit,streams[s]);
+       printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
+  	   GPUsequence<<<nevts*nb/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+       transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+    }//end of streams loop
    } //end of itr loop
+   cudaDeviceSynchronize(); 
    auto wall_stop = std::chrono::high_resolution_clock::now();
 
    auto wall_diff = wall_stop - wall_start;
@@ -876,6 +975,7 @@ int main (int argc, char* argv[]) {
        avgdy += (y_-hy_)/y_;
        avgdz += (z_-hz_)/z_;
        avgdr += (r_-hr_)/r_;
+       //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
      }
    }
    avgpt = avgpt/float(nevts*ntrks);
@@ -934,9 +1034,12 @@ int main (int argc, char* argv[]) {
    printf("track phi avg=%f\n", avgphi);
    printf("track theta avg=%f\n", avgtheta);
 
-   free(trk);
-   free(hit);
-   free(outtrk);
+   cudaFree(trk);
+   cudaFree(hit);
+   cudaFree(outtrk);
+   cudaFree(trk_dev);
+   cudaFree(hit_dev);
+   cudaFree(outtrk_dev);
 
    return 0;
 }
