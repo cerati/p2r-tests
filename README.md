@@ -27,9 +27,9 @@ Example commands:
 #print out compile command
 python build.py -t tbb -c icc -v --dryRun
 #build and scan with multiple threads
-python build.py -t tbb -c icc -v -nthreads 1,2,3,4,5
+python build.py -t tbb -c icc -v --nthreads 1,2,3,4,5
 #Scan for two compilers with multiple threads
-python build.py -t tbb -c icc,gcc -v -nthreads 1,2,3,4,5
+python build.py -t tbb -c icc,gcc -v --nthreads 1,2,3,4,5
 #Append results to the same result json (Default is to skip existing scan points)
-python build.py -t tbb -c icc -v -nthreads 1,2,3,4,5 --append
+python build.py -t tbb -c icc -v --nthreads 1,2,3,4,5 --append
 ```

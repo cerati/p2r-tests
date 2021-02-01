@@ -36,7 +36,8 @@ scanParameters = [
     ("NITER", 5),
     ("bsize", 128),
     ("nlayer", 20),
-    ("nthreads", 1)
+    ("nthreads", 1),
+    ("num_streams", 10)
 ]
 ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
