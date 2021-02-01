@@ -28,7 +28,10 @@ technologies = {
     #  "hip": ["hipcc"]
     #}
 }
-
+cmds ={
+    "tbb":{"threads":[]},
+    "cuda":{"cuda":["srun"]}
+}
 # with default values
 scanParameters = [
     ("ntrks", 9600),
@@ -37,7 +40,8 @@ scanParameters = [
     ("bsize", 128),
     ("nlayer", 20),
     ("nthreads", 1),
-    ("num_streams", 10)
+    ("num_streams", 10),
+    ("threadsperblock", 1000)
 ]
 ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
@@ -52,7 +56,7 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
         cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
 
     if compiler == "nvcc":
-        cmd.extend(["nvcc",'-arch=sm_70',"-std=c++17"])
+        cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17"])
 
     cmd.extend(["-o", target, source])
         
@@ -111,9 +115,11 @@ def throughput(log):
             return int(m.group("ntracks"))/float(m.group("time"))
     raise Exception("No result in output")
 
-def run(opts, exe, scanPoint):
+def run(opts, exe, tech, backend, scanPoint):
     print("Running {} for {}".format(exe, scanPoint))
-    cmd = ["./"+exe]
+    #cmd = ["./"+exe]
+    cmd_prefix = cmds[tech][backend]
+    cmd = cmd_prefix+[exe] if len(cmd_prefix)>0 else ["./"+exe]
     if opts.verbose or opts.dryRun:
         print(" ".join(cmd))
         if opts.dryRun:
@@ -122,6 +128,7 @@ def run(opts, exe, scanPoint):
     result = {} 
     for name in scanPoint._fields:
         result.update({name:float(getattr(scanPoint,name))})
+    os.system(" ".join(cmd))
     out = execute(cmd, opts.verbose)
     if opts.verbose:
         for line in out.split("\n"): print(line)
@@ -190,7 +197,7 @@ def main(opts):
                         continue
 
                     try:
-                        result = run(opts, exe, scanPoint)
+                        result = run(opts, exe, tech, backend, scanPoint)
                         data["results"].append(result)
                     except ExeException as e:
                         return e.errorCode()
