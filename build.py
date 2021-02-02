@@ -128,7 +128,6 @@ def run(opts, exe, tech, backend, scanPoint):
     result = {} 
     for name in scanPoint._fields:
         result.update({name:float(getattr(scanPoint,name))})
-    os.system(" ".join(cmd))
     out = execute(cmd, opts.verbose)
     if opts.verbose:
         for line in out.split("\n"): print(line)

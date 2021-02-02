@@ -833,19 +833,18 @@ inline void transfer_backAsync(MPTRK* trk_host, MPTRK* trk,cudaStream_t stream){
 __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int stream){
   ///*__shared__*/ struct MP6x6F errorProp, temp; // shared memory here causes a race condition. Probably move to inside the p2z function? i forgot why I did it this way to begin with. maybe to make it shared?
 
-  int index = threadIdx.x + blockIdx.x * blockDim.x;
 
-  const MPTRK* btracks = &(trk[index]);
-  MPTRK* obtracks = &(outtrk[index]);
-
-  for (int layer=0;layer<nlayer;++layer){	
-        const MPHIT* bhits = &(hit[layer + index*nlayer]);
-        propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, 
-                     &(*obtracks).cov, &(*obtracks).par);
-        KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
-
+  for (int index = threadIdx.x + blockIdx.x *blockDim.x ; index < ntrks*nevts; index+= blockDim.x*gridDim.x){
+    const MPTRK* btracks = &(trk[index]);
+    MPTRK* obtracks = &(outtrk[index]);
+    for (int layer=0;layer<nlayer;++layer){	
+          const MPHIT* bhits = &(hit[layer + index*nlayer]);
+          propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, 
+                       &(*obtracks).cov, &(*obtracks).par);
+          KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
+    }
+    //if((index)%100==0 ) printf("index = %i ,(block,grid)=(%i,%i), track = (%.3f)\n ", index,blockDim.x,gridDim.x,&(*btracks).par.data[8]);
   }
-  //if((index)%10==0 &&index>2500) printf("index = %i ,track = (%.3f)\n ", index,&(*btracks).par.data[8]);
 }
 
 int main (int argc, char* argv[]) {
@@ -1034,9 +1033,9 @@ int main (int argc, char* argv[]) {
    printf("track phi avg=%f\n", avgphi);
    printf("track theta avg=%f\n", avgtheta);
 
-   cudaFree(trk);
-   cudaFree(hit);
-   cudaFree(outtrk);
+   cudaFreeHost(trk);
+   cudaFreeHost(hit);
+   cudaFreeHost(outtrk);
    cudaFree(trk_dev);
    cudaFree(hit_dev);
    cudaFree(outtrk_dev);
