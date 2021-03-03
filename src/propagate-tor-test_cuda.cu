@@ -21,7 +21,7 @@ see README.txt for instructions
 #define ntrks 9600
 #endif
 
-#define nb    ntrks/bsize
+#define nb    (ntrks/bsize)
 
 #ifndef nevts
 #define nevts 100
@@ -40,7 +40,7 @@ see README.txt for instructions
 #endif
 
 #ifndef threadsperblock
-#define threadsperblock 1000
+#define threadsperblock 32 
 #endif
 
 #ifndef nthreads
@@ -927,25 +927,26 @@ int main (int argc, char* argv[]) {
    printf("Size of struct struct MPHIT hit[] = %ld\n", nlayer*nevts*nb*sizeof(struct MPHIT));
 
    
-   auto wall_start = std::chrono::high_resolution_clock::now();
 
-   for(itr=0; itr<NITER; itr++) {
     for (int s = 0; s<num_streams;s++){
-       transferAsyncTrk(trk_dev, trk,streams[s]);
-       transferAsyncHit(hit_dev, hit,streams[s]);
+   transferAsyncTrk(trk_dev, trk,streams[s]);
+   transferAsyncHit(hit_dev, hit,streams[s]);
+   auto wall_start = std::chrono::high_resolution_clock::now();
+   for(itr=0; itr<NITER; itr++) {
        printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
   	   GPUsequence<<<nevts*nb/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
-       transfer_backAsync(outtrk, outtrk_dev,streams[s]);
     }//end of streams loop
-   } //end of itr loop
-   cudaDeviceSynchronize(); 
    auto wall_stop = std::chrono::high_resolution_clock::now();
-
    auto wall_diff = wall_stop - wall_start;
    auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
+
+   transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+   } //end of itr loop
+   cudaDeviceSynchronize(); 
+
 
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
    float avgpt = 0, avgphi = 0, avgtheta = 0;

@@ -30,7 +30,7 @@ technologies = {
 }
 cmds ={
     "tbb":{"threads":[]},
-    "cuda":{"cuda":["srun"]}
+    "cuda":{"cuda":["srun","-n","1","-c","80","--exclusive","numactl","--cpunodebind=0"]}
 }
 # with default values
 scanParameters = [
@@ -56,7 +56,7 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
         cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
 
     if compiler == "nvcc":
-        cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17"])
+        cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17",'-maxrregcount=64'])
 
     cmd.extend(["-o", target, source])
         
@@ -119,7 +119,7 @@ def run(opts, exe, tech, backend, scanPoint):
     print("Running {} for {}".format(exe, scanPoint))
     #cmd = ["./"+exe]
     cmd_prefix = cmds[tech][backend]
-    cmd = cmd_prefix+[exe] if len(cmd_prefix)>0 else ["./"+exe]
+    cmd = cmd_prefix+["./"+exe] if len(cmd_prefix)>0 else ["./"+exe]
     if opts.verbose or opts.dryRun:
         print(" ".join(cmd))
         if opts.dryRun:
