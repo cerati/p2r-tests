@@ -18,9 +18,13 @@ technologies = {
     "tbb": {
        "threads":["icc","gcc"],
     },
+    "cuda_v2":{
+        "cuda":['nvcc']
+    },
     "cuda":{
         "cuda":['nvcc']
     }
+
     #"kokkos": {
     #  "serial": ["icc", "gcc"],
     #  "threads": ["icc", "gcc"],
@@ -30,7 +34,9 @@ technologies = {
 }
 cmds ={
     "tbb":{"threads":[]},
-    "cuda":{"cuda":["srun","-n","1","-c","80","--exclusive","numactl","--cpunodebind=0"]}
+    #"cuda":{"cuda":["srun","-n","1","-c","80","--exclusive","numactl","--cpunodebind=0"]}
+    "cuda":{"cuda":["srun","-n","1","-c","80"]},
+    "cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
 }
 # with default values
 scanParameters = [
