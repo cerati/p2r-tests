@@ -18,10 +18,6 @@ see README.txt for instructions
 #define ntrks 9600
 #endif
 
-#ifndef bsize 
-#define bsize 1
-#endif
-
 
 #ifndef nevts
 #define nevts 100
@@ -155,11 +151,11 @@ float randn(float mu, float sigma) {
 }
 
 HOSTDEV MPTRK* bTk(MPTRK* tracks, size_t ev, size_t ib) {
-  return &(tracks[ib + ntrks*ev]);
+  return &(tracks[ev]);
 }
 
 HOSTDEV const MPTRK* bTk(const MPTRK* tracks, size_t ev, size_t ib) {
-  return &(tracks[ib + ntrks*ev]);
+  return &(tracks[ev]);
 }
 
 HOSTDEV float q(const MP1I* bq, size_t it){
@@ -167,7 +163,7 @@ HOSTDEV float q(const MP1I* bq, size_t it){
 }
 
 HOSTDEV float par(const MP6F* bpars, size_t it, size_t ipar){
-  return (*bpars).data[it + ipar];
+  return (*bpars).data[it + ipar*ntrks];
 }
 HOSTDEV float x    (const MP6F* bpars, size_t it){ return par(bpars, it, 0); }
 HOSTDEV float y    (const MP6F* bpars, size_t it){ return par(bpars, it, 1); }
@@ -186,6 +182,7 @@ HOSTDEV float ipt  (const MPTRK* btracks, size_t it){ return par(btracks, it, 3)
 HOSTDEV float phi  (const MPTRK* btracks, size_t it){ return par(btracks, it, 4); }
 HOSTDEV float theta(const MPTRK* btracks, size_t it){ return par(btracks, it, 5); }
 
+//TODO: should be able to access par faster
 HOSTDEV float par(const MPTRK* tracks, size_t ev, size_t tk, size_t ipar){
   const MPTRK* btracks = bTk(tracks, ev, tk);
   return par(btracks, tk, ipar);
@@ -198,7 +195,7 @@ HOSTDEV float phi  (const MPTRK* tracks, size_t ev, size_t tk){ return par(track
 HOSTDEV float theta(const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 5); }
 //
 HOSTDEV void setpar(MP6F* bpars, size_t it, size_t ipar, float val){
-  (*bpars).data[it + ipar] = val;
+  (*bpars).data[it + ipar*ntrks] = val;
 }
 HOSTDEV void setx    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 0, val); }
 HOSTDEV void sety    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 1, val); }
@@ -218,14 +215,14 @@ HOSTDEV void setphi  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it,
 HOSTDEV void settheta(MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 5, val); }
 
 HOSTDEV const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib) {
-  return &(hits[ib + ntrks*ev]);
+  return &(hits[ev]);
 }
 HOSTDEV const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib,size_t lay) {
-return &(hits[lay + (ib*nlayer) +(ev*nlayer*ntrks)]);
+return &(hits[lay + nlayer*ev]);
 }
 //
 HOSTDEV float pos(const MP3F* hpos, size_t it, size_t ipar){
-  return (*hpos).data[it + ipar];
+  return (*hpos).data[it + ipar*ntrks];
 }
 HOSTDEV float x(const MP3F* hpos, size_t it)    { return pos(hpos, it, 0); }
 HOSTDEV float y(const MP3F* hpos, size_t it)    { return pos(hpos, it, 1); }
@@ -248,40 +245,40 @@ HOSTDEV float z(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, e
 
 MPTRK* prepareTracks(ATRK inputtrk) {
   MPTRK* result ; 
-  cudaCheck(cudaMallocHost((void**)&result,nevts*ntrks*sizeof(MPTRK)));
+  cudaCheck(cudaMallocHost((void**)&result,nevts*sizeof(MPTRK)));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t ie=0;ie<nevts;++ie) {
-    for (size_t it=0;it<ntrks;++it) {
+     for (size_t it=0;it<ntrks;++it) {
 	      //par
 	      for (size_t ip=0;ip<6;++ip) {
-	        result[it + ntrks*ie].par.data[ip+6*it] = (1+smear*randn(0,1))*inputtrk.par[ip];
+	        result[ie].par.data[it + ip*ntrks] = (1+smear*randn(0,1))*inputtrk.par[ip];
 	      }
 	      //cov
 	      for (size_t ip=0;ip<21;++ip) {
-	        result[it + ntrks*ie].cov.data[ip+21*it] = (1+smear*randn(0,1))*inputtrk.cov[ip];
+	        result[ie].cov.data[it + ip*ntrks] = (1+smear*randn(0,1))*inputtrk.cov[ip];
 	      }
 	      //q
-	      result[it + ntrks*ie].q.data[it] = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);//fixme check
+	      result[ie].q.data[it+ntrks] = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);//fixme check
         //if((ib + nb*ie)%10==0 ) printf("prep trk index = %i ,track = (%.3f)\n ", ib+nb*ie);
-    }
+     }
   }
   return result;
 }
 
 MPHIT* prepareHits(AHIT inputhit) {
   MPHIT* result;  //fixme, align?
-  cudaCheck(cudaMallocHost((void**)&result,nlayer*nevts*ntrks*sizeof(MPHIT)));
+  cudaCheck(cudaMallocHost((void**)&result,nlayer*nevts*sizeof(MPHIT)));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
     for (size_t ie=0;ie<nevts;++ie) {
-      for (size_t it=0;it<ntrks;++it) {
+        for (size_t it=0;it<ntrks;++it) {
         	//pos
         	for (size_t ip=0;ip<3;++ip) {
-        	  result[lay+nlayer*ntrks*ie].pos.data[ip + it*3] = (1+smear*randn(0,1))*inputhit.pos[ip];
+        	  result[lay+nlayer*ie].pos.data[it + ip*ntrks] = (1+smear*randn(0,1))*inputhit.pos[ip];
         	}
         	//cov
         	for (size_t ip=0;ip<6;++ip) {
-        	  result[lay+nlayer*ntrks*ie].cov.data[ip + it*6] = (1+smear*randn(0,1))*inputhit.cov[ip];
+        	  result[lay+nlayer*ie].cov.data[it + ip*ntrks] = (1+smear*randn(0,1))*inputhit.cov[ip];
         	}
         }
       }
@@ -429,170 +426,174 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
   MP1F rotT01;
   MP2x2SF resErr_loc;
   MP3x3SF resErr_glo;
-  size_t  it = 0;
-  //size_t  bsize = 1;
+  for (size_t it=0;it<ntrks;++it) {
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00.data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
     rotT01.data[it] =  (x(msP,it) + x(inPar,it)) / (2*r);    
     
-    resErr_loc.data[ 0*bsize+it] = (rotT00.data[it]*(trkErr->data[0*bsize+it] + hitErr->data[0*bsize+it]) +
-                                    rotT01.data[it]*(trkErr->data[1*bsize+it] + hitErr->data[1*bsize+it]))*rotT00.data[it] +
-                                   (rotT00.data[it]*(trkErr->data[1*bsize+it] + hitErr->data[1*bsize+it]) +
-                                    rotT01.data[it]*(trkErr->data[2*bsize+it] + hitErr->data[2*bsize+it]))*rotT01.data[it];
-    resErr_loc.data[ 1*bsize+it] = (trkErr->data[3*bsize+it] + hitErr->data[3*bsize+it])*rotT00.data[it] +
-                                   (trkErr->data[4*bsize+it] + hitErr->data[4*bsize+it])*rotT01.data[it];
-    resErr_loc.data[ 2*bsize+it] = (trkErr->data[5*bsize+it] + hitErr->data[5*bsize+it]);
+    resErr_loc.data[ 0*ntrks+it] = (rotT00.data[it]*(trkErr->data[0*ntrks+it] + hitErr->data[0*ntrks+it]) +
+                                    rotT01.data[it]*(trkErr->data[1*ntrks+it] + hitErr->data[1*ntrks+it]))*rotT00.data[it] +
+                                   (rotT00.data[it]*(trkErr->data[1*ntrks+it] + hitErr->data[1*ntrks+it]) +
+                                    rotT01.data[it]*(trkErr->data[2*ntrks+it] + hitErr->data[2*ntrks+it]))*rotT01.data[it];
+    resErr_loc.data[ 1*ntrks+it] = (trkErr->data[3*ntrks+it] + hitErr->data[3*ntrks+it])*rotT00.data[it] +
+                                   (trkErr->data[4*ntrks+it] + hitErr->data[4*ntrks+it])*rotT01.data[it];
+    resErr_loc.data[ 2*ntrks+it] = (trkErr->data[5*ntrks+it] + hitErr->data[5*ntrks+it]);
+  }
+  for (size_t it=0;it<ntrks;++it) {
 
-    const double det = (double)resErr_loc.data[0*bsize+it] * resErr_loc.data[2*bsize+it] -
-                       (double)resErr_loc.data[1*bsize+it] * resErr_loc.data[1*bsize+it];
+    const double det = (double)resErr_loc.data[0*ntrks+it] * resErr_loc.data[2*ntrks+it] -
+                       (double)resErr_loc.data[1*ntrks+it] * resErr_loc.data[1*ntrks+it];
     const float s   = 1.f / det;
-    const float tmp = s * resErr_loc.data[2*bsize+it];
-    resErr_loc.data[1*bsize+it] *= -s;
-    resErr_loc.data[2*bsize+it]  = s * resErr_loc.data[0*bsize+it];
-    resErr_loc.data[0*bsize+it]  = tmp;
-
+    const float tmp = s * resErr_loc.data[2*ntrks+it];
+    resErr_loc.data[1*ntrks+it] *= -s;
+    resErr_loc.data[2*ntrks+it]  = s * resErr_loc.data[0*ntrks+it];
+    resErr_loc.data[0*ntrks+it]  = tmp;
+  }
    MP3x6 kGain;
-      kGain.data[ 0*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[ 1*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[ 3*bsize+it]*resErr_loc.data[ 1*bsize+it];
-      kGain.data[ 1*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[ 1*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[ 3*bsize+it]*resErr_loc.data[ 2*bsize+it];
-      kGain.data[ 2*bsize+it] = 0;
-      kGain.data[ 3*bsize+it] = trkErr->data[ 1*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[ 2*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[ 4*bsize+it]*resErr_loc.data[ 1*bsize+it];
-      kGain.data[ 4*bsize+it] = trkErr->data[ 1*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[ 2*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[ 4*bsize+it]*resErr_loc.data[ 2*bsize+it];
-      kGain.data[ 5*bsize+it] = 0;
-      kGain.data[ 6*bsize+it] = trkErr->data[ 3*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[ 4*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[ 5*bsize+it]*resErr_loc.data[ 1*bsize+it];
-      kGain.data[ 7*bsize+it] = trkErr->data[ 3*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[ 4*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[ 5*bsize+it]*resErr_loc.data[ 2*bsize+it];
-      kGain.data[ 8*bsize+it] = 0;
-      kGain.data[ 9*bsize+it] = trkErr->data[ 6*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[ 7*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[ 8*bsize+it]*resErr_loc.data[ 1*bsize+it];
-      kGain.data[10*bsize+it] = trkErr->data[ 6*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[ 7*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[ 8*bsize+it]*resErr_loc.data[ 2*bsize+it];
-      kGain.data[11*bsize+it] = 0;
-      kGain.data[12*bsize+it] = trkErr->data[10*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[11*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[12*bsize+it]*resErr_loc.data[ 1*bsize+it];
-      kGain.data[13*bsize+it] = trkErr->data[10*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[11*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[12*bsize+it]*resErr_loc.data[ 2*bsize+it];
-      kGain.data[14*bsize+it] = 0;
-      kGain.data[15*bsize+it] = trkErr->data[15*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[16*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 0*bsize+it]) +
-	                        trkErr->data[17*bsize+it]*resErr_loc.data[ 1*bsize+it];
-      kGain.data[16*bsize+it] = trkErr->data[15*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[16*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 1*bsize+it]) +
-	                        trkErr->data[17*bsize+it]*resErr_loc.data[ 2*bsize+it];
-      kGain.data[17*bsize+it] = 0;
-
+  for (size_t it=0;it<ntrks;++it) {
+      kGain.data[ 0*ntrks+it] = trkErr->data[ 0*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[ 1*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[ 3*ntrks+it]*resErr_loc.data[ 1*ntrks+it];
+      kGain.data[ 1*ntrks+it] = trkErr->data[ 0*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[ 1*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[ 3*ntrks+it]*resErr_loc.data[ 2*ntrks+it];
+      kGain.data[ 2*ntrks+it] = 0;
+      kGain.data[ 3*ntrks+it] = trkErr->data[ 1*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[ 2*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[ 4*ntrks+it]*resErr_loc.data[ 1*ntrks+it];
+      kGain.data[ 4*ntrks+it] = trkErr->data[ 1*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[ 2*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[ 4*ntrks+it]*resErr_loc.data[ 2*ntrks+it];
+      kGain.data[ 5*ntrks+it] = 0;
+      kGain.data[ 6*ntrks+it] = trkErr->data[ 3*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[ 4*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[ 5*ntrks+it]*resErr_loc.data[ 1*ntrks+it];
+      kGain.data[ 7*ntrks+it] = trkErr->data[ 3*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[ 4*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[ 5*ntrks+it]*resErr_loc.data[ 2*ntrks+it];
+      kGain.data[ 8*ntrks+it] = 0;
+      kGain.data[ 9*ntrks+it] = trkErr->data[ 6*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[ 7*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[ 8*ntrks+it]*resErr_loc.data[ 1*ntrks+it];
+      kGain.data[10*ntrks+it] = trkErr->data[ 6*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[ 7*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[ 8*ntrks+it]*resErr_loc.data[ 2*ntrks+it];
+      kGain.data[11*ntrks+it] = 0;
+      kGain.data[12*ntrks+it] = trkErr->data[10*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[11*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[12*ntrks+it]*resErr_loc.data[ 1*ntrks+it];
+      kGain.data[13*ntrks+it] = trkErr->data[10*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[11*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[12*ntrks+it]*resErr_loc.data[ 2*ntrks+it];
+      kGain.data[14*ntrks+it] = 0;
+      kGain.data[15*ntrks+it] = trkErr->data[15*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[16*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 0*ntrks+it]) +
+	                        trkErr->data[17*ntrks+it]*resErr_loc.data[ 1*ntrks+it];
+      kGain.data[16*ntrks+it] = trkErr->data[15*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[16*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 1*ntrks+it]) +
+	                        trkErr->data[17*ntrks+it]*resErr_loc.data[ 2*ntrks+it];
+      kGain.data[17*ntrks+it] = 0;
+   }
    MP2F res_loc;
-     res_loc.data[0*bsize+it] =  rotT00.data[it]*(x(msP,it) - x(inPar,it)) + rotT01.data[it]*(y(msP,it) - y(inPar,it));
-     res_loc.data[1*bsize+it] =  z(msP,it) - z(inPar,it);
+  for (size_t it=0;it<ntrks;++it) {
+     res_loc.data[0*ntrks+it] =  rotT00.data[it]*(x(msP,it) - x(inPar,it)) + rotT01.data[it]*(y(msP,it) - y(inPar,it));
+     res_loc.data[1*ntrks+it] =  z(msP,it) - z(inPar,it);
 
-     setx(inPar, it, x(inPar, it) + kGain.data[ 0*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[ 1*bsize+it] * res_loc.data[ 1*bsize+it]);
-     sety(inPar, it, y(inPar, it) + kGain.data[ 3*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[ 4*bsize+it] * res_loc.data[ 1*bsize+it]);
-     setz(inPar, it, z(inPar, it) + kGain.data[ 6*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[ 7*bsize+it] * res_loc.data[ 1*bsize+it]);
-     setipt(inPar, it, ipt(inPar, it) + kGain.data[ 9*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[10*bsize+it] * res_loc.data[ 1*bsize+it]);
-     setphi(inPar, it, phi(inPar, it) + kGain.data[12*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[13*bsize+it] * res_loc.data[ 1*bsize+it]);
-     settheta(inPar, it, theta(inPar, it) + kGain.data[15*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[16*bsize+it] * res_loc.data[ 1*bsize+it]);
-
+     setx(inPar, it, x(inPar, it) + kGain.data[ 0*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[ 1*ntrks+it] * res_loc.data[ 1*ntrks+it]);
+     sety(inPar, it, y(inPar, it) + kGain.data[ 3*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[ 4*ntrks+it] * res_loc.data[ 1*ntrks+it]);
+     setz(inPar, it, z(inPar, it) + kGain.data[ 6*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[ 7*ntrks+it] * res_loc.data[ 1*ntrks+it]);
+     setipt(inPar, it, ipt(inPar, it) + kGain.data[ 9*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[10*ntrks+it] * res_loc.data[ 1*ntrks+it]);
+     setphi(inPar, it, phi(inPar, it) + kGain.data[12*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[13*ntrks+it] * res_loc.data[ 1*ntrks+it]);
+     settheta(inPar, it, theta(inPar, it) + kGain.data[15*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[16*ntrks+it] * res_loc.data[ 1*ntrks+it]);
+   }
    MP6x6SF newErr;
-     newErr.data[ 0*bsize+it] = kGain.data[ 0*bsize+it]*rotT00.data[it]*trkErr->data[ 0*bsize+it] +
-                                kGain.data[ 0*bsize+it]*rotT01.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[ 1*bsize+it]*trkErr->data[ 3*bsize+it];
-     newErr.data[ 1*bsize+it] = kGain.data[ 3*bsize+it]*rotT00.data[it]*trkErr->data[ 0*bsize+it] +
-                                kGain.data[ 3*bsize+it]*rotT01.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[ 4*bsize+it]*trkErr->data[ 3*bsize+it];
-     newErr.data[ 2*bsize+it] = kGain.data[ 3*bsize+it]*rotT00.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[ 3*bsize+it]*rotT01.data[it]*trkErr->data[ 2*bsize+it] +
-                                kGain.data[ 4*bsize+it]*trkErr->data[ 4*bsize+it];
-     newErr.data[ 3*bsize+it] = kGain.data[ 6*bsize+it]*rotT00.data[it]*trkErr->data[ 0*bsize+it] +
-                                kGain.data[ 6*bsize+it]*rotT01.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[ 7*bsize+it]*trkErr->data[ 3*bsize+it];
-     newErr.data[ 4*bsize+it] = kGain.data[ 6*bsize+it]*rotT00.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[ 6*bsize+it]*rotT01.data[it]*trkErr->data[ 2*bsize+it] +
-                                kGain.data[ 7*bsize+it]*trkErr->data[ 4*bsize+it];
-     newErr.data[ 5*bsize+it] = kGain.data[ 6*bsize+it]*rotT00.data[it]*trkErr->data[ 3*bsize+it] +
-                                kGain.data[ 6*bsize+it]*rotT01.data[it]*trkErr->data[ 4*bsize+it] +
-                                kGain.data[ 7*bsize+it]*trkErr->data[ 5*bsize+it];
-     newErr.data[ 6*bsize+it] = kGain.data[ 9*bsize+it]*rotT00.data[it]*trkErr->data[ 0*bsize+it] +
-                                kGain.data[ 9*bsize+it]*rotT01.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[10*bsize+it]*trkErr->data[ 3*bsize+it];
-     newErr.data[ 7*bsize+it] = kGain.data[ 9*bsize+it]*rotT00.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[ 9*bsize+it]*rotT01.data[it]*trkErr->data[ 2*bsize+it] +
-                                kGain.data[10*bsize+it]*trkErr->data[ 4*bsize+it];
-     newErr.data[ 8*bsize+it] = kGain.data[ 9*bsize+it]*rotT00.data[it]*trkErr->data[ 3*bsize+it] +
-                                kGain.data[ 9*bsize+it]*rotT01.data[it]*trkErr->data[ 4*bsize+it] +
-                                kGain.data[10*bsize+it]*trkErr->data[ 5*bsize+it];
-     newErr.data[ 9*bsize+it] = kGain.data[ 9*bsize+it]*rotT00.data[it]*trkErr->data[ 6*bsize+it] +
-                                kGain.data[ 9*bsize+it]*rotT01.data[it]*trkErr->data[ 7*bsize+it] +
-                                kGain.data[10*bsize+it]*trkErr->data[ 8*bsize+it];
-     newErr.data[10*bsize+it] = kGain.data[12*bsize+it]*rotT00.data[it]*trkErr->data[ 0*bsize+it] +
-                                kGain.data[12*bsize+it]*rotT01.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[13*bsize+it]*trkErr->data[ 3*bsize+it];
-     newErr.data[11*bsize+it] = kGain.data[12*bsize+it]*rotT00.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[12*bsize+it]*rotT01.data[it]*trkErr->data[ 2*bsize+it] +
-                                kGain.data[13*bsize+it]*trkErr->data[ 4*bsize+it];
-     newErr.data[12*bsize+it] = kGain.data[12*bsize+it]*rotT00.data[it]*trkErr->data[ 3*bsize+it] +
-                                kGain.data[12*bsize+it]*rotT01.data[it]*trkErr->data[ 4*bsize+it] +
-                                kGain.data[13*bsize+it]*trkErr->data[ 5*bsize+it];
-     newErr.data[13*bsize+it] = kGain.data[12*bsize+it]*rotT00.data[it]*trkErr->data[ 6*bsize+it] +
-                                kGain.data[12*bsize+it]*rotT01.data[it]*trkErr->data[ 7*bsize+it] +
-                                kGain.data[13*bsize+it]*trkErr->data[ 8*bsize+it];
-     newErr.data[14*bsize+it] = kGain.data[12*bsize+it]*rotT00.data[it]*trkErr->data[10*bsize+it] +
-                                kGain.data[12*bsize+it]*rotT01.data[it]*trkErr->data[11*bsize+it] +
-                                kGain.data[13*bsize+it]*trkErr->data[12*bsize+it];
-     newErr.data[15*bsize+it] = kGain.data[15*bsize+it]*rotT00.data[it]*trkErr->data[ 0*bsize+it] +
-                                kGain.data[15*bsize+it]*rotT01.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[16*bsize+it]*trkErr->data[ 3*bsize+it];
-     newErr.data[16*bsize+it] = kGain.data[15*bsize+it]*rotT00.data[it]*trkErr->data[ 1*bsize+it] +
-                                kGain.data[15*bsize+it]*rotT01.data[it]*trkErr->data[ 2*bsize+it] +
-                                kGain.data[16*bsize+it]*trkErr->data[ 4*bsize+it];
-     newErr.data[17*bsize+it] = kGain.data[15*bsize+it]*rotT00.data[it]*trkErr->data[ 3*bsize+it] +
-                                kGain.data[15*bsize+it]*rotT01.data[it]*trkErr->data[ 4*bsize+it] +
-                                kGain.data[16*bsize+it]*trkErr->data[ 5*bsize+it];
-     newErr.data[18*bsize+it] = kGain.data[15*bsize+it]*rotT00.data[it]*trkErr->data[ 6*bsize+it] +
-                                kGain.data[15*bsize+it]*rotT01.data[it]*trkErr->data[ 7*bsize+it] +
-                                kGain.data[16*bsize+it]*trkErr->data[ 8*bsize+it];
-     newErr.data[19*bsize+it] = kGain.data[15*bsize+it]*rotT00.data[it]*trkErr->data[10*bsize+it] +
-                                kGain.data[15*bsize+it]*rotT01.data[it]*trkErr->data[11*bsize+it] +
-                                kGain.data[16*bsize+it]*trkErr->data[12*bsize+it];
-     newErr.data[20*bsize+it] = kGain.data[15*bsize+it]*rotT00.data[it]*trkErr->data[15*bsize+it] +
-                                kGain.data[15*bsize+it]*rotT01.data[it]*trkErr->data[16*bsize+it] +
-                                kGain.data[16*bsize+it]*trkErr->data[17*bsize+it];
+   for (size_t it=0;it<ntrks;++it) {
+     newErr.data[ 0*ntrks+it] = kGain.data[ 0*ntrks+it]*rotT00.data[it]*trkErr->data[ 0*ntrks+it] +
+                                kGain.data[ 0*ntrks+it]*rotT01.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[ 1*ntrks+it]*trkErr->data[ 3*ntrks+it];
+     newErr.data[ 1*ntrks+it] = kGain.data[ 3*ntrks+it]*rotT00.data[it]*trkErr->data[ 0*ntrks+it] +
+                                kGain.data[ 3*ntrks+it]*rotT01.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[ 4*ntrks+it]*trkErr->data[ 3*ntrks+it];
+     newErr.data[ 2*ntrks+it] = kGain.data[ 3*ntrks+it]*rotT00.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[ 3*ntrks+it]*rotT01.data[it]*trkErr->data[ 2*ntrks+it] +
+                                kGain.data[ 4*ntrks+it]*trkErr->data[ 4*ntrks+it];
+     newErr.data[ 3*ntrks+it] = kGain.data[ 6*ntrks+it]*rotT00.data[it]*trkErr->data[ 0*ntrks+it] +
+                                kGain.data[ 6*ntrks+it]*rotT01.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[ 7*ntrks+it]*trkErr->data[ 3*ntrks+it];
+     newErr.data[ 4*ntrks+it] = kGain.data[ 6*ntrks+it]*rotT00.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[ 6*ntrks+it]*rotT01.data[it]*trkErr->data[ 2*ntrks+it] +
+                                kGain.data[ 7*ntrks+it]*trkErr->data[ 4*ntrks+it];
+     newErr.data[ 5*ntrks+it] = kGain.data[ 6*ntrks+it]*rotT00.data[it]*trkErr->data[ 3*ntrks+it] +
+                                kGain.data[ 6*ntrks+it]*rotT01.data[it]*trkErr->data[ 4*ntrks+it] +
+                                kGain.data[ 7*ntrks+it]*trkErr->data[ 5*ntrks+it];
+     newErr.data[ 6*ntrks+it] = kGain.data[ 9*ntrks+it]*rotT00.data[it]*trkErr->data[ 0*ntrks+it] +
+                                kGain.data[ 9*ntrks+it]*rotT01.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[10*ntrks+it]*trkErr->data[ 3*ntrks+it];
+     newErr.data[ 7*ntrks+it] = kGain.data[ 9*ntrks+it]*rotT00.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[ 9*ntrks+it]*rotT01.data[it]*trkErr->data[ 2*ntrks+it] +
+                                kGain.data[10*ntrks+it]*trkErr->data[ 4*ntrks+it];
+     newErr.data[ 8*ntrks+it] = kGain.data[ 9*ntrks+it]*rotT00.data[it]*trkErr->data[ 3*ntrks+it] +
+                                kGain.data[ 9*ntrks+it]*rotT01.data[it]*trkErr->data[ 4*ntrks+it] +
+                                kGain.data[10*ntrks+it]*trkErr->data[ 5*ntrks+it];
+     newErr.data[ 9*ntrks+it] = kGain.data[ 9*ntrks+it]*rotT00.data[it]*trkErr->data[ 6*ntrks+it] +
+                                kGain.data[ 9*ntrks+it]*rotT01.data[it]*trkErr->data[ 7*ntrks+it] +
+                                kGain.data[10*ntrks+it]*trkErr->data[ 8*ntrks+it];
+     newErr.data[10*ntrks+it] = kGain.data[12*ntrks+it]*rotT00.data[it]*trkErr->data[ 0*ntrks+it] +
+                                kGain.data[12*ntrks+it]*rotT01.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[13*ntrks+it]*trkErr->data[ 3*ntrks+it];
+     newErr.data[11*ntrks+it] = kGain.data[12*ntrks+it]*rotT00.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[12*ntrks+it]*rotT01.data[it]*trkErr->data[ 2*ntrks+it] +
+                                kGain.data[13*ntrks+it]*trkErr->data[ 4*ntrks+it];
+     newErr.data[12*ntrks+it] = kGain.data[12*ntrks+it]*rotT00.data[it]*trkErr->data[ 3*ntrks+it] +
+                                kGain.data[12*ntrks+it]*rotT01.data[it]*trkErr->data[ 4*ntrks+it] +
+                                kGain.data[13*ntrks+it]*trkErr->data[ 5*ntrks+it];
+     newErr.data[13*ntrks+it] = kGain.data[12*ntrks+it]*rotT00.data[it]*trkErr->data[ 6*ntrks+it] +
+                                kGain.data[12*ntrks+it]*rotT01.data[it]*trkErr->data[ 7*ntrks+it] +
+                                kGain.data[13*ntrks+it]*trkErr->data[ 8*ntrks+it];
+     newErr.data[14*ntrks+it] = kGain.data[12*ntrks+it]*rotT00.data[it]*trkErr->data[10*ntrks+it] +
+                                kGain.data[12*ntrks+it]*rotT01.data[it]*trkErr->data[11*ntrks+it] +
+                                kGain.data[13*ntrks+it]*trkErr->data[12*ntrks+it];
+     newErr.data[15*ntrks+it] = kGain.data[15*ntrks+it]*rotT00.data[it]*trkErr->data[ 0*ntrks+it] +
+                                kGain.data[15*ntrks+it]*rotT01.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[16*ntrks+it]*trkErr->data[ 3*ntrks+it];
+     newErr.data[16*ntrks+it] = kGain.data[15*ntrks+it]*rotT00.data[it]*trkErr->data[ 1*ntrks+it] +
+                                kGain.data[15*ntrks+it]*rotT01.data[it]*trkErr->data[ 2*ntrks+it] +
+                                kGain.data[16*ntrks+it]*trkErr->data[ 4*ntrks+it];
+     newErr.data[17*ntrks+it] = kGain.data[15*ntrks+it]*rotT00.data[it]*trkErr->data[ 3*ntrks+it] +
+                                kGain.data[15*ntrks+it]*rotT01.data[it]*trkErr->data[ 4*ntrks+it] +
+                                kGain.data[16*ntrks+it]*trkErr->data[ 5*ntrks+it];
+     newErr.data[18*ntrks+it] = kGain.data[15*ntrks+it]*rotT00.data[it]*trkErr->data[ 6*ntrks+it] +
+                                kGain.data[15*ntrks+it]*rotT01.data[it]*trkErr->data[ 7*ntrks+it] +
+                                kGain.data[16*ntrks+it]*trkErr->data[ 8*ntrks+it];
+     newErr.data[19*ntrks+it] = kGain.data[15*ntrks+it]*rotT00.data[it]*trkErr->data[10*ntrks+it] +
+                                kGain.data[15*ntrks+it]*rotT01.data[it]*trkErr->data[11*ntrks+it] +
+                                kGain.data[16*ntrks+it]*trkErr->data[12*ntrks+it];
+     newErr.data[20*ntrks+it] = kGain.data[15*ntrks+it]*rotT00.data[it]*trkErr->data[15*ntrks+it] +
+                                kGain.data[15*ntrks+it]*rotT01.data[it]*trkErr->data[16*ntrks+it] +
+                                kGain.data[16*ntrks+it]*trkErr->data[17*ntrks+it];
 
-     newErr.data[ 0*bsize+it] = trkErr->data[ 0*bsize+it] - newErr.data[ 0*bsize+it];
-     newErr.data[ 1*bsize+it] = trkErr->data[ 1*bsize+it] - newErr.data[ 1*bsize+it];
-     newErr.data[ 2*bsize+it] = trkErr->data[ 2*bsize+it] - newErr.data[ 2*bsize+it];
-     newErr.data[ 3*bsize+it] = trkErr->data[ 3*bsize+it] - newErr.data[ 3*bsize+it];
-     newErr.data[ 4*bsize+it] = trkErr->data[ 4*bsize+it] - newErr.data[ 4*bsize+it];
-     newErr.data[ 5*bsize+it] = trkErr->data[ 5*bsize+it] - newErr.data[ 5*bsize+it];
-     newErr.data[ 6*bsize+it] = trkErr->data[ 6*bsize+it] - newErr.data[ 6*bsize+it];
-     newErr.data[ 7*bsize+it] = trkErr->data[ 7*bsize+it] - newErr.data[ 7*bsize+it];
-     newErr.data[ 8*bsize+it] = trkErr->data[ 8*bsize+it] - newErr.data[ 8*bsize+it];
-     newErr.data[ 9*bsize+it] = trkErr->data[ 9*bsize+it] - newErr.data[ 9*bsize+it];
-     newErr.data[10*bsize+it] = trkErr->data[10*bsize+it] - newErr.data[10*bsize+it];
-     newErr.data[11*bsize+it] = trkErr->data[11*bsize+it] - newErr.data[11*bsize+it];
-     newErr.data[12*bsize+it] = trkErr->data[12*bsize+it] - newErr.data[12*bsize+it];
-     newErr.data[13*bsize+it] = trkErr->data[13*bsize+it] - newErr.data[13*bsize+it];
-     newErr.data[14*bsize+it] = trkErr->data[14*bsize+it] - newErr.data[14*bsize+it];
-     newErr.data[15*bsize+it] = trkErr->data[15*bsize+it] - newErr.data[15*bsize+it];
-     newErr.data[16*bsize+it] = trkErr->data[16*bsize+it] - newErr.data[16*bsize+it];
-     newErr.data[17*bsize+it] = trkErr->data[17*bsize+it] - newErr.data[17*bsize+it];
-     newErr.data[18*bsize+it] = trkErr->data[18*bsize+it] - newErr.data[18*bsize+it];
-     newErr.data[19*bsize+it] = trkErr->data[19*bsize+it] - newErr.data[19*bsize+it];
-     newErr.data[20*bsize+it] = trkErr->data[20*bsize+it] - newErr.data[20*bsize+it];
-
+     newErr.data[ 0*ntrks+it] = trkErr->data[ 0*ntrks+it] - newErr.data[ 0*ntrks+it];
+     newErr.data[ 1*ntrks+it] = trkErr->data[ 1*ntrks+it] - newErr.data[ 1*ntrks+it];
+     newErr.data[ 2*ntrks+it] = trkErr->data[ 2*ntrks+it] - newErr.data[ 2*ntrks+it];
+     newErr.data[ 3*ntrks+it] = trkErr->data[ 3*ntrks+it] - newErr.data[ 3*ntrks+it];
+     newErr.data[ 4*ntrks+it] = trkErr->data[ 4*ntrks+it] - newErr.data[ 4*ntrks+it];
+     newErr.data[ 5*ntrks+it] = trkErr->data[ 5*ntrks+it] - newErr.data[ 5*ntrks+it];
+     newErr.data[ 6*ntrks+it] = trkErr->data[ 6*ntrks+it] - newErr.data[ 6*ntrks+it];
+     newErr.data[ 7*ntrks+it] = trkErr->data[ 7*ntrks+it] - newErr.data[ 7*ntrks+it];
+     newErr.data[ 8*ntrks+it] = trkErr->data[ 8*ntrks+it] - newErr.data[ 8*ntrks+it];
+     newErr.data[ 9*ntrks+it] = trkErr->data[ 9*ntrks+it] - newErr.data[ 9*ntrks+it];
+     newErr.data[10*ntrks+it] = trkErr->data[10*ntrks+it] - newErr.data[10*ntrks+it];
+     newErr.data[11*ntrks+it] = trkErr->data[11*ntrks+it] - newErr.data[11*ntrks+it];
+     newErr.data[12*ntrks+it] = trkErr->data[12*ntrks+it] - newErr.data[12*ntrks+it];
+     newErr.data[13*ntrks+it] = trkErr->data[13*ntrks+it] - newErr.data[13*ntrks+it];
+     newErr.data[14*ntrks+it] = trkErr->data[14*ntrks+it] - newErr.data[14*ntrks+it];
+     newErr.data[15*ntrks+it] = trkErr->data[15*ntrks+it] - newErr.data[15*ntrks+it];
+     newErr.data[16*ntrks+it] = trkErr->data[16*ntrks+it] - newErr.data[16*ntrks+it];
+     newErr.data[17*ntrks+it] = trkErr->data[17*ntrks+it] - newErr.data[17*ntrks+it];
+     newErr.data[18*ntrks+it] = trkErr->data[18*ntrks+it] - newErr.data[18*ntrks+it];
+     newErr.data[19*ntrks+it] = trkErr->data[19*ntrks+it] - newErr.data[19*ntrks+it];
+     newErr.data[20*ntrks+it] = trkErr->data[20*ntrks+it] - newErr.data[20*ntrks+it];
+  }
   /*
   MPlexLH K;           // kalman gain, fixme should be L2
   KalmanHTG(rotT00, rotT01, resErr_loc, tempHH); // intermediate term to get kalman gain (H^T*G)
@@ -633,9 +634,9 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
   
   MP6x6F errorProp, temp;
   //Only 1 track in inErr/inPar
-  int it = 0;
+  for (size_t it=0;it<ntrks;++it) {	
     //initialize erroProp to identity matrix
-    for (size_t i=0;i<6;++i) errorProp.data[PosInMtrx(i,i,6) + it] = 1.f;
+    for (size_t i=0;i<6;++i) errorProp.data[PosInMtrx(i,i,6)*ntrks + it] = 1.f;
     
     float r0 = hipo(x(inPar,it), y(inPar,it));
     const float k = q(inChg,it) * kfact;
@@ -722,19 +723,19 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
 
     sincos4(alpha, sina, cosa);
 
-    errorProp.data[bsize*PosInMtrx(0,0,6) + it] = 1.f+k*dadx*(cosPorT*cosa-sinPorT*sina)*pt;
-    errorProp.data[bsize*PosInMtrx(0,1,6) + it] =     k*dady*(cosPorT*cosa-sinPorT*sina)*pt;
-    errorProp.data[bsize*PosInMtrx(0,2,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(0,3,6) + it] = k*(cosPorT*(iptin*dadipt*cosa-sina)+sinPorT*((1.f-cosa)-iptin*dadipt*sina))*pt*pt;
-    errorProp.data[bsize*PosInMtrx(0,4,6) + it] = k*(cosPorT*dadphi*cosa - sinPorT*dadphi*sina - sinPorT*sina + cosPorT*cosa - cosPorT)*pt;
-    errorProp.data[bsize*PosInMtrx(0,5,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(0,0,6) + it] = 1.f+k*dadx*(cosPorT*cosa-sinPorT*sina)*pt;
+    errorProp.data[ntrks*PosInMtrx(0,1,6) + it] =     k*dady*(cosPorT*cosa-sinPorT*sina)*pt;
+    errorProp.data[ntrks*PosInMtrx(0,2,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(0,3,6) + it] = k*(cosPorT*(iptin*dadipt*cosa-sina)+sinPorT*((1.f-cosa)-iptin*dadipt*sina))*pt*pt;
+    errorProp.data[ntrks*PosInMtrx(0,4,6) + it] = k*(cosPorT*dadphi*cosa - sinPorT*dadphi*sina - sinPorT*sina + cosPorT*cosa - cosPorT)*pt;
+    errorProp.data[ntrks*PosInMtrx(0,5,6) + it] = 0.f;
 
-    errorProp.data[bsize*PosInMtrx(1,0,6) + it] =     k*dadx*(sinPorT*cosa+cosPorT*sina)*pt;
-    errorProp.data[bsize*PosInMtrx(1,1,6) + it] = 1.f+k*dady*(sinPorT*cosa+cosPorT*sina)*pt;
-    errorProp.data[bsize*PosInMtrx(1,2,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(1,3,6) + it] = k*(sinPorT*(iptin*dadipt*cosa-sina)+cosPorT*(iptin*dadipt*sina-(1.f-cosa)))*pt*pt;
-    errorProp.data[bsize*PosInMtrx(1,4,6) + it] = k*(sinPorT*dadphi*cosa + cosPorT*dadphi*sina + sinPorT*cosa + cosPorT*sina - sinPorT)*pt;
-    errorProp.data[bsize*PosInMtrx(1,5,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(1,0,6) + it] =     k*dadx*(sinPorT*cosa+cosPorT*sina)*pt;
+    errorProp.data[ntrks*PosInMtrx(1,1,6) + it] = 1.f+k*dady*(sinPorT*cosa+cosPorT*sina)*pt;
+    errorProp.data[ntrks*PosInMtrx(1,2,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(1,3,6) + it] = k*(sinPorT*(iptin*dadipt*cosa-sina)+cosPorT*(iptin*dadipt*sina-(1.f-cosa)))*pt*pt;
+    errorProp.data[ntrks*PosInMtrx(1,4,6) + it] = k*(sinPorT*dadphi*cosa + cosPorT*dadphi*sina + sinPorT*cosa + cosPorT*sina - sinPorT)*pt;
+    errorProp.data[ntrks*PosInMtrx(1,5,6) + it] = 0.f;
 
     //no trig approx here, theta can be large
     cosPorT=std::cos(thetain);
@@ -744,47 +745,47 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
 
     setz(outPar,it, z(inPar,it) + k*alpha*cosPorT*pt*sinPorT);
 
-    errorProp.data[bsize*PosInMtrx(2,0,6) + it] = k*cosPorT*dadx*pt*sinPorT;
-    errorProp.data[bsize*PosInMtrx(2,1,6) + it] = k*cosPorT*dady*pt*sinPorT;
-    errorProp.data[bsize*PosInMtrx(2,2,6) + it] = 1.f;
-    errorProp.data[bsize*PosInMtrx(2,3,6) + it] = k*cosPorT*(iptin*dadipt-alpha)*pt*pt*sinPorT;
-    errorProp.data[bsize*PosInMtrx(2,4,6) + it] = k*dadphi*cosPorT*pt*sinPorT;
-    errorProp.data[bsize*PosInMtrx(2,5,6) + it] =-k*alpha*pt*sinPorT*sinPorT;
+    errorProp.data[ntrks*PosInMtrx(2,0,6) + it] = k*cosPorT*dadx*pt*sinPorT;
+    errorProp.data[ntrks*PosInMtrx(2,1,6) + it] = k*cosPorT*dady*pt*sinPorT;
+    errorProp.data[ntrks*PosInMtrx(2,2,6) + it] = 1.f;
+    errorProp.data[ntrks*PosInMtrx(2,3,6) + it] = k*cosPorT*(iptin*dadipt-alpha)*pt*pt*sinPorT;
+    errorProp.data[ntrks*PosInMtrx(2,4,6) + it] = k*dadphi*cosPorT*pt*sinPorT;
+    errorProp.data[ntrks*PosInMtrx(2,5,6) + it] =-k*alpha*pt*sinPorT*sinPorT;
 
     setipt(outPar,it, iptin);
 
-    errorProp.data[bsize*PosInMtrx(3,0,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(3,1,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(3,2,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(3,3,6) + it] = 1.f;
-    errorProp.data[bsize*PosInMtrx(3,4,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(3,5,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(3,0,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(3,1,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(3,2,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(3,3,6) + it] = 1.f;
+    errorProp.data[ntrks*PosInMtrx(3,4,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(3,5,6) + it] = 0.f;
 
     setphi(outPar,it, phi(inPar,it)+alpha );
 
-    errorProp.data[bsize*PosInMtrx(4,0,6) + it] = dadx;
-    errorProp.data[bsize*PosInMtrx(4,1,6) + it] = dady;
-    errorProp.data[bsize*PosInMtrx(4,2,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(4,3,6) + it] = dadipt;
-    errorProp.data[bsize*PosInMtrx(4,4,6) + it] = 1.f+dadphi;
-    errorProp.data[bsize*PosInMtrx(4,5,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(4,0,6) + it] = dadx;
+    errorProp.data[ntrks*PosInMtrx(4,1,6) + it] = dady;
+    errorProp.data[ntrks*PosInMtrx(4,2,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(4,3,6) + it] = dadipt;
+    errorProp.data[ntrks*PosInMtrx(4,4,6) + it] = 1.f+dadphi;
+    errorProp.data[ntrks*PosInMtrx(4,5,6) + it] = 0.f;
 
     settheta(outPar,it, thetain);
 
-    errorProp.data[bsize*PosInMtrx(5,0,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(5,1,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(5,2,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(5,3,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(5,4,6) + it] = 0.f;
-    errorProp.data[bsize*PosInMtrx(5,5,6) + it] = 1.f;
-
+    errorProp.data[ntrks*PosInMtrx(5,0,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(5,1,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(5,2,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(5,3,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(5,4,6) + it] = 0.f;
+    errorProp.data[ntrks*PosInMtrx(5,5,6) + it] = 1.f;
+  }
   MultHelixProp(&errorProp, inErr, &temp);
   MultHelixPropTransp(&errorProp, &temp, outErr);
 }
 
 inline void transferAsyncTrk(MPTRK* trk_dev, MPTRK* trk, cudaStream_t stream){
 
-  cudaMemcpyAsync(trk_dev, trk, nevts*ntrks*sizeof(MPTRK), cudaMemcpyHostToDevice, stream);
+  cudaMemcpyAsync(trk_dev, trk, nevts*sizeof(MPTRK), cudaMemcpyHostToDevice, stream);
   cudaMemcpyAsync(&trk_dev->par, &trk->par, sizeof(MP6F), cudaMemcpyHostToDevice, stream);
   cudaMemcpyAsync(&((trk_dev->par).data), &((trk->par).data), 6*sizeof(float), cudaMemcpyHostToDevice, stream);
   cudaMemcpyAsync(&trk_dev->cov, &trk->cov, sizeof(MP6x6SF), cudaMemcpyHostToDevice, stream);
@@ -794,14 +795,14 @@ inline void transferAsyncTrk(MPTRK* trk_dev, MPTRK* trk, cudaStream_t stream){
 }
 inline void transferAsyncHit(MPHIT* hit_dev, MPHIT* hit, cudaStream_t stream){
 
-    cudaMemcpyAsync(hit_dev,hit,nlayer*nevts*ntrks*sizeof(MPHIT), cudaMemcpyHostToDevice, stream);
+    cudaMemcpyAsync(hit_dev,hit,nlayer*nevts*sizeof(MPHIT), cudaMemcpyHostToDevice, stream);
     cudaMemcpyAsync(&hit_dev->pos,&hit->pos,sizeof(MP3F), cudaMemcpyHostToDevice, stream);
     cudaMemcpyAsync(&(hit_dev->pos).data,&(hit->pos).data,3*sizeof(float), cudaMemcpyHostToDevice, stream);
     cudaMemcpyAsync(&hit_dev->cov,&hit->cov,sizeof(MP3x3SF), cudaMemcpyHostToDevice, stream);
     cudaMemcpyAsync(&(hit_dev->cov).data,&(hit->cov).data,6*sizeof(float), cudaMemcpyHostToDevice, stream);
 }
 inline void transfer_backAsync(MPTRK* trk_host, MPTRK* trk,cudaStream_t stream){
-  cudaMemcpyAsync(trk_host, trk, nevts*ntrks*sizeof(MPTRK), cudaMemcpyDeviceToHost, stream);
+  cudaMemcpyAsync(trk_host, trk, nevts*sizeof(MPTRK), cudaMemcpyDeviceToHost, stream);
   cudaMemcpyAsync(&trk_host->par, &trk->par, sizeof(MP6F), cudaMemcpyDeviceToHost, stream);
   cudaMemcpyAsync(&((trk_host->par).data), &((trk->par).data), 6*sizeof(float), cudaMemcpyDeviceToHost,stream);
   cudaMemcpyAsync(&trk_host->cov, &trk->cov, sizeof(MP6x6SF), cudaMemcpyDeviceToHost, stream);
@@ -814,7 +815,7 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int str
   ///*__shared__*/ struct MP6x6F errorProp, temp; // shared memory here causes a race condition. Probably move to inside the p2z function? i forgot why I did it this way to begin with. maybe to make it shared?
 
 
-  for (int index = threadIdx.x + blockIdx.x *blockDim.x ; index < ntrks*nevts; index+= blockDim.x*gridDim.x){
+  for (int index = threadIdx.x + blockIdx.x *blockDim.x ; index < nevts; index+= blockDim.x*gridDim.x){
     const MPTRK* btracks = &(trk[index]);
     MPTRK* obtracks = &(outtrk[index]);
     for (int layer=0;layer<nlayer;++layer){	
@@ -823,7 +824,7 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int str
                        &(*obtracks).cov, &(*obtracks).par);
           KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
     }
-    //if((index)%100==0 ) printf("index = %i ,(block,grid)=(%i,%i), track = (%.3f)\n ", index,blockDim.x,gridDim.x,&(*btracks).par.data[8]);
+    printf("index = %i ,(block,grid)=(%i,%i), track = (%.3f)\n ", index,blockDim.x,gridDim.x,&(*btracks).par.data[index]);
   }
 }
 
@@ -859,24 +860,25 @@ int main (int argc, char* argv[]) {
    MPTRK* trk = prepareTracks(inputtrk);
    MPHIT* hit = prepareHits(inputhit);
    MPTRK* outtrk ;
-   cudaMallocHost((void**)&outtrk,nevts*ntrks*sizeof(MPTRK)); 
+   cudaMallocHost((void**)&outtrk,nevts*sizeof(MPTRK)); 
    //device pointers
    MPTRK* trk_dev;
    MPHIT* hit_dev;
    MPTRK* outtrk_dev;
-   cudaMalloc((MPTRK**)&trk_dev,nevts*ntrks*sizeof(MPTRK));
-   cudaMalloc((MPHIT**)&hit_dev,nlayer*nevts*ntrks*sizeof(MPHIT));
-   cudaMalloc((MPTRK**)&outtrk_dev,nevts*ntrks*sizeof(MPTRK));
+   cudaMalloc((MPTRK**)&trk_dev,nevts*sizeof(MPTRK));
+   cudaMalloc((MPHIT**)&hit_dev,nlayer*nevts*sizeof(MPHIT));
+   cudaMalloc((MPTRK**)&outtrk_dev,nevts*sizeof(MPTRK));
 
-   //for (size_t ie=0;ie<nevts;++ie) {
-   //  for (size_t it=0;it<ntrks;++it) {
-   //    float x_ = x(trk,ie,it);
-   //    float y_ = y(trk,ie,it);
-   //    float z_ = z(trk,ie,it);
-   //    float r_ = sqrtf(x_*x_ + y_*y_);
-   //    if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
-   //  }
-   //}
+   for (size_t ie=0;ie<nevts;++ie) {
+     for (size_t it=0;it<ntrks;++it) {
+       float x_ = x(trk,ie,it);
+       float y_ = y(trk,ie,it);
+       float z_ = z(trk,ie,it);
+       float r_ = sqrtf(x_*x_ + y_*y_);
+       //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
+       //printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
+     }
+   }
 
    int device = -1;
    cudaGetDevice(&device);
@@ -898,35 +900,37 @@ int main (int argc, char* argv[]) {
 
    printf("done preparing!\n");
  
-   printf("Number of struct MPTRK trk[] = %ld\n", nevts*ntrks);
-   printf("Number of struct MPTRK outtrk[] = %ld\n", nevts*ntrks);
-   printf("Number of struct struct MPHIT hit[] = %ld\n", nevts*ntrks);
+   printf("Number of struct MPTRK trk[] = %ld\n", nevts);
+   printf("Number of struct MPTRK outtrk[] = %ld\n", nevts);
+   printf("Number of struct struct MPHIT hit[] = %ld\n", nevts);
   
-   printf("Size of struct MPTRK trk[] = %ld\n", nevts*ntrks*sizeof(struct MPTRK));
-   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*ntrks*sizeof(struct MPTRK));
-   printf("Size of struct struct MPHIT hit[] = %ld\n", nlayer*nevts*ntrks*sizeof(struct MPHIT));
+   printf("Size of struct MPTRK trk[] = %ld\n", nevts*sizeof(struct MPTRK));
+   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*sizeof(struct MPTRK));
+   printf("Size of struct struct MPHIT hit[] = %ld\n", nlayer*nevts*sizeof(struct MPHIT));
 
    
 
-   // for (int s = 0; s<num_streams;s++){
-   //transferAsyncTrk(trk_dev, trk,streams[s]);
-   //transferAsyncHit(hit_dev, hit,streams[s]);
-   //auto wall_start = std::chrono::high_resolution_clock::now();
-   //for(itr=0; itr<NITER; itr++) {
-   //    printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
-   //    GPUsequence<<<nevts*nb/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
-   //}//end of streams loop
+    for (int s = 0; s<num_streams;s++){
+   transferAsyncTrk(trk_dev, trk,streams[s]);
+   transferAsyncHit(hit_dev, hit,streams[s]);
+   auto wall_start = std::chrono::high_resolution_clock::now();
+   for(itr=0; itr<NITER; itr++) {
+       //printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
+       //GPUsequence<<<nevts*ntrks/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+       printf("Launching ... <<<%i,%i>>>\n", nevts,threadsperblock);
+       GPUsequence<<<nevts,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+   }//end of streams loop
 
-   //cudaDeviceSynchronize(); 
-   //auto wall_stop = std::chrono::high_resolution_clock::now();
-   //auto wall_diff = wall_stop - wall_start;
-   //auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
-   //printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
-   //printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
-   //printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
+   cudaDeviceSynchronize(); 
+   auto wall_stop = std::chrono::high_resolution_clock::now();
+   auto wall_diff = wall_stop - wall_start;
+   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
+   printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
+   printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
+   printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, ntrks, wall_time, (setup_stop-setup_start)*0.001, nthreads);
 
-   //transfer_backAsync(outtrk, outtrk_dev,streams[s]);
-   //} //end of itr loop
+   transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+   } //end of itr loop
 
 
 
@@ -957,7 +961,7 @@ int main (int argc, char* argv[]) {
        avgdy += (y_-hy_)/y_;
        avgdz += (z_-hz_)/z_;
        avgdr += (r_-hr_)/r_;
-       //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
+       if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
      }
    }
    avgpt = avgpt/float(nevts*ntrks);
