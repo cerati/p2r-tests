@@ -671,6 +671,7 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
     float dDdipt = 0.;
     float dDdphi = 0.;
 
+    if (it==1) printf("propagateToR: it= %i  before xoutpar = (%.3f)\n ", it, x(outPar,it));
     for (int i = 0; i < Niter; ++i)
     {
       //compute distance and path for the current iteration
@@ -714,6 +715,7 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
       pxin = pxin*cosa - pyin*sina;
       pyin = pyin*cosa + pxinold*sina;
     }
+    if(it==1)printf("propagateToR: it= %i  after xoutpar = (%.3f)\n ", it, x(outPar,it));
 
     const float alpha  = D*iptin*kinv;
     const float dadx   = dDdx*iptin*kinv;
@@ -824,7 +826,7 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int str
                        &(*obtracks).cov, &(*obtracks).par);
           KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
     }
-    printf("index = %i ,(block,grid)=(%i,%i), track = (%.3f)\n ", index,blockDim.x,gridDim.x,&(*btracks).par.data[index]);
+    printf("index = %i ,(threadIdx,blockIdx)= (%i,%i), (blockDim,gridDim)=(%i,%i), track = (%.3f)\n ", index,threadIdx.x,blockIdx.x,blockDim.x,gridDim.x,&(*btracks).par.data[index]);
   }
 }
 
@@ -876,7 +878,7 @@ int main (int argc, char* argv[]) {
        float z_ = z(trk,ie,it);
        float r_ = sqrtf(x_*x_ + y_*y_);
        //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
-       //printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
+       if(it==0) printf("ie = %i, iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n",ie, it+ie*ntrks, x_,y_,z_,r_);
      }
    }
 
@@ -961,7 +963,7 @@ int main (int argc, char* argv[]) {
        avgdy += (y_-hy_)/y_;
        avgdz += (z_-hz_)/z_;
        avgdr += (r_-hr_)/r_;
-       if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
+       //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
      }
    }
    avgpt = avgpt/float(nevts*ntrks);
