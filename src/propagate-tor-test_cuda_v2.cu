@@ -427,6 +427,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
   MP1F rotT01;
   MP2x2SF resErr_loc;
   MP3x3SF resErr_glo;
+  printf("KalmanUpdate it=%i, inPar (x,y,z)=(%.3f,%.3f,%.3f) \n",it,x(inPar,it),y(inPar,it),z(inPar,it));
 //  for (size_t it=0;it<ntrks;++it) {
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00.data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
@@ -634,7 +635,6 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
                   const MP3F* msP, MP6x6SF* outErr, MP6F* outPar,size_t it) {
   
   MP6x6F errorProp, temp;
-  //Only 1 track in inErr/inPar
   //for (size_t it=0;it<ntrks;++it) {	
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp.data[PosInMtrx(i,i,6)*ntrks + it] = 1.f;
@@ -782,6 +782,7 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
   //}
   MultHelixProp(&errorProp, inErr, &temp,it);
   MultHelixPropTransp(&errorProp, &temp, outErr,it);
+    printf("propagteToR: it=%i  outpars: (x,y,z)=(%.3f,%.3f,%.3f) \n",it,x(outPar,it),y(outPar,it),y(outPar,it));
 }
 
 inline void transferAsyncTrk(MPTRK* trk_dev, MPTRK* trk, cudaStream_t stream){
@@ -921,7 +922,7 @@ int main (int argc, char* argv[]) {
    for(itr=0; itr<NITER; itr++) {
        //printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
        //GPUsequence<<<nevts*ntrks/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
-       printf("Launching ... <<<%i,%i>>>\n", nevts,threadsperblock);
+       printf("Launching ... <<<%i,%i>>>\n", nevts,ntrks);
        GPUsequence<<<nevts,ntrks ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
    }//end of streams loop
 
