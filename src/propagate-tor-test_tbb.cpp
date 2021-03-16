@@ -629,7 +629,7 @@ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3
   outErr.Subtract(psErr, outErr);
   */
   
-  trkErr = &newErr;
+  *trkErr = newErr;
 }
 
 inline void sincos4(const float x, float& sin, float& cos)
@@ -656,12 +656,15 @@ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg,
     float r0 = hipo(x(inPar,it), y(inPar,it));
     const float k = q(inChg,it) * kfact;
     const float r = hipo(x(msP,it), y(msP,it));
+    //std::cout << "q=" << q(inChg,it) << " k=" << k << " r=" << r << std::endl;
 
     const float xin     = x(inPar,it);
     const float yin     = y(inPar,it);
     const float iptin   = ipt(inPar,it);
     const float phiin   = phi(inPar,it);
     const float thetain = theta(inPar,it);
+
+    //std::cout << "inPar=" << xin << ", " << yin << ", " << z(inPar,it) << ", " << iptin << ", " << phiin << ", " << thetain << std::endl;
 
     //initialize outPar to inPar
     setx(outPar,it, xin);
@@ -728,6 +731,7 @@ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg,
       const float pxinold = pxin;//copy before overwriting
       pxin = pxin*cosa - pyin*sina;
       pyin = pyin*cosa + pxinold*sina;
+      //std::cout << "tmpPar=" << x(outPar,it) << ", " << y(outPar,it) << ", " << pxin << ", " << pyin << std::endl;
     }
 
     const float alpha  = D*iptin*kinv;
@@ -793,6 +797,8 @@ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg,
     errorProp.data[bsize*PosInMtrx(5,3,6) + it] = 0.f;
     errorProp.data[bsize*PosInMtrx(5,4,6) + it] = 0.f;
     errorProp.data[bsize*PosInMtrx(5,5,6) + it] = 1.f;
+
+    //std::cout << "outPar=" << x(outPar,it) << ", " << y(outPar,it) << ", " << z(outPar,it) << ", " << ipt(outPar,it) << ", " << phi(outPar,it) << ", " << theta(outPar,it) << std::endl;
   }
 
   MultHelixProp(&errorProp, inErr, &temp);
@@ -844,14 +850,27 @@ int main (int argc, char* argv[]) {
    for(itr=0; itr<NITER; itr++) {
       parallel_for(blocked_range<size_t>(0,nevts,4),[&](blocked_range<size_t> iex){
       for(size_t ie =iex.begin(); ie<iex.end();++ie){
+	//std::cout << "evt=" << ie << std::endl;
         parallel_for(blocked_range<size_t>(0,nb,4),[&](blocked_range<size_t> ibx){
         for(size_t ib =ibx.begin(); ib<ibx.end();++ib){
           const MPTRK* btracks = bTk(trk, ie, ib);
           MPTRK* obtracks = bTk(outtrk, ie, ib);
+	  //std::cout << "bunch=" << ib << std::endl;
+	  // *obtracks = *btracks;
+	  (*obtracks).q = (*btracks).q;
+	  MPTRK tmptrk = *btracks;
+	  //std::cout << "tmptrk par=" << x(&tmptrk,ib) << ", " << y(&tmptrk,ib) << ", " << z(&tmptrk,ib) << std::endl;
           for(size_t layer=0; layer<nlayer; ++layer) {
             const MPHIT* bhits = bHit(hit, ie, ib, layer);
-            propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
-            KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
+	    //std::cout << "layer=" << layer << " hit pos=" << x(bhits,ib) << ", " << y(bhits,ib) << ", " << z(bhits,ib) << std::endl;
+	    //std::cout << "tmptrk1 par=" << x(&tmptrk,ib) << ", " << y(&tmptrk,ib) << ", " << z(&tmptrk,ib) << std::endl;
+            // propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
+            propagateToR(&(tmptrk).cov, &(tmptrk).par, &(tmptrk).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
+	    //std::cout << "BK obtracks par=" << x(obtracks,ib) << ", " << y(obtracks,ib) << ", " << z(obtracks,ib) << std::endl;
+            KalmanUpdate(&(*obtracks).cov, &(*obtracks).par, &(*bhits).cov, &(*bhits).pos);
+	    //std::cout << "AK obtracks par=" << x(obtracks,ib) << ", " << y(obtracks,ib) << ", " << z(obtracks,ib) << std::endl;
+	    //tmptrk = *obtracks;
+	    //std::cout << "tmptrk2 par=" << x(&tmptrk,ib) << ", " << y(&tmptrk,ib) << ", " << z(&tmptrk,ib) << std::endl;
           }
         }});
       }});
