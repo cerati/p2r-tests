@@ -869,7 +869,7 @@ int main (int argc, char* argv[]) {
 	    //std::cout << "BK obtracks par=" << x(obtracks,ib) << ", " << y(obtracks,ib) << ", " << z(obtracks,ib) << std::endl;
             KalmanUpdate(&(*obtracks).cov, &(*obtracks).par, &(*bhits).cov, &(*bhits).pos);
 	    //std::cout << "AK obtracks par=" << x(obtracks,ib) << ", " << y(obtracks,ib) << ", " << z(obtracks,ib) << std::endl;
-	    //tmptrk = *obtracks;
+	    tmptrk = *obtracks;
 	    //std::cout << "tmptrk2 par=" << x(&tmptrk,ib) << ", " << y(&tmptrk,ib) << ", " << z(&tmptrk,ib) << std::endl;
           }
         }});
