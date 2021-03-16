@@ -32,7 +32,7 @@ see README.txt for instructions
 #endif
 
 #ifndef num_streams
-#define num_streams 10
+#define num_streams 1
 #endif
 
 #ifndef threadsperblock
@@ -427,7 +427,6 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
   MP1F rotT01;
   MP2x2SF resErr_loc;
   MP3x3SF resErr_glo;
-  printf("KalmanUpdate it=%i, inPar (x,y,z)=(%.3f,%.3f,%.3f) \n",it,x(inPar,it),y(inPar,it),z(inPar,it));
 //  for (size_t it=0;it<ntrks;++it) {
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00.data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
@@ -441,7 +440,9 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
                                    (trkErr->data[4*ntrks+it] + hitErr->data[4*ntrks+it])*rotT01.data[it];
     resErr_loc.data[ 2*ntrks+it] = (trkErr->data[5*ntrks+it] + hitErr->data[5*ntrks+it]);
 //  }
-//  for (size_t it=0;it<ntrks;++it) {
+    //for (size_t j=0;j<ntrks;++j){
+    //printf("KalmanUpdate it=%d rotT01[%d]=(%.3f) expected=(%.3f)\n",it,j, rotT00.data[0],-(y(msP,it) + y(inPar,it)) / (2*r));
+    //}
 
     const double det = (double)resErr_loc.data[0*ntrks+it] * resErr_loc.data[2*ntrks+it] -
                        (double)resErr_loc.data[1*ntrks+it] * resErr_loc.data[1*ntrks+it];
@@ -617,6 +618,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
   */
   
   trkErr = &newErr;
+  //printf("KalmanUpdate it=%i, inPar (x,y,z)=(%.3f,%.3f,%.3f) \n",it,x(inPar,it),y(inPar,it),z(inPar,it));
 }
 
 HOSTDEV inline void sincos4(const float x, float& sin, float& cos)
@@ -782,7 +784,7 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
   //}
   MultHelixProp(&errorProp, inErr, &temp,it);
   MultHelixPropTransp(&errorProp, &temp, outErr,it);
-    printf("propagteToR: it=%i  outpars: (x,y,z)=(%.3f,%.3f,%.3f) \n",it,x(outPar,it),y(outPar,it),y(outPar,it));
+  //  printf("propagteToR: it=%i  outpars: (x,y,z)=(%.3f,%.3f,%.3f) \n",it,x(outPar,it),y(outPar,it),y(outPar,it));
 }
 
 inline void transferAsyncTrk(MPTRK* trk_dev, MPTRK* trk, cudaStream_t stream){
@@ -824,12 +826,12 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int str
     const MPTRK* btracks = &(trk[ievent]);
     MPTRK* obtracks = &(outtrk[ievent]);
     for (int layer=0;layer<nlayer;++layer){	
-          const MPHIT* bhits = &(hit[layer + index*nlayer]);
+          const MPHIT* bhits = &(hit[layer + ievent*nlayer]);
           propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, 
                        &(*obtracks).cov, &(*obtracks).par,itrack);
           KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,itrack);
     }
-    printf("index = %i ,(threadIdx,blockIdx)= (%i,%i), (blockDim,gridDim)=(%i,%i), ievent,itrack= (%i,%i)\n ", index,threadIdx.x,blockIdx.x,blockDim.x,gridDim.x,ievent,itrack);
+    //printf("index = %i ,(threadIdx,blockIdx)= (%i,%i), (blockDim,gridDim)=(%i,%i), ievent,itrack= (%i,%i)\n ", index,threadIdx.x,blockIdx.x,blockDim.x,gridDim.x,ievent,itrack);
   }
 }
 
@@ -935,6 +937,7 @@ int main (int argc, char* argv[]) {
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, ntrks, wall_time, (setup_stop-setup_start)*0.001, nthreads);
 
    transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+   cudaDeviceSynchronize(); 
    } //end of itr loop
 
 
@@ -967,7 +970,7 @@ int main (int argc, char* argv[]) {
        avgdz += (z_-hz_)/z_;
        avgdr += (r_-hr_)/r_;
        //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) avgdx=(%.3f)\n", it+ie*ntrks, x_,y_,z_,r_, avgdx);
-       printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) avgdx=(%.3f)\n", it+ie*ntrks, x_,y_,z_,r_, avgdx);
+       //printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) avgdx=(%.3f)\n", it+ie*ntrks, x_,y_,z_,r_, avgdx);
      }
    }
    avgpt = avgpt/float(nevts*ntrks);
