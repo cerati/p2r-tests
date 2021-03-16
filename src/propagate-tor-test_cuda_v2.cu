@@ -215,7 +215,7 @@ HOSTDEV void setphi  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it,
 HOSTDEV void settheta(MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 5, val); }
 
 HOSTDEV const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib) {
-  return &(hits[ev]);
+  return &(hits[ib+ev]);
 }
 HOSTDEV const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib,size_t lay) {
 return &(hits[lay + nlayer*ev]);
@@ -236,8 +236,10 @@ HOSTDEV float y(const MPHIT* hits, size_t it)    { return pos(hits, it, 1); }
 HOSTDEV float z(const MPHIT* hits, size_t it)    { return pos(hits, it, 2); }
 //
 HOSTDEV float pos(const MPHIT* hits, size_t ev, size_t tk, size_t ipar){
-  const MPHIT* bhits = bHit(hits, ev, tk);
-  return pos(bhits,tk,ipar);
+  size_t ib = tk/ntrks;
+  const MPHIT* bhits = bHit(hits, ev, ib);
+  size_t it = tk % ntrks;
+  return pos(bhits,it,ipar);
 }
 HOSTDEV float x(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 0); }
 HOSTDEV float y(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 1); }
@@ -258,7 +260,7 @@ MPTRK* prepareTracks(ATRK inputtrk) {
 	        result[ie].cov.data[it + ip*ntrks] = (1+smear*randn(0,1))*inputtrk.cov[ip];
 	      }
 	      //q
-	      result[ie].q.data[it+ntrks] = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);//fixme check
+	      result[ie].q.data[it] = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);//fixme check
         //if((ib + nb*ie)%10==0 ) printf("prep trk index = %i ,track = (%.3f)\n ", ib+nb*ie);
      }
   }
@@ -286,14 +288,13 @@ MPHIT* prepareHits(AHIT inputhit) {
   return result;
 }
 
-#define N 1
-HOSTDEV void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
+#define N ntrks
+HOSTDEV void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C,int n) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
 //parallel_for(0,N,[&](int n){
- for (int n = 0; n < N; ++n)
-  {
+// for (int n = 0; n < N; ++n)  {
     c[ 0*N+n] = a[ 0*N+n]*b[ 0*N+n] + a[ 1*N+n]*b[ 1*N+n] + a[ 3*N+n]*b[ 6*N+n] + a[ 4*N+n]*b[10*N+n];
     c[ 1*N+n] = a[ 0*N+n]*b[ 1*N+n] + a[ 1*N+n]*b[ 2*N+n] + a[ 3*N+n]*b[ 7*N+n] + a[ 4*N+n]*b[11*N+n];
     c[ 2*N+n] = a[ 0*N+n]*b[ 3*N+n] + a[ 1*N+n]*b[ 4*N+n] + a[ 3*N+n]*b[ 8*N+n] + a[ 4*N+n]*b[12*N+n];
@@ -330,16 +331,16 @@ HOSTDEV void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
     c[33*N+n] = b[18*N+n];
     c[34*N+n] = b[19*N+n];
     c[35*N+n] = b[20*N+n];
-  }//);
+//  }//);
 }
 
-HOSTDEV void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
+HOSTDEV void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C, int n) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
 //parallel_for(0,N,[&](int n){
-  for (int n = 0; n < N; ++n)
-  {
+//  for (int n = 0; n < N; ++n)
+//  {
     c[ 0*N+n] = b[ 0*N+n]*a[ 0*N+n] + b[ 1*N+n]*a[ 1*N+n] + b[ 3*N+n]*a[ 3*N+n] + b[ 4*N+n]*a[ 4*N+n];
     c[ 1*N+n] = b[ 6*N+n]*a[ 0*N+n] + b[ 7*N+n]*a[ 1*N+n] + b[ 9*N+n]*a[ 3*N+n] + b[10*N+n]*a[ 4*N+n];
     c[ 2*N+n] = b[ 6*N+n]*a[ 6*N+n] + b[ 7*N+n]*a[ 7*N+n] + b[ 9*N+n]*a[ 9*N+n] + b[10*N+n]*a[10*N+n];
@@ -361,7 +362,7 @@ HOSTDEV void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
     c[18*N+n] = b[30*N+n]*a[18*N+n] + b[31*N+n]*a[19*N+n] + b[33*N+n]*a[21*N+n] + b[34*N+n]*a[22*N+n];
     c[19*N+n] = b[30*N+n]*a[24*N+n] + b[31*N+n]*a[25*N+n] + b[33*N+n]*a[27*N+n] + b[34*N+n]*a[28*N+n];
     c[20*N+n] = b[35*N+n];
-  }//);
+//  }//);
 }
 
 
@@ -420,13 +421,13 @@ HOSTDEV inline float hipo(float x, float y)
   return std::sqrt(x*x + y*y);
 }
 
-__device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP){
+__device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP,size_t it){
   
   MP1F rotT00;
   MP1F rotT01;
   MP2x2SF resErr_loc;
   MP3x3SF resErr_glo;
-  for (size_t it=0;it<ntrks;++it) {
+//  for (size_t it=0;it<ntrks;++it) {
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00.data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
     rotT01.data[it] =  (x(msP,it) + x(inPar,it)) / (2*r);    
@@ -438,8 +439,8 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
     resErr_loc.data[ 1*ntrks+it] = (trkErr->data[3*ntrks+it] + hitErr->data[3*ntrks+it])*rotT00.data[it] +
                                    (trkErr->data[4*ntrks+it] + hitErr->data[4*ntrks+it])*rotT01.data[it];
     resErr_loc.data[ 2*ntrks+it] = (trkErr->data[5*ntrks+it] + hitErr->data[5*ntrks+it]);
-  }
-  for (size_t it=0;it<ntrks;++it) {
+//  }
+//  for (size_t it=0;it<ntrks;++it) {
 
     const double det = (double)resErr_loc.data[0*ntrks+it] * resErr_loc.data[2*ntrks+it] -
                        (double)resErr_loc.data[1*ntrks+it] * resErr_loc.data[1*ntrks+it];
@@ -448,9 +449,9 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
     resErr_loc.data[1*ntrks+it] *= -s;
     resErr_loc.data[2*ntrks+it]  = s * resErr_loc.data[0*ntrks+it];
     resErr_loc.data[0*ntrks+it]  = tmp;
-  }
+//  }
    MP3x6 kGain;
-  for (size_t it=0;it<ntrks;++it) {
+//  for (size_t it=0;it<ntrks;++it) {
       kGain.data[ 0*ntrks+it] = trkErr->data[ 0*ntrks+it]*(rotT00.data[it]*resErr_loc.data[ 0*ntrks+it]) +
 	                        trkErr->data[ 1*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 0*ntrks+it]) +
 	                        trkErr->data[ 3*ntrks+it]*resErr_loc.data[ 1*ntrks+it];
@@ -493,9 +494,9 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
 	                        trkErr->data[16*ntrks+it]*(rotT01.data[it]*resErr_loc.data[ 1*ntrks+it]) +
 	                        trkErr->data[17*ntrks+it]*resErr_loc.data[ 2*ntrks+it];
       kGain.data[17*ntrks+it] = 0;
-   }
+//   }
    MP2F res_loc;
-  for (size_t it=0;it<ntrks;++it) {
+//  for (size_t it=0;it<ntrks;++it) {
      res_loc.data[0*ntrks+it] =  rotT00.data[it]*(x(msP,it) - x(inPar,it)) + rotT01.data[it]*(y(msP,it) - y(inPar,it));
      res_loc.data[1*ntrks+it] =  z(msP,it) - z(inPar,it);
 
@@ -505,9 +506,9 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
      setipt(inPar, it, ipt(inPar, it) + kGain.data[ 9*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[10*ntrks+it] * res_loc.data[ 1*ntrks+it]);
      setphi(inPar, it, phi(inPar, it) + kGain.data[12*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[13*ntrks+it] * res_loc.data[ 1*ntrks+it]);
      settheta(inPar, it, theta(inPar, it) + kGain.data[15*ntrks+it] * res_loc.data[ 0*ntrks+it] + kGain.data[16*ntrks+it] * res_loc.data[ 1*ntrks+it]);
-   }
+//   }
    MP6x6SF newErr;
-   for (size_t it=0;it<ntrks;++it) {
+//   for (size_t it=0;it<ntrks;++it) {
      newErr.data[ 0*ntrks+it] = kGain.data[ 0*ntrks+it]*rotT00.data[it]*trkErr->data[ 0*ntrks+it] +
                                 kGain.data[ 0*ntrks+it]*rotT01.data[it]*trkErr->data[ 1*ntrks+it] +
                                 kGain.data[ 1*ntrks+it]*trkErr->data[ 3*ntrks+it];
@@ -593,7 +594,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
      newErr.data[18*ntrks+it] = trkErr->data[18*ntrks+it] - newErr.data[18*ntrks+it];
      newErr.data[19*ntrks+it] = trkErr->data[19*ntrks+it] - newErr.data[19*ntrks+it];
      newErr.data[20*ntrks+it] = trkErr->data[20*ntrks+it] - newErr.data[20*ntrks+it];
-  }
+//  }
   /*
   MPlexLH K;           // kalman gain, fixme should be L2
   KalmanHTG(rotT00, rotT01, resErr_loc, tempHH); // intermediate term to get kalman gain (H^T*G)
@@ -630,11 +631,11 @@ HOSTDEV inline void sincos4(const float x, float& sin, float& cos)
 constexpr float kfact= 100/3.8;
 constexpr int Niter=5;
 __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
-                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar) {
+                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar,size_t it) {
   
   MP6x6F errorProp, temp;
   //Only 1 track in inErr/inPar
-  for (size_t it=0;it<ntrks;++it) {	
+  //for (size_t it=0;it<ntrks;++it) {	
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp.data[PosInMtrx(i,i,6)*ntrks + it] = 1.f;
     
@@ -671,7 +672,6 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
     float dDdipt = 0.;
     float dDdphi = 0.;
 
-    if (it==1) printf("propagateToR: it= %i  before xoutpar = (%.3f)\n ", it, x(outPar,it));
     for (int i = 0; i < Niter; ++i)
     {
       //compute distance and path for the current iteration
@@ -715,7 +715,6 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
       pxin = pxin*cosa - pyin*sina;
       pyin = pyin*cosa + pxinold*sina;
     }
-    if(it==1)printf("propagateToR: it= %i  after xoutpar = (%.3f)\n ", it, x(outPar,it));
 
     const float alpha  = D*iptin*kinv;
     const float dadx   = dDdx*iptin*kinv;
@@ -780,9 +779,9 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
     errorProp.data[ntrks*PosInMtrx(5,3,6) + it] = 0.f;
     errorProp.data[ntrks*PosInMtrx(5,4,6) + it] = 0.f;
     errorProp.data[ntrks*PosInMtrx(5,5,6) + it] = 1.f;
-  }
-  MultHelixProp(&errorProp, inErr, &temp);
-  MultHelixPropTransp(&errorProp, &temp, outErr);
+  //}
+  MultHelixProp(&errorProp, inErr, &temp,it);
+  MultHelixPropTransp(&errorProp, &temp, outErr,it);
 }
 
 inline void transferAsyncTrk(MPTRK* trk_dev, MPTRK* trk, cudaStream_t stream){
@@ -816,17 +815,20 @@ inline void transfer_backAsync(MPTRK* trk_host, MPTRK* trk,cudaStream_t stream){
 __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int stream){
   ///*__shared__*/ struct MP6x6F errorProp, temp; // shared memory here causes a race condition. Probably move to inside the p2z function? i forgot why I did it this way to begin with. maybe to make it shared?
 
+  for (int index = threadIdx.x + blockIdx.x *blockDim.x ; index < nevts*ntrks; index+= blockDim.x*gridDim.x){
 
-  for (int index = threadIdx.x + blockIdx.x *blockDim.x ; index < nevts; index+= blockDim.x*gridDim.x){
-    const MPTRK* btracks = &(trk[index]);
-    MPTRK* obtracks = &(outtrk[index]);
+    int ievent = index / ntrks;
+    int itrack = index % ntrks;
+    
+    const MPTRK* btracks = &(trk[ievent]);
+    MPTRK* obtracks = &(outtrk[ievent]);
     for (int layer=0;layer<nlayer;++layer){	
           const MPHIT* bhits = &(hit[layer + index*nlayer]);
           propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, 
-                       &(*obtracks).cov, &(*obtracks).par);
-          KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
+                       &(*obtracks).cov, &(*obtracks).par,itrack);
+          KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,itrack);
     }
-    printf("index = %i ,(threadIdx,blockIdx)= (%i,%i), (blockDim,gridDim)=(%i,%i), track = (%.3f)\n ", index,threadIdx.x,blockIdx.x,blockDim.x,gridDim.x,&(*btracks).par.data[index]);
+    printf("index = %i ,(threadIdx,blockIdx)= (%i,%i), (blockDim,gridDim)=(%i,%i), ievent,itrack= (%i,%i)\n ", index,threadIdx.x,blockIdx.x,blockDim.x,gridDim.x,ievent,itrack);
   }
 }
 
@@ -876,9 +878,9 @@ int main (int argc, char* argv[]) {
        float x_ = x(trk,ie,it);
        float y_ = y(trk,ie,it);
        float z_ = z(trk,ie,it);
+       float q_ = trk[ie].q.data[it];
        float r_ = sqrtf(x_*x_ + y_*y_);
-       //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
-       if(it==0) printf("ie = %i, iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n",ie, it+ie*ntrks, x_,y_,z_,r_);
+       // printf("ie = %i, iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) q=(%.3f)\n",ie, it+ie*ntrks, x_,y_,z_,r_,q_);
      }
    }
 
@@ -920,7 +922,7 @@ int main (int argc, char* argv[]) {
        //printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
        //GPUsequence<<<nevts*ntrks/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
        printf("Launching ... <<<%i,%i>>>\n", nevts,threadsperblock);
-       GPUsequence<<<nevts,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+       GPUsequence<<<nevts,ntrks ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
    }//end of streams loop
 
    cudaDeviceSynchronize(); 
@@ -963,7 +965,8 @@ int main (int argc, char* argv[]) {
        avgdy += (y_-hy_)/y_;
        avgdz += (z_-hz_)/z_;
        avgdr += (r_-hr_)/r_;
-       //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
+       //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) avgdx=(%.3f)\n", it+ie*ntrks, x_,y_,z_,r_, avgdx);
+       printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) avgdx=(%.3f)\n", it+ie*ntrks, x_,y_,z_,r_, avgdx);
      }
    }
    avgpt = avgpt/float(nevts*ntrks);
