@@ -304,12 +304,12 @@ MPHIT* prepareHits(AHIT inputhit) {
 }
 
 #define N bsize
-HOSTDEV void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
+__forceinline__ __device__ void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
 //parallel_for(0,N,[&](int n){
- for (int n = 0; n < N; ++n)
+  for(int n=threadIdx.x;n<N;n+=blockDim.x)
   {
     c[ 0*N+n] = a[ 0*N+n]*b[ 0*N+n] + a[ 1*N+n]*b[ 1*N+n] + a[ 3*N+n]*b[ 6*N+n] + a[ 4*N+n]*b[10*N+n];
     c[ 1*N+n] = a[ 0*N+n]*b[ 1*N+n] + a[ 1*N+n]*b[ 2*N+n] + a[ 3*N+n]*b[ 7*N+n] + a[ 4*N+n]*b[11*N+n];
@@ -350,12 +350,12 @@ HOSTDEV void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
   }//);
 }
 
-HOSTDEV void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
+__forceinline__ __device__ void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
 //parallel_for(0,N,[&](int n){
-  for (int n = 0; n < N; ++n)
+  for(int n=threadIdx.x;n<N;n+=blockDim.x)
   {
     c[ 0*N+n] = b[ 0*N+n]*a[ 0*N+n] + b[ 1*N+n]*a[ 1*N+n] + b[ 3*N+n]*a[ 3*N+n] + b[ 4*N+n]*a[ 4*N+n];
     c[ 1*N+n] = b[ 6*N+n]*a[ 0*N+n] + b[ 7*N+n]*a[ 1*N+n] + b[ 9*N+n]*a[ 3*N+n] + b[10*N+n]*a[ 4*N+n];
@@ -382,11 +382,11 @@ HOSTDEV void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
 }
 
 
-void KalmanGainInv(const MP6x6SF* A, const MP3x3SF* B, MP3x3* C) {
+__forceinline__ __device__ void KalmanGainInv(const MP6x6SF* A, const MP3x3SF* B, MP3x3* C) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  for (int n = 0; n < N; ++n)
+  for(int n=threadIdx.x;n<N;n+=blockDim.x)
   {
     double det =
       ((a[0*N+n]+b[0*N+n])*(((a[ 6*N+n]+b[ 3*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[7*N+n]+b[4*N+n])))) -
@@ -405,11 +405,11 @@ void KalmanGainInv(const MP6x6SF* A, const MP3x3SF* B, MP3x3* C) {
     c[ 8*N+n] =  invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[6*N+n]+b[3*N+n])) - ((a[1*N+n]+b[1*N+n]) *(a[1*N+n]+b[1*N+n])));
   }
 }
-void KalmanGain(const MP6x6SF* A, const MP3x3* B, MP3x6* C) {
+__forceinline__ __device__ void KalmanGain(const MP6x6SF* A, const MP3x3* B, MP3x6* C) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  for (int n = 0; n < N; ++n)
+  for(int n=threadIdx.x;n<N;n+=blockDim.x)
   {
     c[ 0*N+n] = a[0*N+n]*b[0*N+n] + a[1*N+n]*b[3*N+n] + a[2*N+n]*b[6*N+n];
     c[ 1*N+n] = a[0*N+n]*b[1*N+n] + a[1*N+n]*b[4*N+n] + a[2*N+n]*b[7*N+n];
@@ -443,7 +443,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
   MP1F rotT01;
   MP2x2SF resErr_loc;
   MP3x3SF resErr_glo;
-  for (size_t it=0;it<bsize;++it) {
+  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00.data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
     rotT01.data[it] =  (x(msP,it) + x(inPar,it)) / (2*r);    
@@ -457,8 +457,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
     resErr_loc.data[ 2*bsize+it] = (trkErr->data[5*bsize+it] + hitErr->data[5*bsize+it]);
   }
 
-  for (size_t it=0;it<bsize;++it)
-  {
+  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
     const double det = (double)resErr_loc.data[0*bsize+it] * resErr_loc.data[2*bsize+it] -
                        (double)resErr_loc.data[1*bsize+it] * resErr_loc.data[1*bsize+it];
     const float s   = 1.f / det;
@@ -469,8 +468,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
   }
 
    MP3x6 kGain;
-   for (size_t it=0;it<bsize;++it)
-   {
+  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
       kGain.data[ 0*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00.data[it]*resErr_loc.data[ 0*bsize+it]) +
 	                        trkErr->data[ 1*bsize+it]*(rotT01.data[it]*resErr_loc.data[ 0*bsize+it]) +
 	                        trkErr->data[ 3*bsize+it]*resErr_loc.data[ 1*bsize+it];
@@ -516,8 +514,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
    }
 
    MP2F res_loc;
-   for (size_t it=0;it<bsize;++it)
-   {
+   for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
      res_loc.data[0*bsize+it] =  rotT00.data[it]*(x(msP,it) - x(inPar,it)) + rotT01.data[it]*(y(msP,it) - y(inPar,it));
      res_loc.data[1*bsize+it] =  z(msP,it) - z(inPar,it);
 
@@ -530,8 +527,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
    }
 
    MP6x6SF newErr;
-   for (size_t it=0;it<bsize;++it)
-   {
+   for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
      newErr.data[ 0*bsize+it] = kGain.data[ 0*bsize+it]*rotT00.data[it]*trkErr->data[ 0*bsize+it] +
                                 kGain.data[ 0*bsize+it]*rotT01.data[it]*trkErr->data[ 1*bsize+it] +
                                 kGain.data[ 1*bsize+it]*trkErr->data[ 3*bsize+it];
@@ -658,7 +654,7 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
                   const MP3F* msP, MP6x6SF* outErr, MP6F* outPar) {
   
   MP6x6F errorProp, temp;
-  for (size_t it=0;it<bsize;++it) {	
+  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f;
     
