@@ -935,7 +935,9 @@ int main (int argc, char* argv[]) {
    for(itr=0; itr<NITER; itr++) {
        printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
   	   GPUsequence<<<nevts*nb/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
-    }//end of streams loop
+   }//end of streams loop
+
+   cudaDeviceSynchronize(); 
    auto wall_stop = std::chrono::high_resolution_clock::now();
    auto wall_diff = wall_stop - wall_start;
    auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
@@ -944,8 +946,9 @@ int main (int argc, char* argv[]) {
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
 
    transfer_backAsync(outtrk, outtrk_dev,streams[s]);
-   } //end of itr loop
    cudaDeviceSynchronize(); 
+   } //end of itr loop
+
 
 
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
