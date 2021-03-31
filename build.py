@@ -21,6 +21,10 @@ technologies = {
     "cuda_v2":{
         "cuda":['nvcc']
     },
+    "cuda_v3":{
+        "cuda":['nvcc']
+    },
+
     "cuda":{
         "cuda":['nvcc']
     }
@@ -35,8 +39,10 @@ technologies = {
 cmds ={
     "tbb":{"threads":[]},
     #"cuda":{"cuda":["srun","-n","1","-c","80","--exclusive","numactl","--cpunodebind=0"]}
-    "cuda":{"cuda":["srun","-n","1","-c","80"]},
-    "cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
+    "cuda":{"cuda":["srun","-n","1"]},
+    #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
+    "cuda_v2":{"cuda":["srun","-n","1"]},
+    "cuda_v3":{"cuda":["srun","-n","1"]}
 }
 # with default values
 scanParameters = [
@@ -47,7 +53,10 @@ scanParameters = [
     ("nlayer", 20),
     ("nthreads", 1),
     ("num_streams", 10),
-    ("threadsperblock", 1000)
+    ("threadsperblock", 1000),
+    ("threadsperblockx", 2),
+    ("threadsperblocky", 16),
+    ("blockspergrid", 40)
 ]
 ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
@@ -62,7 +71,7 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
         cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
 
     if compiler == "nvcc":
-        cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17",'-maxrregcount=64'])
+        cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17",'-maxrregcount=64','-g','-lineinfo'])
 
     cmd.extend(["-o", target, source])
         
