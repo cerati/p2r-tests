@@ -32,7 +32,7 @@ python build.py -t tbb -c icc -v --nthreads 1,2,3,4,5
 python build.py -t tbb -c icc,gcc -v --nthreads 1,2,3,4,5
 #Append results to the same result json (Default is to skip existing scan points)
 python build.py -t tbb -c icc -v --nthreads 1,2,3,4,5 --append
-``
+```
 To run the `CUDA` version on cori:
 ```
 #load the module once
@@ -43,9 +43,11 @@ alloc -A m2845 -C gpu -N 1 --gres=gpu:1 -t 2:00:00 --exclusive
 #Example command:
 python build.py -t cuda --num_streams 1 --bsize 1 -v
 ```
+
 ### CUDA versions
 
 There are 3 different versions of CUDA implementations, with different indexing scheme and kernel launch patterns.
+For details of how the 3 implementaion differs, see slides [here](https://github.com/kakwok/p2r-tests/blob/main/slides/p2z-slides_mar30.pdf)
 
 `cuda`: Always run with `bsize=1`. Kernels are launched in 1D blocks with a constant threads per block inside. 
 ```
