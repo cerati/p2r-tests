@@ -15,7 +15,7 @@ see README.txt for instructions
 #include <iomanip>
 
 #ifndef bsize
-#define bsize 128
+#define bsize 1
 #endif
 #ifndef ntrks
 #define ntrks 9600
@@ -36,7 +36,7 @@ see README.txt for instructions
 #endif
 
 #ifndef num_streams
-#define num_streams 10
+#define num_streams 1
 #endif
 
 #ifndef threadsperblock
