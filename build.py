@@ -11,12 +11,24 @@ import subprocess
 import collections
 
 prefix = "propagate-tor-test"
+#prefix = "propagate-toz-test"
 
 
 technologies = {
     "tbb": {
        "threads":["icc","gcc"],
+    },
+    "cuda_v2":{
+        "cuda":['nvcc']
+    },
+    "cuda_v3":{
+        "cuda":['nvcc']
+    },
+
+    "cuda":{
+        "cuda":['nvcc']
     }
+
     #"kokkos": {
     #  "serial": ["icc", "gcc"],
     #  "threads": ["icc", "gcc"],
@@ -24,7 +36,14 @@ technologies = {
     #  "hip": ["hipcc"]
     #}
 }
-
+cmds ={
+    "tbb":{"threads":[]},
+    #"cuda":{"cuda":["srun","-n","1","-c","80","--exclusive","numactl","--cpunodebind=0"]}
+    "cuda":{"cuda":["srun","-n","1"]},
+    #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
+    "cuda_v2":{"cuda":["srun","-n","1"]},
+    "cuda_v3":{"cuda":["srun","-n","1"]}
+}
 # with default values
 scanParameters = [
     ("ntrks", 9600),
@@ -32,7 +51,12 @@ scanParameters = [
     ("NITER", 5),
     ("bsize", 128),
     ("nlayer", 20),
-    ("nthreads", 1)
+    ("nthreads", 1),
+    ("num_streams", 10),
+    ("threadsperblock", 1000),
+    ("threadsperblockx", 2),
+    ("threadsperblocky", 16),
+    ("blockspergrid", 40)
 ]
 ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
@@ -45,6 +69,9 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
 
     if compiler == "icc":
         cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
+
+    if compiler == "nvcc":
+        cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17",'-maxrregcount=64','-g','-lineinfo'])
 
     cmd.extend(["-o", target, source])
         
@@ -103,9 +130,11 @@ def throughput(log):
             return int(m.group("ntracks"))/float(m.group("time"))
     raise Exception("No result in output")
 
-def run(opts, exe, scanPoint):
+def run(opts, exe, tech, backend, scanPoint):
     print("Running {} for {}".format(exe, scanPoint))
-    cmd = ["./"+exe]
+    #cmd = ["./"+exe]
+    cmd_prefix = cmds[tech][backend]
+    cmd = cmd_prefix+["./"+exe] if len(cmd_prefix)>0 else ["./"+exe]
     if opts.verbose or opts.dryRun:
         print(" ".join(cmd))
         if opts.dryRun:
@@ -113,7 +142,7 @@ def run(opts, exe, scanPoint):
   
     result = {} 
     for name in scanPoint._fields:
-        result.update({name:getattr(scanPoint,name)})
+        result.update({name:float(getattr(scanPoint,name))})
     out = execute(cmd, opts.verbose)
     if opts.verbose:
         for line in out.split("\n"): print(line)
@@ -126,16 +155,18 @@ def run(opts, exe, scanPoint):
         raise
 
 def main(opts):
-    fname_re = re.compile(prefix+"_(?P<tech>.*)\.cpp")
+    fname_re = re.compile(prefix+"_(?P<tech>.*)\.(cpp|cu)")
 
-    sources = sorted(glob.glob("src/*.cpp"))
+    sources = sorted(glob.glob("src/*.cu")+glob.glob("src/*.cpp"))
 
     for source in sources:
         m = fname_re.search(source)
         if not m:
-            raise Exception("Source file name {} does not follow the expected pattern".format(source))
+#            raise Exception("Source file name {} does not follow the expected pattern".format(source))
+            continue
         tech = m.group("tech")
 
+        print(source)
         if len(opts.technologies) > 0 and tech not in opts.technologies:
             print("Skipping", tech)
             continue
@@ -155,8 +186,8 @@ def main(opts):
                     compiler=comp,
                     results=[]
                 )
-
-                outputJson = opts.output+"_{}.json".format("_".join([tech,backend,comp]))
+                print(comp,backend)
+                outputJson = "result_{}.json".format("_".join(filter(None,[tech,backend,comp,opts.output])))
                 alreadyExists = set()
                 if not opts.overwrite and os.path.exists(outputJson):
                     with open(outputJson) as inp:
@@ -180,7 +211,7 @@ def main(opts):
                         continue
 
                     try:
-                        result = run(opts, exe, scanPoint)
+                        result = run(opts, exe, tech, backend, scanPoint)
                         data["results"].append(result)
                     except ExeException as e:
                         return e.errorCode()
@@ -209,8 +240,8 @@ if __name__ == "__main__":
                         help="Comma separated list of backends, default is all backends for each technology")
     parser.add_argument("-t", "--technologies", type=str, default="",
                         help="Comma separated list of technologies, default is all ({})".format(",".join(sorted(technologies.keys()))))
-    parser.add_argument("-o", "--output", type=str, default="result",
-                        help="Prefix of output JSON and log files. If the output JSON file exists, it will be updated (see also --overwrite) (default: 'result')")
+    parser.add_argument("-o", "--output", type=str, default="",
+                        help="Suffix of output JSON and log files. If the output JSON file exists, it will be updated (see also --overwrite) (default: '')")
     parser.add_argument("--overwrite", action="store_true",
                         help="Overwrite the output JSON instead of updating it")
     parser.add_argument("--append", action="store_true",

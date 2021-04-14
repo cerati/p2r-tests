@@ -27,9 +27,52 @@ Example commands:
 #print out compile command
 python build.py -t tbb -c icc -v --dryRun
 #build and scan with multiple threads
-python build.py -t tbb -c icc -v -nthreads 1,2,3,4,5
+python build.py -t tbb -c icc -v --nthreads 1,2,3,4,5
 #Scan for two compilers with multiple threads
-python build.py -t tbb -c icc,gcc -v -nthreads 1,2,3,4,5
+python build.py -t tbb -c icc,gcc -v --nthreads 1,2,3,4,5
 #Append results to the same result json (Default is to skip existing scan points)
-python build.py -t tbb -c icc -v -nthreads 1,2,3,4,5 --append
+python build.py -t tbb -c icc -v --nthreads 1,2,3,4,5 --append
 ```
+To run the `CUDA` version on cori:
+```
+#load the module once
+module load cgpu
+module load cuda
+#Connect to a GPU node:
+alloc -A m2845 -C gpu -N 1 --gres=gpu:1 -t 2:00:00 --exclusive
+#Example command:
+python build.py -t cuda --num_streams 1 --bsize 1 -v
+```
+
+### CUDA versions
+
+There are 3 different versions of CUDA implementations, with different indexing scheme and kernel launch patterns.
+For details of how the 3 implementaion differs, see slides [here](https://github.com/kakwok/p2r-tests/blob/main/slides/p2z-slides_mar30.pdf)
+
+`cuda`: Always run with `bsize=1`. Kernels are launched in 1D blocks with a constant threads per block inside. 
+```
+Blocks per grid = (nevts * nTrks) / threads_per_block 
+Threads_per_block = const
+```
+Example command:
+```
+python build.py -t cuda --num_streams 1 --bsize 1 -v --nevts 1 --nlayer 2 --ntrks 32,64,128,256
+```
+
+`cuda_v2`: `bsize` is set to `ntrks` in the implementation. Kernels are launched in 1D blocks with: 
+```
+Blocks per grid = nevts  
+Threads_per_block = ntrks 
+```
+On a V100 GPU, `ntrks` cannot exceed `300`. Example command:
+```
+python build.py -t cuda_v2 --num_streams 1 -v --nevts 1 --nlayer 20 --ntrks 32,64,128,256
+```
+
+`cuda_v3`: Follows `p2z CUDA V2` conventions, default with `bsize=128`. Kernels are launched in 2D blocks.
+
+Example command:
+```
+python build.py -t cuda_v3 --num_streams 1  -v --ntrks 9600 --nevts 100 --nlayer 20 --threadsperblockx 16 --threadsperblocky 2
+```
+ 
