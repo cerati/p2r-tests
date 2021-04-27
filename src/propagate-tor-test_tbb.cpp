@@ -284,6 +284,36 @@ MPHIT* prepareHits(AHIT inputhit) {
   return result;
 }
 
+MPHIT* prepareHits(std::vector<AHIT>& inputhits) {
+  MPHIT* result = (MPHIT*) malloc(nlayer*nevts*nb*sizeof(MPHIT));  //fixme, align?
+  // store in element order for bunches of bsize matrices (a la matriplex)
+  for (size_t lay=0;lay<nlayer;++lay) {
+
+    size_t mylay = lay;
+    if (lay>=inputhits.size()) {
+      // int wraplay = inputhits.size()/lay;
+      exit(1);
+    }
+    AHIT& inputhit = inputhits[mylay];
+
+    for (size_t ie=0;ie<nevts;++ie) {
+      for (size_t ib=0;ib<nb;++ib) {
+        for (size_t it=0;it<bsize;++it) {
+        	//pos
+        	for (size_t ip=0;ip<3;++ip) {
+        	  result[lay+nlayer*(ib + nb*ie)].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
+        	}
+        	//cov
+        	for (size_t ip=0;ip<6;++ip) {
+        	  result[lay+nlayer*(ib + nb*ie)].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
+        	}
+        }
+      }
+    }
+  }
+  return result;
+}
+
 #define N bsize
 void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
@@ -803,10 +833,10 @@ int main (int argc, char* argv[]) {
 
    int itr;
    ATRK inputtrk = {
-     {-12.806846618652344, -7.723824977874756, 38.13014221191406,0.23732035065189902, -2.613372802734375, 0.35594117641448975},
-     {6.290299552347278e-07,4.1375109560704004e-08,7.526661534029699e-07,2.0973730840978533e-07,1.5431574240665213e-07,9.626245400795597e-08,-2.804026640189443e-06,
-      6.219111130687595e-06,2.649119409845118e-07,0.00253512163402557,-2.419662877381737e-07,4.3124190760040646e-07,3.1068903991780678e-09,0.000923913115050627,
-      0.00040678296006807003,-7.755406890332818e-07,1.68539375883925e-06,6.676875566525437e-08,0.0008420574605423793,7.356584799406111e-05,0.0002306247719158348},
+     {-102.948, -36.7081, 38.1966, 0.219896, -2.93646, 1.27176},
+     {1.16814e-06, -3.37163e-06, 9.74695e-06, -9.91821e-07, 2.99706e-06, 0.00653553, -3.22644e-07,
+      1.05966e-06, -2.03541e-06, 2.61232e-06, 2.41009e-07, -7.28806e-07, -4.87794e-07, -3.46317e-07,
+      1.21295e-07, 1.01405e-08, -3.0643e-08, -0.000102475, 2.72918e-08, 4.97623e-09, 1.98597e-06},
      1
    };
 
@@ -814,6 +844,99 @@ int main (int argc, char* argv[]) {
      {-20.7824649810791, -12.24150276184082, 57.8067626953125},
      {2.545517190810642e-06,-2.6680759219743777e-06,2.8030024168401724e-06,0.00014160551654640585,0.00012282167153898627,11.385087966918945}
    };
+
+
+   AHIT inputhit00 = {
+     {-2.78037, -1.39456, 5.3674},
+     {4.64016e-07, -1.62764e-06, 5.70933e-06, 9.14451e-09, 2.98399e-09, 0.000169896}
+   };
+   AHIT inputhit01 = {
+     {-5.91232, -2.97859, 6.44747},
+     {1.54669e-07, -4.19927e-07, 1.14011e-06, -3.41104e-10, -1.55801e-10, 1.88389e-05}
+   };
+   AHIT inputhit02 = {
+     {-6.23295, -3.13744, 6.55036},
+     {3.07163e-07, -4.71687e-07, 7.24333e-07, 3.14467e-10, -1.42532e-10, 7.234e-05}
+   };
+   AHIT inputhit03 = {
+     {-9.58578, -4.78542, 7.7069},
+     {1.80433e-07, -3.32149e-07, 6.11433e-07, 6.77207e-12, 4.26358e-12, 1.7071e-06}
+   };
+   AHIT inputhit04 = {
+     {-14.1896, -6.98843, 9.27735},
+     {9.74787e-08, -2.06489e-07, 4.37405e-07, 9.0107e-12, 4.33243e-12, 5.49672e-07}
+   };
+   AHIT inputhit05 = {
+     {-21.2206, -10.2121, 16.9073},
+     {1.34333e-06, -2.33505e-06, 4.08712e-06, -0.000263674, -0.000107113, 11.3851}
+   };
+   AHIT inputhit06 = {
+     {-24.975, -11.8732, 7.57749},
+     {2.14989e-06, -2.65127e-06, 3.27603e-06, 0.000144673, 9.22875e-05, 11.3851}
+   };
+   AHIT inputhit07 = {
+     {-21.1851, -10.7373, 16.6534},
+     {0.0279748, -0.048906, 0.0854981, 0.561521, -0.98166, 11.2716}
+   };
+   AHIT inputhit08 = {
+     {-24.3072, -10.9986, 7.27519},
+     {0.0233677, -0.0458858, 0.0901031, 0.513205, -1.00775, 11.2716}
+   };
+   AHIT inputhit09 = {
+     {-25.0718, -11.3882, 7.84872},
+     {0.0449836, -0.0555156, 0.0685134, 0.712048, -0.878759, 11.2716}
+   };
+   AHIT inputhit10 = {
+     {-32.2064, -14.9459, 14.865},
+     {1.58319e-06, -2.46404e-06, 3.84232e-06, 0.000141838, 6.80311e-05, 11.3851}
+   };
+   AHIT inputhit11 = {
+     {-31.9724, -14.8844, 14.9466},
+     {0.0330908, -0.051576, 0.0803874, -0.610712, 0.951868, 11.2716}
+   };
+   AHIT inputhit12 = {
+     {-36.2923, -16.605, 17.4194},
+     {2.98939e-06, -5.29209e-06, 9.3715e-06, -5.72399e-05, -8.33032e-05, 11.3851}
+   };
+   AHIT inputhit13 = {
+     {-37.1484, -16.9472, 17.42},
+     {4.61327e-06, -5.97693e-06, 7.75092e-06, 0.000218395, 4.27918e-06, 11.3851}
+   };
+   AHIT inputhit14 = {
+     {-44.0727, -19.6222, 24.7449},
+     {3.633e-06, -5.5419e-06, 8.45928e-06, -0.00016084, -3.8901e-06, 11.3851}
+   };
+   AHIT inputhit15 = {
+     {-46.8677, -20.6566, 14.9848},
+     {3.30029e-06, -5.3857e-06, 8.79008e-06, -4.17557e-05, -4.92917e-05, 11.3851}
+   };
+   AHIT inputhit16 = {
+     {-56.7284, -24.1194, 27.3157},
+     {4.17386e-06, -9.94764e-06, 2.40342e-05, 0.00118894, 0.000215468, 28.8716}
+   };
+   AHIT inputhit17 = {
+     {-57.2814, -23.9162, 27.3327},
+     {0.0420188, -0.101635, 0.245834, -1.09587, 2.65069, 28.5837}
+   };
+   AHIT inputhit18 = {
+     {-66.2483, -27.2077, 27.3171},
+     {4.91035e-06, -1.06706e-05, 2.32625e-05, 0.000447798, 0.000493005, 28.8716}
+   };
+   AHIT inputhit19 = {
+     {-70.5877, -28.5289, 27.3153},
+     {3.20442e-06, -8.93214e-06, 2.49603e-05, 0.000406874, 0.000207269, 28.8716}
+   };
+   AHIT inputhit20 = {
+     {-91.6213, -34.1844, 27.3141},
+     {1.41039e-06, -3.94656e-06, 1.12682e-05, 0.000779451, 0.000348001, 28.8716}
+   };
+   AHIT inputhit21 = {
+     {-102.949, -36.705, 45.067},
+     {3.54029e-06, -3.38451e-06, 1.14006e-05, -0.00748546, -0.00316423, 28.8716}
+   };
+   std::vector<AHIT> inputhits{inputhit21,inputhit20,inputhit19,inputhit18,inputhit17,inputhit16,inputhit15,inputhit14,
+                               inputhit13,inputhit12,inputhit11,inputhit10,inputhit09,inputhit08,inputhit07,inputhit06,
+                               inputhit05,inputhit04,inputhit03,inputhit02,inputhit01,inputhit00};
 
    printf("track in pos: x=%f, y=%f, z=%f, r=%f \n", inputtrk.par[0], inputtrk.par[1], inputtrk.par[2], sqrtf(inputtrk.par[0]*inputtrk.par[0] + inputtrk.par[1]*inputtrk.par[1]));
    printf("track in cov: xx=%.2e, yy=%.2e, zz=%.2e \n", inputtrk.cov[SymOffsets66(PosInMtrx(0,0,6))],
@@ -829,7 +952,7 @@ int main (int argc, char* argv[]) {
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
    MPTRK* trk = prepareTracks(inputtrk);
-   MPHIT* hit = prepareHits(inputhit);
+   MPHIT* hit = prepareHits(inputhits);
    MPTRK* outtrk = (MPTRK*) malloc(nevts*nb*sizeof(MPTRK));
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
@@ -837,7 +960,8 @@ int main (int argc, char* argv[]) {
    printf("done preparing!\n");
    
 
-   task_scheduler_init init(nthreads);
+   //task_scheduler_init init(nthreads);
+   global_control c(global_control::max_allowed_parallelism, nthreads);
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
