@@ -1235,7 +1235,7 @@ int main (int argc, char* argv[]) {
                      }
                    });
 #if defined(__NVCOMPILER_CUDA__) 
-      //convertTracks<order>(outtrk, outtrkNPtr.get());
+      convertTracks<order>(outtrk, outtrkNPtr.get());
 #endif
 
    } //end of itr loop
