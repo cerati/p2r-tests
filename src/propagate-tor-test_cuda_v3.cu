@@ -46,7 +46,7 @@ see README.txt for instructions
 #define threadsperblocky 32 
 #endif
 #ifndef blockspergrid
-#define blockspergrid 40
+#define blockspergrid (nevts*nb)
 #endif
 
 #ifndef nthreads
@@ -837,8 +837,9 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int str
   ///*__shared__*/ struct MP6x6F errorProp, temp; // shared memory here causes a race condition. Probably move to inside the p2z function? i forgot why I did it this way to begin with. maybe to make it shared?
 
 
-  for (size_t ie = blockIdx.x; ie<ie_range; ie+=gridDim.x){
-    for(size_t ib = threadIdx.y; ib <nb; ib+=blockDim.y){
+  for (size_t ti = blockIdx.x; ti< nb*nevts; ti+=gridDim.x){
+      int ie = ti/nb;
+      int ib = ti%nb;
       const MPTRK* btracks = bTk(trk,ie,ib);
       MPTRK* obtracks = bTk(outtrk,ie,ib);
       for (int layer=0;layer<nlayer;++layer){	
@@ -847,7 +848,6 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int str
                        &(*obtracks).cov, &(*obtracks).par);
           KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
        }
-    }
     //if((index)%100==0 ) printf("index = %i ,(block,grid)=(%i,%i), track = (%.3f)\n ", index,blockDim.x,gridDim.x,&(*btracks).par.data[8]);
   }
 }
@@ -894,7 +894,7 @@ int main (int argc, char* argv[]) {
    cudaMalloc((MPHIT**)&hit_dev,nlayer*nevts*nb*sizeof(MPHIT));
    cudaMalloc((MPTRK**)&outtrk_dev,nevts*nb*sizeof(MPTRK));
    dim3 grid(blockspergrid,1,1);
-   dim3 block(threadsperblockx,threadsperblocky,1); 
+   dim3 block(threadsperblockx,1,1); 
 
    //for (size_t ie=0;ie<nevts;++ie) {
    //  for (size_t it=0;it<ntrks;++it) {
