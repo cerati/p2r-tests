@@ -14,6 +14,13 @@ see README.txt for instructions
 #include <chrono>
 #include <iomanip>
 
+#ifndef EXCLUDE_H2D_TRANSFER
+#define MEASURE_H2D_TRANSFER
+#endif
+#ifndef EXCLUDE_D2H_TRANSFER
+#define MEASURE_D2H_TRANSFER
+#endif
+
 #ifndef bsize
 #define bsize 32
 #endif
@@ -31,6 +38,10 @@ see README.txt for instructions
 #ifndef NITER
 #define NITER 5
 #endif
+#ifndef NWARMUP
+#define NWARMUP 2
+#endif
+
 #ifndef nlayer
 #define nlayer 20
 #endif
@@ -910,9 +921,9 @@ int main (int argc, char* argv[]) {
 
    printf("done preparing!\n");
  
-   printf("Number of struct MPTRK trk[] = %ld\n", nevts*nb);
-   printf("Number of struct MPTRK outtrk[] = %ld\n", nevts*nb);
-   printf("Number of struct struct MPHIT hit[] = %ld\n", nevts*nb);
+   printf("Number of struct MPTRK trk[] = %d\n", nevts*nb);
+   printf("Number of struct MPTRK outtrk[] = %d\n", nevts*nb);
+   printf("Number of struct struct MPHIT hit[] = %d\n", nevts*nb);
   
    printf("Size of struct MPTRK trk[] = %ld\n", nevts*nb*sizeof(struct MPTRK));
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(struct MPTRK));
@@ -924,31 +935,74 @@ int main (int argc, char* argv[]) {
    //cudaFuncSetAttribute(GPUsequence, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
    //cudaFuncSetAttribute(GPUsequence, cudaFuncAttributePreferredSharedMemoryCarveout, maxbytes);
 
-    for (int s = 0; s<num_streams;s++){
-   transferAsyncTrk(trk_dev, trk,streams[s]);
-   transferAsyncHit(hit_dev, hit,streams[s]);
    //MP6x6SF * newErr;
    //MP6x6F * errorProp;
    //cudaMalloc(&newErr,sizeof(MP6x6SF)*blockspergrid);
    //cudaMalloc(&errorProp,sizeof(MP6x6F)*blockspergrid);
-   cudaDeviceSynchronize(); 
-   auto wall_start = std::chrono::high_resolution_clock::now();
-   for(itr=0; itr<NITER; itr++) {
-  	   GPUsequence<<<grid,block,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
-   }//end of streams loop
 
-   cudaDeviceSynchronize(); 
-   auto wall_stop = std::chrono::high_resolution_clock::now();
-   auto wall_diff = wall_stop - wall_start;
-   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
+   auto doWork = [&](const char* msg, int nIters) {
+     double wall_time = 0;
+
+#ifdef MEASURE_H2D_TRANSFER
+     for(int itr=0; itr<nIters; itr++) {
+       auto wall_start = std::chrono::high_resolution_clock::now();
+       for (int s = 0; s<num_streams;s++) {
+         transferAsyncTrk(trk_dev, trk,streams[s]);
+         transferAsyncHit(hit_dev, hit,streams[s]);
+       }
+
+       for (int s = 0; s<num_streams;s++) {
+         GPUsequence<<<grid,block,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+       }
+
+#ifdef MEASURE_D2H_TRANSFER
+       for (int s = 0; s<num_streams;s++) {
+         transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+       }
+#endif // MEASURE_D2H_TRANSFER
+       cudaDeviceSynchronize();
+       auto wall_stop = std::chrono::high_resolution_clock::now();
+       wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
+     }
+#else // not MEASURE_H2D_TRANSFER
+     for (int s = 0; s<num_streams;s++) {
+       transferAsyncTrk(trk_dev, trk,streams[s]);
+       transferAsyncHit(hit_dev, hit,streams[s]);
+     }
+     cudaDeviceSynchronize();
+     for(int itr=0; itr<nIters; itr++) {
+       auto wall_start = std::chrono::high_resolution_clock::now();
+       for (int s = 0; s<num_streams;s++) {
+         GPUsequence<<<grid,block,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+       }
+
+#ifdef MEASURE_D2H_TRANSFER
+       for (int s = 0; s<num_streams;s++) {
+         transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+       }
+#endif // MEASURE_D2H_TRANSFER
+       cudaDeviceSynchronize();
+       auto wall_stop = std::chrono::high_resolution_clock::now();
+       wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
+     }
+#endif // MEASURE_H2D_TRANSFER
+
+#ifndef MEASURE_D2H_TRANSFER
+     for (int s = 0; s<num_streams;s++) {
+       transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+     }
+     cudaDeviceSynchronize();
+#endif
+
+     return wall_time;
+   };
+
+   doWork("Warming up", NWARMUP);
+   auto wall_time = doWork("Launching", NITER);
+
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
-
-   transfer_backAsync(outtrk, outtrk_dev,streams[s]);
-   cudaDeviceSynchronize(); 
-   } //end of itr loop
-
 
 
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
