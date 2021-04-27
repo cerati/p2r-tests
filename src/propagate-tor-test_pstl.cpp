@@ -1,16 +1,15 @@
 /*
-see README.txt for instructions
+icc propagate-toz-test.C -o propagate-toz-test.exe -fopenmp -O3
 */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <unistd.h>
-#include <sys/time.h>
-#include <tbb/tbb.h>
 #include <iostream>
 #include <chrono>
 #include <iomanip>
+#include <sys/time.h>
 
 #include <algorithm>
 #include <vector>
@@ -19,13 +18,17 @@ see README.txt for instructions
 #include <execution>
 
 #ifndef bsize
+#if defined(__NVCOMPILER_CUDA__)
+#define bsize 1
+#else
 #define bsize 128
+#endif//__NVCOMPILER_CUDA__
 #endif
 #ifndef ntrks
 #define ntrks 9600
 #endif
 
-#define nb    ntrks/bsize
+#define nb    (ntrks/bsize)
 
 #ifndef nevts
 #define nevts 100
@@ -39,10 +42,7 @@ see README.txt for instructions
 #define nlayer 20
 #endif
 
-#ifndef nthreads
-#define nthreads 1
-#endif
-
+//BACKEND selector
 #if defined(__NVCOMPILER_CUDA__)
 
 #include <thrust/iterator/counting_iterator.h>
@@ -58,65 +58,67 @@ using namespace thrust;
 
 #include <tbb/tbb.h>
 using namespace tbb;
+
 constexpr int alloc_align  = (2*1024*1024);
 
-#endif 
+#endif //BACKEND selector
 
-template<typename Tp>
-struct AlignedAllocator {
-   public:
+   template<typename Tp>
+   struct AlignedAllocator {
+     public:
 
-   typedef Tp value_type;
+       typedef Tp value_type;
 
-   AlignedAllocator () {};
-   AlignedAllocator(const AlignedAllocator&) { }
+       AlignedAllocator () {};
 
-   template<typename Tp1> constexpr AlignedAllocator(const AlignedAllocator<Tp1>&) { }
+       AlignedAllocator(const AlignedAllocator&) { }
 
-   ~AlignedAllocator() { }
-     
-   Tp* address(Tp& x) const { return &x; }
+       template<typename Tp1> constexpr AlignedAllocator(const AlignedAllocator<Tp1>&) { }
 
-   std::size_t  max_size() const throw() { return size_t(-1) / sizeof(Tp); }
+       ~AlignedAllocator() { }
 
-   [[nodiscard]] Tp* allocate(std::size_t n){
+       Tp* address(Tp& x) const { return &x; }
 
-     Tp* ptr = nullptr;
+       std::size_t  max_size() const throw() { return size_t(-1) / sizeof(Tp); }
+
+       [[nodiscard]] Tp* allocate(std::size_t n){
+
+         Tp* ptr = nullptr;
 #ifdef __NVCOMPILER_CUDA__
-     auto err = cudaMallocManaged((void **)&ptr,n*sizeof(Tp));
+         auto err = cudaMallocManaged((void **)&ptr,n*sizeof(Tp));
 
-     if( err != cudaSuccess ) {
-       ptr = (Tp *) NULL;
-       std::cerr << " cudaMallocManaged failed for " << n*sizeof(Tp) << " bytes " <<cudaGetErrorString(err)<< std::endl;
-       assert(0);
-     }
-#else
-     //ptr = (Tp*)aligned_malloc(alloc_align, n*sizeof(Tp));
+         if( err != cudaSuccess ) {
+           ptr = (Tp *) NULL;
+           std::cerr << " cudaMallocManaged failed for " << n*sizeof(Tp) << " bytes " <<cudaGetErrorString(err)<< std::endl;
+           assert(0);
+         }
+#elif !defined(DPCPP_BACKEND)
+         //ptr = (Tp*)aligned_malloc(alloc_align, n*sizeof(Tp));
 #if defined(__INTEL_COMPILER)
-     ptr = (Tp*)malloc(bytes);
+         ptr = (Tp*)malloc(bytes);
 #else
-     ptr = (Tp*)_mm_malloc(n*sizeof(Tp),alloc_align);
+         ptr = (Tp*)_mm_malloc(n*sizeof(Tp),alloc_align);
 #endif
-     if(!ptr) throw std::bad_alloc();
+         if(!ptr) throw std::bad_alloc();
 #endif
 
-     return ptr;
-   }
+         return ptr;
+       }
 
-   void deallocate( Tp* p, std::size_t n) noexcept {
+      void deallocate( Tp* p, std::size_t n) noexcept {
 #ifdef __NVCOMPILER_CUDA__
-     cudaFree((void *)p);
-#else
+         cudaFree((void *)p);
+#elif !defined(DPCPP_BACKEND)
 
 #if defined(__INTEL_COMPILER)
-     free((void*)p);
+         free((void*)p);
 #else
-     _mm_free((void *)p);
+         _mm_free((void *)p);
 #endif
 
 #endif
-   }
-};
+       }
+     };
 
 auto PosInMtrx = [](const size_t &&i, const size_t &&j, const size_t &&D, const size_t block_size = 1) constexpr {return block_size*(i*D+j);};
 
@@ -459,25 +461,6 @@ float ipt  (const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, 
 float phi  (const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 4); }
 float theta(const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 5); }
 //
-void setpar(MP6F* bpars, size_t it, size_t ipar, float val){
-  (*bpars).data[it + ipar*bsize] = val;
-}
-void setx    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 0, val); }
-void sety    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 1, val); }
-void setz    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 2, val); }
-void setipt  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 3, val); }
-void setphi  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 4, val); }
-void settheta(MP6F* bpars, size_t it, float val){ setpar(bpars, it, 5, val); }
-//
-void setpar(MPTRK_* btracks, size_t it, size_t ipar, float val){
-  setpar(&(*btracks).par,it,ipar,val);
-}
-void setx    (MPTRK_* btracks, size_t it, float val){ setpar(btracks, it, 0, val); }
-void sety    (MPTRK_* btracks, size_t it, float val){ setpar(btracks, it, 1, val); }
-void setz    (MPTRK_* btracks, size_t it, float val){ setpar(btracks, it, 2, val); }
-void setipt  (MPTRK_* btracks, size_t it, float val){ setpar(btracks, it, 3, val); }
-void setphi  (MPTRK_* btracks, size_t it, float val){ setpar(btracks, it, 4, val); }
-void settheta(MPTRK_* btracks, size_t it, float val){ setpar(btracks, it, 5, val); }
 
 const MPHIT_* bHit(const MPHIT_* hits, size_t ev, size_t ib) {
   return &(hits[ib + nb*ev]);
@@ -846,9 +829,7 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
      
   MP2F_ res_loc;   
 #pragma omp simd
-  for (size_t it = 0; it < bsz; ++it) {
-    const auto terr_blk_offset = terr_offset+it;
-    const auto herr_blk_offset = herr_offset+it;    
+  for (size_t it = 0; it < bsz; ++it) { 
     const auto ipar_blk_offset = ipar_offset+it;
     
     const auto msPX = msP(iparX, tid, it, lay);
@@ -1168,8 +1149,8 @@ void propagateToZ(MPTRKAccessors       &obtracks,
     errorProp[PosInMtrx(5,5,6, bsz) + it] = 1.f;                                    
   }
   
-  MultHelixProp<MP6x6SFaccessor, block_size>(errorProp, inErr, temp, tid);
-  MultHelixPropTransp<MP6x6SFaccessor, block_size>(errorProp, temp, outErr, tid);  
+  MultHelixProp<MP6x6SFaccessor, bsz>(errorProp, inErr, temp, tid);
+  MultHelixPropTransp<MP6x6SFaccessor, bsz>(errorProp, temp, outErr, tid);  
   
   return;
 }
@@ -1203,9 +1184,9 @@ int main (int argc, char* argv[]) {
    long setup_start, setup_stop;
    struct timeval timecheck;
 #if defined(__NVCOMPILER_CUDA__)
-   constexpr auto order = FieldOrder::P2Z_TRACKBLK_EVENT_LAYER_MATIDX_ORDER;
+   constexpr auto order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER;
 #else
-   constexpr auto order = FieldOrder::P2Z_MATIDX_LAYER_TRACKBLK_EVENT_ORDER;
+   constexpr auto order = FieldOrder::P2R_MATIDX_LAYER_TRACKBLK_EVENT_ORDER;
 #endif
    using MPTRKAccessorTp = MPTRKAccessor<order>;
    using MPHITAccessorTp = MPHITAccessor<order>;
