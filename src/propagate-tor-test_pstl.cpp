@@ -1258,16 +1258,17 @@ int main (int argc, char* argv[]) {
    convertTracks<order>(outtrk, outtrkNPtr.get());
    convertHits<order>(hit, hitNPtr.get());
 
-   float avgx = 0, avgy = 0, avgz = 0;
+   float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
    float avgpt = 0, avgphi = 0, avgtheta = 0;
-   float avgdx = 0, avgdy = 0, avgdz = 0;
+   float avgdx = 0, avgdy = 0, avgdz = 0, avgdr = 0;
    for (size_t ie=0;ie<nevts;++ie) {
      for (size_t it=0;it<ntrks;++it) {
        float x_ = x(outtrk,ie,it);
        float y_ = y(outtrk,ie,it);
        float z_ = z(outtrk,ie,it);
-       float pt_    = 1./ipt(outtrk,ie,it);
-       float phi_   = phi(outtrk,ie,it);
+       float r_ = sqrtf(x_*x_ + y_*y_);
+       float pt_ = 1./ipt(outtrk,ie,it);
+       float phi_ = phi(outtrk,ie,it);
        float theta_ = theta(outtrk,ie,it);
        avgpt += pt_;
        avgphi += phi_;
@@ -1275,12 +1276,16 @@ int main (int argc, char* argv[]) {
        avgx += x_;
        avgy += y_;
        avgz += z_;
+       avgr += r_;
        float hx_ = x(hit,ie,it);
        float hy_ = y(hit,ie,it);
        float hz_ = z(hit,ie,it);
+       float hr_ = sqrtf(hx_*hx_ + hy_*hy_);
        avgdx += (x_-hx_)/x_;
        avgdy += (y_-hy_)/y_;
        avgdz += (z_-hz_)/z_;
+       avgdr += (r_-hr_)/r_;
+       //if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
      }
    }
    avgpt = avgpt/float(nevts*ntrks);
@@ -1289,45 +1294,56 @@ int main (int argc, char* argv[]) {
    avgx = avgx/float(nevts*ntrks);
    avgy = avgy/float(nevts*ntrks);
    avgz = avgz/float(nevts*ntrks);
+   avgr = avgr/float(nevts*ntrks);
    avgdx = avgdx/float(nevts*ntrks);
    avgdy = avgdy/float(nevts*ntrks);
    avgdz = avgdz/float(nevts*ntrks);
+   avgdr = avgdr/float(nevts*ntrks);
 
-   float stdx = 0, stdy = 0, stdz = 0;
-   float stddx = 0, stddy = 0, stddz = 0;
+   float stdx = 0, stdy = 0, stdz = 0, stdr = 0;
+   float stddx = 0, stddy = 0, stddz = 0, stddr = 0;
    for (size_t ie=0;ie<nevts;++ie) {
      for (size_t it=0;it<ntrks;++it) {
        float x_ = x(outtrk,ie,it);
        float y_ = y(outtrk,ie,it);
        float z_ = z(outtrk,ie,it);
+       float r_ = sqrtf(x_*x_ + y_*y_);
        stdx += (x_-avgx)*(x_-avgx);
        stdy += (y_-avgy)*(y_-avgy);
        stdz += (z_-avgz)*(z_-avgz);
+       stdr += (r_-avgr)*(r_-avgr);
        float hx_ = x(hit,ie,it);
        float hy_ = y(hit,ie,it);
        float hz_ = z(hit,ie,it);
+       float hr_ = sqrtf(hx_*hx_ + hy_*hy_);
        stddx += ((x_-hx_)/x_-avgdx)*((x_-hx_)/x_-avgdx);
        stddy += ((y_-hy_)/y_-avgdy)*((y_-hy_)/y_-avgdy);
        stddz += ((z_-hz_)/z_-avgdz)*((z_-hz_)/z_-avgdz);
+       stddr += ((r_-hr_)/r_-avgdr)*((r_-hr_)/r_-avgdr);
      }
    }
 
    stdx = sqrtf(stdx/float(nevts*ntrks));
    stdy = sqrtf(stdy/float(nevts*ntrks));
    stdz = sqrtf(stdz/float(nevts*ntrks));
+   stdr = sqrtf(stdr/float(nevts*ntrks));
    stddx = sqrtf(stddx/float(nevts*ntrks));
    stddy = sqrtf(stddy/float(nevts*ntrks));
    stddz = sqrtf(stddz/float(nevts*ntrks));
+   stddr = sqrtf(stddr/float(nevts*ntrks));
 
    printf("track x avg=%f std/avg=%f\n", avgx, fabs(stdx/avgx));
    printf("track y avg=%f std/avg=%f\n", avgy, fabs(stdy/avgy));
    printf("track z avg=%f std/avg=%f\n", avgz, fabs(stdz/avgz));
+   printf("track r avg=%f std/avg=%f\n", avgr, fabs(stdr/avgz));
    printf("track dx/x avg=%f std=%f\n", avgdx, stddx);
    printf("track dy/y avg=%f std=%f\n", avgdy, stddy);
    printf("track dz/z avg=%f std=%f\n", avgdz, stddz);
+   printf("track dr/r avg=%f std=%f\n", avgdr, stddr);
    printf("track pt avg=%f\n", avgpt);
    printf("track phi avg=%f\n", avgphi);
    printf("track theta avg=%f\n", avgtheta);
+
 
    delete [] hit;
    delete [] outtrk;
