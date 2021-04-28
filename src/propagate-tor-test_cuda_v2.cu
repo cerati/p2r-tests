@@ -14,6 +14,13 @@ see README.txt for instructions
 #include <chrono>
 #include <iomanip>
 
+#ifndef EXCLUDE_H2D_TRANSFER
+#define MEASURE_H2D_TRANSFER
+#endif
+#ifndef EXCLUDE_D2H_TRANSFER
+#define MEASURE_D2H_TRANSFER
+#endif
+
 #ifndef ntrks
 #define ntrks 9600
 #endif
@@ -27,6 +34,10 @@ see README.txt for instructions
 #ifndef NITER
 #define NITER 5
 #endif
+#ifndef NWARMUP
+#define NWARMUP 2
+#endif
+
 #ifndef nlayer
 #define nlayer 20
 #endif
@@ -836,8 +847,6 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, const int str
 }
 
 int main (int argc, char* argv[]) {
-
-   int itr;
    ATRK inputtrk = {
      {-12.806846618652344, -7.723824977874756, 38.13014221191406,0.23732035065189902, -2.613372802734375, 0.35594117641448975},
      {6.290299552347278e-07,4.1375109560704004e-08,7.526661534029699e-07,2.0973730840978533e-07,1.5431574240665213e-07,9.626245400795597e-08,-2.804026640189443e-06,
@@ -907,40 +916,83 @@ int main (int argc, char* argv[]) {
 
    printf("done preparing!\n");
  
-   printf("Number of struct MPTRK trk[] = %ld\n", nevts);
-   printf("Number of struct MPTRK outtrk[] = %ld\n", nevts);
-   printf("Number of struct struct MPHIT hit[] = %ld\n", nevts);
+   printf("Number of struct MPTRK trk[] = %d\n", nevts);
+   printf("Number of struct MPTRK outtrk[] = %d\n", nevts);
+   printf("Number of struct struct MPHIT hit[] = %d\n", nevts);
   
    printf("Size of struct MPTRK trk[] = %ld\n", nevts*sizeof(struct MPTRK));
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*sizeof(struct MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nlayer*nevts*sizeof(struct MPHIT));
 
-   
+   auto doWork = [&](const char* msg, int nIters) {
+     double wall_time = 0;
 
-    for (int s = 0; s<num_streams;s++){
-   transferAsyncTrk(trk_dev, trk,streams[s]);
-   transferAsyncHit(hit_dev, hit,streams[s]);
-   cudaDeviceSynchronize(); 
-   auto wall_start = std::chrono::high_resolution_clock::now();
-   for(itr=0; itr<NITER; itr++) {
-       //printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
-       //GPUsequence<<<nevts*ntrks/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
-       printf("Launching ... <<<%i,%i>>>\n", nevts,ntrks);
-       GPUsequence<<<nevts,ntrks ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
-   }//end of streams loop
+#ifdef MEASURE_H2D_TRANSFER
+     for(int itr=0; itr<nIters; itr++) {
+       auto wall_start = std::chrono::high_resolution_clock::now();
+       for (int s = 0; s<num_streams;s++) {
+         transferAsyncTrk(trk_dev, trk,streams[s]);
+         transferAsyncHit(hit_dev, hit,streams[s]);
+       }
 
-   cudaDeviceSynchronize(); 
-   auto wall_stop = std::chrono::high_resolution_clock::now();
-   auto wall_diff = wall_stop - wall_start;
-   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
+       for (int s = 0; s<num_streams;s++) {
+         //printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
+         //GPUsequence<<<nevts*ntrks/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+         printf("Launching ... <<<%i,%i>>>\n", nevts,ntrks);
+         GPUsequence<<<nevts,ntrks ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+       }
+
+#ifdef MEASURE_D2H_TRANSFER
+       for (int s = 0; s<num_streams;s++) {
+         transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+       }
+#endif // MEASURE_D2H_TRANSFER
+       cudaDeviceSynchronize();
+       auto wall_stop = std::chrono::high_resolution_clock::now();
+       wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
+     }
+#else // not MEASURE_H2D_TRANSFER
+     for (int s = 0; s<num_streams;s++) {
+       transferAsyncTrk(trk_dev, trk,streams[s]);
+       transferAsyncHit(hit_dev, hit,streams[s]);
+     }
+     cudaDeviceSynchronize();
+     for(int itr=0; itr<nIters; itr++) {
+       auto wall_start = std::chrono::high_resolution_clock::now();
+       for (int s = 0; s<num_streams;s++) {
+         //printf("Launching ... <<<%i,%i>>>\n", (nevts*ntrks)/threadsperblock+1,threadsperblock);
+         //GPUsequence<<<nevts*ntrks/threadsperblock+1,threadsperblock ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+         printf("Launching ... <<<%i,%i>>>\n", nevts,ntrks);
+         GPUsequence<<<nevts,ntrks ,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+       }
+
+#ifdef MEASURE_D2H_TRANSFER
+       for (int s = 0; s<num_streams;s++) {
+         transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+       }
+#endif // MEASURE_D2H_TRANSFER
+       cudaDeviceSynchronize();
+       auto wall_stop = std::chrono::high_resolution_clock::now();
+       wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
+     }
+#endif // MEASURE_H2D_TRANSFER
+
+#ifndef MEASURE_D2H_TRANSFER
+     for (int s = 0; s<num_streams;s++) {
+       transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+     }
+     cudaDeviceSynchronize();
+#endif
+
+     return wall_time;
+   };
+
+   doWork("Warming up", NWARMUP);
+   auto wall_time = doWork("Launching", NITER);
+
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
-   printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, ntrks, wall_time, (setup_stop-setup_start)*0.001, nthreads);
-
-   transfer_backAsync(outtrk, outtrk_dev,streams[s]);
-   cudaDeviceSynchronize(); 
-   } //end of itr loop
-
+   printf("formatted %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, wall_time, (setup_stop-setup_start)*0.001, nthreads);
 
 
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
