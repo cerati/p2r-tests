@@ -760,7 +760,18 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
     resErr_loc[ 1*bsz+it] = (trkErr(3, terr_blk_offset) + hitErr(3, herr_blk_offset))*rotT00[it] +
                                    (trkErr(4, terr_blk_offset) + hitErr(4, herr_blk_offset))*rotT01[it];
     resErr_loc[ 2*bsz+it] = (trkErr(5, terr_blk_offset) + hitErr(5, herr_blk_offset));
-  }  
+  } 
+  
+  for (size_t it=0;it<bsz;++it) {
+  
+    const double det = (double)resErr_loc[0*bsz+it] * resErr_loc[2*bsz+it] -
+                       (double)resErr_loc[1*bsz+it] * resErr_loc[1*bsz+it];
+    const float s   = 1.f / det;
+    const float tmp = s * resErr_loc[2*bsz+it];
+    resErr_loc[1*bsz+it] *= -s;
+    resErr_loc[2*bsz+it]  = s * resErr_loc[0*bsz+it];
+    resErr_loc[0*bsz+it]  = tmp;
+  }     
   
   MP3x6_ kGain;
   
