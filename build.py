@@ -56,7 +56,7 @@ scanParameters = [
     ("threadsperblock", 1000),
     ("threadsperblockx", 2),
     ("threadsperblocky", 16),
-    ("blockspergrid", 40)
+    #("blockspergrid", 40)
 ]
 ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
@@ -190,6 +190,7 @@ def main(opts):
                 outputJson = "result_{}.json".format("_".join(filter(None,[tech,backend,comp,opts.output])))
                 alreadyExists = set()
                 if not opts.overwrite and os.path.exists(outputJson):
+                    print("Updating output: ",outputJson)
                     with open(outputJson) as inp:
                         data = json.load(inp)
                 if not opts.append:
