@@ -845,92 +845,114 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
      const auto terr_blk_offset = terr_offset+it;
 
      newErr[ 0*bsz+it] = kGain[ 0*bsz+it]*rotT00[it]*trkErr( 0, terr_blk_offset) +
-                                kGain[ 0*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[ 1*bsz+it]*trkErr( 3, terr_blk_offset);
+                         kGain[ 0*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
+                         kGain[ 1*bsz+it]*trkErr( 3, terr_blk_offset);
      newErr[ 1*bsz+it] = kGain[ 3*bsz+it]*rotT00[it]*trkErr( 0, terr_blk_offset) +
-                                kGain[ 3*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[ 4*bsz+it]*trkErr( 3, terr_blk_offset);
+                         kGain[ 3*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
+                         kGain[ 4*bsz+it]*trkErr( 3, terr_blk_offset);
      newErr[ 2*bsz+it] = kGain[ 3*bsz+it]*rotT00[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[ 3*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
-                                kGain[ 4*bsz+it]*trkErr( 4, terr_blk_offset);
+                         kGain[ 3*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
+                         kGain[ 4*bsz+it]*trkErr( 4, terr_blk_offset);
      newErr[ 3*bsz+it] = kGain[ 6*bsz+it]*rotT00[it]*trkErr( 0, terr_blk_offset) +
-                                kGain[ 6*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[ 7*bsz+it]*trkErr( 3, terr_blk_offset);
+                         kGain[ 6*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
+                         kGain[ 7*bsz+it]*trkErr( 3, terr_blk_offset);
      newErr[ 4*bsz+it] = kGain[ 6*bsz+it]*rotT00[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[ 6*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
-                                kGain[ 7*bsz+it]*trkErr( 4, terr_blk_offset);
+                         kGain[ 6*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
+                         kGain[ 7*bsz+it]*trkErr( 4, terr_blk_offset);
      newErr[ 5*bsz+it] = kGain[ 6*bsz+it]*rotT00[it]*trkErr( 3, terr_blk_offset) +
-                                kGain[ 6*bsz+it]*rotT01[it]*trkErr( 4, terr_blk_offset) +
-                                kGain[ 7*bsz+it]*trkErr( 5, terr_blk_offset);
+                         kGain[ 6*bsz+it]*rotT01[it]*trkErr( 4, terr_blk_offset) +
+                         kGain[ 7*bsz+it]*trkErr( 5, terr_blk_offset);
      newErr[ 6*bsz+it] = kGain[ 9*bsz+it]*rotT00[it]*trkErr( 0, terr_blk_offset) +
-                                kGain[ 9*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[10*bsz+it]*trkErr( 3, terr_blk_offset);
+                         kGain[ 9*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
+                         kGain[10*bsz+it]*trkErr( 3, terr_blk_offset);
      newErr[ 7*bsz+it] = kGain[ 9*bsz+it]*rotT00[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[ 9*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
-                                kGain[10*bsz+it]*trkErr( 4, terr_blk_offset);
+                         kGain[ 9*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
+                         kGain[10*bsz+it]*trkErr( 4, terr_blk_offset);
      newErr[ 8*bsz+it] = kGain[ 9*bsz+it]*rotT00[it]*trkErr( 3, terr_blk_offset) +
-                                kGain[ 9*bsz+it]*rotT01[it]*trkErr( 4, terr_blk_offset) +
-                                kGain[10*bsz+it]*trkErr( 5, terr_blk_offset);
+                         kGain[ 9*bsz+it]*rotT01[it]*trkErr( 4, terr_blk_offset) +
+                         kGain[10*bsz+it]*trkErr( 5, terr_blk_offset);
      newErr[ 9*bsz+it] = kGain[ 9*bsz+it]*rotT00[it]*trkErr( 6, terr_blk_offset) +
-                                kGain[ 9*bsz+it]*rotT01[it]*trkErr( 7, terr_blk_offset) +
-                                kGain[10*bsz+it]*trkErr( 8, terr_blk_offset);
+                         kGain[ 9*bsz+it]*rotT01[it]*trkErr( 7, terr_blk_offset) +
+                         kGain[10*bsz+it]*trkErr( 8, terr_blk_offset);
      newErr[10*bsz+it] = kGain[12*bsz+it]*rotT00[it]*trkErr( 0, terr_blk_offset) +
-                                kGain[12*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[13*bsz+it]*trkErr( 3, terr_blk_offset);
+                         kGain[12*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
+                         kGain[13*bsz+it]*trkErr( 3, terr_blk_offset);
      newErr[11*bsz+it] = kGain[12*bsz+it]*rotT00[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[12*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
-                                kGain[13*bsz+it]*trkErr( 4, terr_blk_offset);
+                         kGain[12*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
+                         kGain[13*bsz+it]*trkErr( 4, terr_blk_offset);
      newErr[12*bsz+it] = kGain[12*bsz+it]*rotT00[it]*trkErr( 3, terr_blk_offset) +
-                                kGain[12*bsz+it]*rotT01[it]*trkErr( 4, terr_blk_offset) +
-                                kGain[13*bsz+it]*trkErr( 5, terr_blk_offset);
+                         kGain[12*bsz+it]*rotT01[it]*trkErr( 4, terr_blk_offset) +
+                         kGain[13*bsz+it]*trkErr( 5, terr_blk_offset);
      newErr[13*bsz+it] = kGain[12*bsz+it]*rotT00[it]*trkErr( 6, terr_blk_offset) +
-                                kGain[12*bsz+it]*rotT01[it]*trkErr( 7, terr_blk_offset) +
-                                kGain[13*bsz+it]*trkErr( 8, terr_blk_offset);
+                         kGain[12*bsz+it]*rotT01[it]*trkErr( 7, terr_blk_offset) +
+                         kGain[13*bsz+it]*trkErr( 8, terr_blk_offset);
      newErr[14*bsz+it] = kGain[12*bsz+it]*rotT00[it]*trkErr(10, terr_blk_offset) +
-                                kGain[12*bsz+it]*rotT01[it]*trkErr(11, terr_blk_offset) +
-                                kGain[13*bsz+it]*trkErr(12, terr_blk_offset);
+                         kGain[12*bsz+it]*rotT01[it]*trkErr(11, terr_blk_offset) +
+                         kGain[13*bsz+it]*trkErr(12, terr_blk_offset);
      newErr[15*bsz+it] = kGain[15*bsz+it]*rotT00[it]*trkErr( 0, terr_blk_offset) +
-                                kGain[15*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[16*bsz+it]*trkErr( 3, terr_blk_offset);
+                         kGain[15*bsz+it]*rotT01[it]*trkErr( 1, terr_blk_offset) +
+                         kGain[16*bsz+it]*trkErr( 3, terr_blk_offset);
      newErr[16*bsz+it] = kGain[15*bsz+it]*rotT00[it]*trkErr( 1, terr_blk_offset) +
-                                kGain[15*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
-                                kGain[16*bsz+it]*trkErr( 4, terr_blk_offset);
+                         kGain[15*bsz+it]*rotT01[it]*trkErr( 2, terr_blk_offset) +
+                         kGain[16*bsz+it]*trkErr( 4, terr_blk_offset);
      newErr[17*bsz+it] = kGain[15*bsz+it]*rotT00[it]*trkErr( 3, terr_blk_offset) +
-                                kGain[15*bsz+it]*rotT01[it]*trkErr( 4, terr_blk_offset) +
-                                kGain[16*bsz+it]*trkErr( 5, terr_blk_offset);
+                         kGain[15*bsz+it]*rotT01[it]*trkErr( 4, terr_blk_offset) +
+                         kGain[16*bsz+it]*trkErr( 5, terr_blk_offset);
      newErr[18*bsz+it] = kGain[15*bsz+it]*rotT00[it]*trkErr( 6, terr_blk_offset) +
-                                kGain[15*bsz+it]*rotT01[it]*trkErr( 7, terr_blk_offset) +
-                                kGain[16*bsz+it]*trkErr( 8, terr_blk_offset);
+                         kGain[15*bsz+it]*rotT01[it]*trkErr( 7, terr_blk_offset) +
+                         kGain[16*bsz+it]*trkErr( 8, terr_blk_offset);
      newErr[19*bsz+it] = kGain[15*bsz+it]*rotT00[it]*trkErr(10, terr_blk_offset) +
-                                kGain[15*bsz+it]*rotT01[it]*trkErr(11, terr_blk_offset) +
-                                kGain[16*bsz+it]*trkErr(12, terr_blk_offset);
+                         kGain[15*bsz+it]*rotT01[it]*trkErr(11, terr_blk_offset) +
+                         kGain[16*bsz+it]*trkErr(12, terr_blk_offset);
      newErr[20*bsz+it] = kGain[15*bsz+it]*rotT00[it]*trkErr(15, terr_blk_offset) +
-                                kGain[15*bsz+it]*rotT01[it]*trkErr(16, terr_blk_offset) +
-                                kGain[16*bsz+it]*trkErr(17, terr_blk_offset);     
+                         kGain[15*bsz+it]*rotT01[it]*trkErr(16, terr_blk_offset) +
+                         kGain[16*bsz+it]*trkErr(17, terr_blk_offset);     
 
-     trkErr( 0, terr_blk_offset) -= newErr[ 0*bsize+it];
-     trkErr( 1, terr_blk_offset) -= newErr[ 1*bsize+it];
-     trkErr( 2, terr_blk_offset) -= newErr[ 2*bsize+it];
-     trkErr( 3, terr_blk_offset) -= newErr[ 3*bsize+it];
-     trkErr( 4, terr_blk_offset) -= newErr[ 4*bsize+it];
-     trkErr( 5, terr_blk_offset) -= newErr[ 5*bsize+it];
-     trkErr( 6, terr_blk_offset) -= newErr[ 6*bsize+it];
-     trkErr( 7, terr_blk_offset) -= newErr[ 7*bsize+it];
-     trkErr( 8, terr_blk_offset) -= newErr[ 8*bsize+it];
-     trkErr( 9, terr_blk_offset) -= newErr[ 9*bsize+it];
-     trkErr(10, terr_blk_offset) -= newErr[10*bsize+it];
-     trkErr(11, terr_blk_offset) -= newErr[11*bsize+it];
-     trkErr(12, terr_blk_offset) -= newErr[12*bsize+it];
-     trkErr(13, terr_blk_offset) -= newErr[13*bsize+it];
-     trkErr(14, terr_blk_offset) -= newErr[14*bsize+it];
-     trkErr(15, terr_blk_offset) -= newErr[15*bsize+it];
-     trkErr(16, terr_blk_offset) -= newErr[16*bsize+it];
-     trkErr(17, terr_blk_offset) -= newErr[17*bsize+it];
-     trkErr(18, terr_blk_offset) -= newErr[18*bsize+it];
-     trkErr(19, terr_blk_offset) -= newErr[19*bsize+it];
-     trkErr(20, terr_blk_offset) -= newErr[20*bsize+it];
+     newErr[ 0*bsize+it] = trkErr( 0, terr_blk_offset) - newErr[ 0*bsize+it];
+     newErr[ 1*bsize+it] = trkErr( 1, terr_blk_offset) - newErr[ 1*bsize+it];
+     newErr[ 2*bsize+it] = trkErr( 2, terr_blk_offset) - newErr[ 2*bsize+it];
+     newErr[ 3*bsize+it] = trkErr( 3, terr_blk_offset) - newErr[ 3*bsize+it];
+     newErr[ 4*bsize+it] = trkErr( 4, terr_blk_offset) - newErr[ 4*bsize+it];
+     newErr[ 5*bsize+it] = trkErr( 5, terr_blk_offset) - newErr[ 5*bsize+it];
+     newErr[ 6*bsize+it] = trkErr( 6, terr_blk_offset) - newErr[ 6*bsize+it];
+     newErr[ 7*bsize+it] = trkErr( 7, terr_blk_offset) - newErr[ 7*bsize+it];
+     newErr[ 8*bsize+it] = trkErr( 8, terr_blk_offset) - newErr[ 8*bsize+it];
+     newErr[ 9*bsize+it] = trkErr( 9, terr_blk_offset) - newErr[ 9*bsize+it];
+     newErr[10*bsize+it] = trkErr(10, terr_blk_offset) - newErr[10*bsize+it];
+     newErr[11*bsize+it] = trkErr(11, terr_blk_offset) - newErr[11*bsize+it];
+     newErr[12*bsize+it] = trkErr(12, terr_blk_offset) - newErr[12*bsize+it];
+     newErr[13*bsize+it] = trkErr(13, terr_blk_offset) - newErr[13*bsize+it];
+     newErr[14*bsize+it] = trkErr(14, terr_blk_offset) - newErr[14*bsize+it];
+     newErr[15*bsize+it] = trkErr(15, terr_blk_offset) - newErr[15*bsize+it];
+     newErr[16*bsize+it] = trkErr(16, terr_blk_offset) - newErr[16*bsize+it];
+     newErr[17*bsize+it] = trkErr(17, terr_blk_offset) - newErr[17*bsize+it];
+     newErr[18*bsize+it] = trkErr(18, terr_blk_offset) - newErr[18*bsize+it];
+     newErr[19*bsize+it] = trkErr(19, terr_blk_offset) - newErr[19*bsize+it];
+     newErr[20*bsize+it] = trkErr(20, terr_blk_offset) - newErr[20*bsize+it];
+     //fake transfer
+     trkErr( 0, terr_blk_offset) = newErr[ 0*bsize+it];
+     trkErr( 1, terr_blk_offset) = newErr[ 1*bsize+it];
+     trkErr( 2, terr_blk_offset) = newErr[ 2*bsize+it];
+     trkErr( 3, terr_blk_offset) = newErr[ 3*bsize+it];
+     trkErr( 4, terr_blk_offset) = newErr[ 4*bsize+it];
+     trkErr( 5, terr_blk_offset) = newErr[ 5*bsize+it];
+     trkErr( 6, terr_blk_offset) = newErr[ 6*bsize+it];
+     trkErr( 7, terr_blk_offset) = newErr[ 7*bsize+it];
+     trkErr( 8, terr_blk_offset) = newErr[ 8*bsize+it];
+     trkErr( 9, terr_blk_offset) = newErr[ 9*bsize+it];
+     trkErr(10, terr_blk_offset) = newErr[10*bsize+it];
+     trkErr(11, terr_blk_offset) = newErr[11*bsize+it];
+     trkErr(12, terr_blk_offset) = newErr[12*bsize+it];
+     trkErr(13, terr_blk_offset) = newErr[13*bsize+it];
+     trkErr(14, terr_blk_offset) = newErr[14*bsize+it];
+     trkErr(15, terr_blk_offset) = newErr[15*bsize+it];
+     trkErr(16, terr_blk_offset) = newErr[16*bsize+it];
+     trkErr(17, terr_blk_offset) = newErr[17*bsize+it];
+     trkErr(18, terr_blk_offset) = newErr[18*bsize+it];
+     trkErr(19, terr_blk_offset) = newErr[19*bsize+it];
+     trkErr(20, terr_blk_offset) = newErr[20*bsize+it];
    }
-    
+   // 
                  
 }
                   
