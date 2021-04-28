@@ -40,7 +40,7 @@ see README.txt for instructions
 #endif
 
 #ifndef threadsperblockx
-#define threadsperblockx 1024
+#define threadsperblockx 32
 #endif
 #ifndef blockspergrid
 #define blockspergrid (nevts*nb)
@@ -838,7 +838,7 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int st
 
 int main (int argc, char* argv[]) {
 
-  printf("Streams: %d, blocks: %d, threads(x,y): (%d,%d), bsize = (%i)\n",num_streams,blockspergrid,threadsperblockx,bsize);
+  printf("Streams: %d, blocks: %d, threads(x): (%d), bsize = (%i)\n",num_streams,blockspergrid,threadsperblockx,bsize);
    int itr;
    ATRK inputtrk = {
      {-12.806846618652344, -7.723824977874756, 38.13014221191406,0.23732035065189902, -2.613372802734375, 0.35594117641448975},
@@ -918,7 +918,11 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(struct MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nlayer*nevts*nb*sizeof(struct MPHIT));
 
-   
+
+   //WIP: attempt to increase shared memory size 
+   //size_t maxbytes = 100000; 
+   //cudaFuncSetAttribute(GPUsequence, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
+   //cudaFuncSetAttribute(GPUsequence, cudaFuncAttributePreferredSharedMemoryCarveout, maxbytes);
 
     for (int s = 0; s<num_streams;s++){
    transferAsyncTrk(trk_dev, trk,streams[s]);
