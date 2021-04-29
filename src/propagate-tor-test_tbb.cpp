@@ -24,13 +24,13 @@ see README.txt for instructions
 #ifndef nevts
 #define nevts 100
 #endif
-#define smear 0.1
+#define smear 0.00001
 
 #ifndef NITER
 #define NITER 5
 #endif
 #ifndef nlayer
-#define nlayer 20
+#define nlayer 20 //can be up to 22
 #endif
 
 #ifndef nthreads
@@ -152,7 +152,7 @@ const MPTRK* bTk(const MPTRK* tracks, size_t ev, size_t ib) {
   return &(tracks[ib + nb*ev]);
 }
 
-float q(const MP1I* bq, size_t it){
+int q(const MP1I* bq, size_t it){
   return (*bq).data[it];
 }
 //
@@ -250,12 +250,12 @@ MPTRK* prepareTracks(ATRK inputtrk) {
 	      for (size_t ip=0;ip<6;++ip) {
 	        result[ib + nb*ie].par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
 	      }
-	      //cov
+	      //cov, scale by factor 100
 	      for (size_t ip=0;ip<21;++ip) {
-	        result[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip];
+	        result[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
 	      }
 	      //q
-	      result[ib + nb*ie].q.data[it] = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);//fixme check
+	      result[ib + nb*ie].q.data[it] = inputtrk.q;//can't really smear this or fit will be wrong
       }
     }
   }
@@ -659,7 +659,7 @@ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3
   outErr.Subtract(psErr, outErr);
   */
   
-  trkErr = &newErr;
+   (*trkErr) = newErr;
 }
 
 inline void sincos4(const float x, float& sin, float& cos)
@@ -672,7 +672,7 @@ inline void sincos4(const float x, float& sin, float& cos)
    sin  = x - 0.16666667f*x*x2;
 }
 
-constexpr float kfact= 100/3.8;
+constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
                   const MP3F* msP, MP6x6SF* outErr, MP6F* outPar) {
@@ -831,118 +831,21 @@ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg,
 
 int main (int argc, char* argv[]) {
 
-   int itr;
-   ATRK inputtrk = {
-     {-102.948, -36.7081, 38.1966, 0.219896, -2.93646, 1.27176},
-     {1.16814e-06, -3.37163e-06, 9.74695e-06, -9.91821e-07, 2.99706e-06, 0.00653553, -3.22644e-07,
-      1.05966e-06, -2.03541e-06, 2.61232e-06, 2.41009e-07, -7.28806e-07, -4.87794e-07, -3.46317e-07,
-      1.21295e-07, 1.01405e-08, -3.0643e-08, -0.000102475, 2.72918e-08, 4.97623e-09, 1.98597e-06},
-     1
-   };
+#include "input_track.h"
 
-   AHIT inputhit = {
-     {-20.7824649810791, -12.24150276184082, 57.8067626953125},
-     {2.545517190810642e-06,-2.6680759219743777e-06,2.8030024168401724e-06,0.00014160551654640585,0.00012282167153898627,11.385087966918945}
-   };
-
-
-   AHIT inputhit00 = {
-     {-2.78037, -1.39456, 5.3674},
-     {4.64016e-07, -1.62764e-06, 5.70933e-06, 9.14451e-09, 2.98399e-09, 0.000169896}
-   };
-   AHIT inputhit01 = {
-     {-5.91232, -2.97859, 6.44747},
-     {1.54669e-07, -4.19927e-07, 1.14011e-06, -3.41104e-10, -1.55801e-10, 1.88389e-05}
-   };
-   AHIT inputhit02 = {
-     {-6.23295, -3.13744, 6.55036},
-     {3.07163e-07, -4.71687e-07, 7.24333e-07, 3.14467e-10, -1.42532e-10, 7.234e-05}
-   };
-   AHIT inputhit03 = {
-     {-9.58578, -4.78542, 7.7069},
-     {1.80433e-07, -3.32149e-07, 6.11433e-07, 6.77207e-12, 4.26358e-12, 1.7071e-06}
-   };
-   AHIT inputhit04 = {
-     {-14.1896, -6.98843, 9.27735},
-     {9.74787e-08, -2.06489e-07, 4.37405e-07, 9.0107e-12, 4.33243e-12, 5.49672e-07}
-   };
-   AHIT inputhit05 = {
-     {-21.2206, -10.2121, 16.9073},
-     {1.34333e-06, -2.33505e-06, 4.08712e-06, -0.000263674, -0.000107113, 11.3851}
-   };
-   AHIT inputhit06 = {
-     {-24.975, -11.8732, 7.57749},
-     {2.14989e-06, -2.65127e-06, 3.27603e-06, 0.000144673, 9.22875e-05, 11.3851}
-   };
-   AHIT inputhit07 = {
-     {-21.1851, -10.7373, 16.6534},
-     {0.0279748, -0.048906, 0.0854981, 0.561521, -0.98166, 11.2716}
-   };
-   AHIT inputhit08 = {
-     {-24.3072, -10.9986, 7.27519},
-     {0.0233677, -0.0458858, 0.0901031, 0.513205, -1.00775, 11.2716}
-   };
-   AHIT inputhit09 = {
-     {-25.0718, -11.3882, 7.84872},
-     {0.0449836, -0.0555156, 0.0685134, 0.712048, -0.878759, 11.2716}
-   };
-   AHIT inputhit10 = {
-     {-32.2064, -14.9459, 14.865},
-     {1.58319e-06, -2.46404e-06, 3.84232e-06, 0.000141838, 6.80311e-05, 11.3851}
-   };
-   AHIT inputhit11 = {
-     {-31.9724, -14.8844, 14.9466},
-     {0.0330908, -0.051576, 0.0803874, -0.610712, 0.951868, 11.2716}
-   };
-   AHIT inputhit12 = {
-     {-36.2923, -16.605, 17.4194},
-     {2.98939e-06, -5.29209e-06, 9.3715e-06, -5.72399e-05, -8.33032e-05, 11.3851}
-   };
-   AHIT inputhit13 = {
-     {-37.1484, -16.9472, 17.42},
-     {4.61327e-06, -5.97693e-06, 7.75092e-06, 0.000218395, 4.27918e-06, 11.3851}
-   };
-   AHIT inputhit14 = {
-     {-44.0727, -19.6222, 24.7449},
-     {3.633e-06, -5.5419e-06, 8.45928e-06, -0.00016084, -3.8901e-06, 11.3851}
-   };
-   AHIT inputhit15 = {
-     {-46.8677, -20.6566, 14.9848},
-     {3.30029e-06, -5.3857e-06, 8.79008e-06, -4.17557e-05, -4.92917e-05, 11.3851}
-   };
-   AHIT inputhit16 = {
-     {-56.7284, -24.1194, 27.3157},
-     {4.17386e-06, -9.94764e-06, 2.40342e-05, 0.00118894, 0.000215468, 28.8716}
-   };
-   AHIT inputhit17 = {
-     {-57.2814, -23.9162, 27.3327},
-     {0.0420188, -0.101635, 0.245834, -1.09587, 2.65069, 28.5837}
-   };
-   AHIT inputhit18 = {
-     {-66.2483, -27.2077, 27.3171},
-     {4.91035e-06, -1.06706e-05, 2.32625e-05, 0.000447798, 0.000493005, 28.8716}
-   };
-   AHIT inputhit19 = {
-     {-70.5877, -28.5289, 27.3153},
-     {3.20442e-06, -8.93214e-06, 2.49603e-05, 0.000406874, 0.000207269, 28.8716}
-   };
-   AHIT inputhit20 = {
-     {-91.6213, -34.1844, 27.3141},
-     {1.41039e-06, -3.94656e-06, 1.12682e-05, 0.000779451, 0.000348001, 28.8716}
-   };
-   AHIT inputhit21 = {
-     {-102.949, -36.705, 45.067},
-     {3.54029e-06, -3.38451e-06, 1.14006e-05, -0.00748546, -0.00316423, 28.8716}
-   };
    std::vector<AHIT> inputhits{inputhit21,inputhit20,inputhit19,inputhit18,inputhit17,inputhit16,inputhit15,inputhit14,
                                inputhit13,inputhit12,inputhit11,inputhit10,inputhit09,inputhit08,inputhit07,inputhit06,
                                inputhit05,inputhit04,inputhit03,inputhit02,inputhit01,inputhit00};
 
-   printf("track in pos: x=%f, y=%f, z=%f, r=%f \n", inputtrk.par[0], inputtrk.par[1], inputtrk.par[2], sqrtf(inputtrk.par[0]*inputtrk.par[0] + inputtrk.par[1]*inputtrk.par[1]));
+   printf("track in pos: x=%f, y=%f, z=%f, r=%f, pt=%f, phi=%f, theta=%f \n", inputtrk.par[0], inputtrk.par[1], inputtrk.par[2],
+	  sqrtf(inputtrk.par[0]*inputtrk.par[0] + inputtrk.par[1]*inputtrk.par[1]),
+	  1./inputtrk.par[3], inputtrk.par[4], inputtrk.par[5]);
    printf("track in cov: xx=%.2e, yy=%.2e, zz=%.2e \n", inputtrk.cov[SymOffsets66(PosInMtrx(0,0,6))],
 	                                       inputtrk.cov[SymOffsets66(PosInMtrx(1,1,6))],
 	                                       inputtrk.cov[SymOffsets66(PosInMtrx(2,2,6))]);
-   printf("hit in pos: x=%f, y=%f, z=%f, r=%f \n", inputhit.pos[0], inputhit.pos[1], inputhit.pos[2], sqrtf(inputhit.pos[0]*inputhit.pos[0] + inputhit.pos[1]*inputhit.pos[1]));
+   for (size_t lay=0; lay<nlayer; lay++){
+     printf("hit in layer=%lu, pos: x=%f, y=%f, z=%f, r=%f \n", lay, inputhits[lay].pos[0], inputhits[lay].pos[1], inputhits[lay].pos[2], sqrtf(inputhits[lay].pos[0]*inputhits[lay].pos[0] + inputhits[lay].pos[1]*inputhits[lay].pos[1]));
+   }
    
    printf("produce nevts=%i ntrks=%i smearing by=%f \n", nevts, ntrks, smear);
    printf("NITER=%d\n", NITER);
@@ -958,13 +861,33 @@ int main (int argc, char* argv[]) {
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
    printf("done preparing!\n");
-   
+
+   /*   
+   for(size_t ie=0; ie<nevts;++ie) {
+     for(size_t ib=0; ib<nb;++ib) {
+       const MPTRK* btracks = bTk(trk, ie, ib);
+       for(size_t it=0; it<bsize;++it) {
+   	 printf("evt=%lu bunch=%lu track q=%i pos: x=%f, y=%f, z=%f, r=%f, cov: c00=%f, c11=%f, c22=%f, c33=%f, c44=%f, 5c5=%f \n",
+   		ie, ib, q(&btracks->q,it), x(btracks,it), y(btracks,it), z(btracks,it), sqrtf(x(btracks,it)*x(btracks,it) + y(btracks,it)*y(btracks,it)),
+   		btracks->cov.data[bsize*SymOffsets66(PosInMtrx(0,0,6))+it],btracks->cov.data[bsize*SymOffsets66(PosInMtrx(1,1,6))+it],
+   		btracks->cov.data[bsize*SymOffsets66(PosInMtrx(2,2,6))+it],btracks->cov.data[bsize*SymOffsets66(PosInMtrx(3,3,6))+it],
+   		btracks->cov.data[bsize*SymOffsets66(PosInMtrx(4,4,6))+it],btracks->cov.data[bsize*SymOffsets66(PosInMtrx(5,5,6))+it]);
+   	 MPTRK* obtracks = bTk(outtrk, ie, ib);
+   	 for(size_t layer=0; layer<nlayer; ++layer) {
+   	   const MPHIT* bhits = bHit(hit, ie, ib, layer);
+   	   printf("lay=%lu hit x=%f y=%f z=%f \n",layer, x(bhits,it), y(bhits,it), z(bhits,it));
+   	 }
+       }
+     }
+   }
+   */
 
    //task_scheduler_init init(nthreads);
    global_control c(global_control::max_allowed_parallelism, nthreads);
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
+   int itr;
    for(itr=0; itr<NITER; itr++) {
       parallel_for(blocked_range<size_t>(0,nevts,4),[&](blocked_range<size_t> iex){
       for(size_t ie =iex.begin(); ie<iex.end();++ie){
@@ -974,8 +897,45 @@ int main (int argc, char* argv[]) {
           MPTRK* obtracks = bTk(outtrk, ie, ib);
           for(size_t layer=0; layer<nlayer; ++layer) {
             const MPHIT* bhits = bHit(hit, ie, ib, layer);
-            propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
+	    if (layer==0) 
+	      propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
+	    else {
+	      /*
+	      for (size_t it=0; it<bsize;++it) {
+	      	printf("start lay=%lu prop track q=%i pos: x=%f, y=%f, z=%f, r=%f, c00=%f, c11=%f, c22=%f, c33=%f, c44=%f, 5c5=%f \n",
+	      	       layer, q(&obtracks->q,it), x(obtracks,it), y(obtracks,it), z(obtracks,it), sqrtf(x(obtracks,it)*x(obtracks,it) + y(obtracks,it)*y(obtracks,it)),
+	      	       obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(0,0,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(1,1,6))+it],
+	      	       obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(2,2,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(3,3,6))+it],
+	      	       obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(4,4,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(5,5,6))+it]);
+	      }
+	      */
+	      propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function, fixme (reusing charge from input)
+	    }
+	    /*
+	    for (size_t it=0; it<bsize;++it) {
+	      printf("lay=%lu hit x=%f y=%f z=%f, c00=%f c11=%f c22=%f\n",layer, x(bhits,it), y(bhits,it), z(bhits,it),
+	    	     bhits->cov.data[bsize*SymOffsets33(PosInMtrx(0,0,3))+it],
+	    	     bhits->cov.data[bsize*SymOffsets33(PosInMtrx(1,1,3))+it],
+	    	     bhits->cov.data[bsize*SymOffsets33(PosInMtrx(2,2,3))+it]);
+	      printf("lay=%lu prop track q=%i pos: x=%f, y=%f, z=%f, r=%f, pt=%f, phi=%f, theta=%f, c00=%f, c11=%f, c22=%f, c33=%f, c44=%f, 5c5=%f \n",
+	    	     layer, q(&obtracks->q,it), x(obtracks,it), y(obtracks,it), z(obtracks,it), sqrtf(x(obtracks,it)*x(obtracks,it) + y(obtracks,it)*y(obtracks,it)),
+	    	     1./ipt(obtracks,it), phi(obtracks,it), theta(obtracks,it),
+	    	     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(0,0,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(1,1,6))+it],
+	    	     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(2,2,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(3,3,6))+it],
+	    	     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(4,4,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(5,5,6))+it]);
+	    }
+	    */
             KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
+	    /*
+	    for (size_t it=0; it<bsize;++it) {
+	      printf("lay=%lu updt track q=%i pos: x=%f, y=%f, z=%f, r=%f, pt=%f, phi=%f, theta=%f, c00=%f, c11=%f, c22=%f, c33=%f, c44=%f, 5c5=%f \n",
+	    	     layer, q(&obtracks->q,it), x(obtracks,it), y(obtracks,it), z(obtracks,it), sqrtf(x(obtracks,it)*x(obtracks,it) + y(obtracks,it)*y(obtracks,it)),
+	    	     1./ipt(obtracks,it), phi(obtracks,it), theta(obtracks,it),
+	    	     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(0,0,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(1,1,6))+it],
+	    	     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(2,2,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(3,3,6))+it],
+	    	     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(4,4,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(5,5,6))+it]);
+	    }
+	    */
           }
         }});
       }});
@@ -988,6 +948,7 @@ int main (int argc, char* argv[]) {
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
 
+   int nnans = 0, nfail = 0;
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
    float avgpt = 0, avgphi = 0, avgtheta = 0;
    float avgdx = 0, avgdy = 0, avgdz = 0, avgdr = 0;
@@ -997,9 +958,29 @@ int main (int argc, char* argv[]) {
        float y_ = y(outtrk,ie,it);
        float z_ = z(outtrk,ie,it);
        float r_ = sqrtf(x_*x_ + y_*y_);
-       float pt_ = 1./ipt(outtrk,ie,it);
+       float pt_ = std::abs(1./ipt(outtrk,ie,it));
        float phi_ = phi(outtrk,ie,it);
        float theta_ = theta(outtrk,ie,it);
+       float hx_ = inputhits[nlayer-1].pos[0];
+       float hy_ = inputhits[nlayer-1].pos[1];
+       float hz_ = inputhits[nlayer-1].pos[2];
+       float hr_ = sqrtf(hx_*hx_ + hy_*hy_);
+       if (std::isfinite(x_)==false ||
+          std::isfinite(y_)==false ||
+          std::isfinite(z_)==false ||
+          std::isfinite(pt_)==false ||
+          std::isfinite(phi_)==false ||
+          std::isfinite(theta_)==false
+          ) {
+        nnans++;
+        continue;
+       }
+       if (fabs( (x_-hx_)/hx_ )>1. ||
+	   fabs( (y_-hy_)/hy_ )>1. ||
+	   fabs( (z_-hz_)/hz_ )>1.) {
+	 nfail++;
+	 continue;
+       }
        avgpt += pt_;
        avgphi += phi_;
        avgtheta += theta_;
@@ -1007,10 +988,6 @@ int main (int argc, char* argv[]) {
        avgy += y_;
        avgz += z_;
        avgr += r_;
-       float hx_ = x(hit,ie,it);
-       float hy_ = y(hit,ie,it);
-       float hz_ = z(hit,ie,it);
-       float hr_ = sqrtf(hx_*hx_ + hy_*hy_);
        avgdx += (x_-hx_)/x_;
        avgdy += (y_-hy_)/y_;
        avgdz += (z_-hz_)/z_;
@@ -1037,14 +1014,25 @@ int main (int argc, char* argv[]) {
        float y_ = y(outtrk,ie,it);
        float z_ = z(outtrk,ie,it);
        float r_ = sqrtf(x_*x_ + y_*y_);
+       float hx_ = inputhits[nlayer-1].pos[0];
+       float hy_ = inputhits[nlayer-1].pos[1];
+       float hz_ = inputhits[nlayer-1].pos[2];
+       float hr_ = sqrtf(hx_*hx_ + hy_*hy_);
+       if (std::isfinite(x_)==false ||
+          std::isfinite(y_)==false ||
+          std::isfinite(z_)==false
+          ) {
+        continue;
+       }
+       if (fabs( (x_-hx_)/hx_ )>1. ||
+	   fabs( (y_-hy_)/hy_ )>1. ||
+	   fabs( (z_-hz_)/hz_ )>1.) {
+	 continue;
+       }
        stdx += (x_-avgx)*(x_-avgx);
        stdy += (y_-avgy)*(y_-avgy);
        stdz += (z_-avgz)*(z_-avgz);
        stdr += (r_-avgr)*(r_-avgr);
-       float hx_ = x(hit,ie,it);
-       float hy_ = y(hit,ie,it);
-       float hz_ = z(hit,ie,it);
-       float hr_ = sqrtf(hx_*hx_ + hy_*hy_);
        stddx += ((x_-hx_)/x_-avgdx)*((x_-hx_)/x_-avgdx);
        stddy += ((y_-hy_)/y_-avgdy)*((y_-hy_)/y_-avgdy);
        stddz += ((z_-hz_)/z_-avgdz)*((z_-hz_)/z_-avgdz);
@@ -1072,6 +1060,8 @@ int main (int argc, char* argv[]) {
    printf("track pt avg=%f\n", avgpt);
    printf("track phi avg=%f\n", avgphi);
    printf("track theta avg=%f\n", avgtheta);
+   printf("number of tracks with nans=%i\n", nnans);
+   printf("number of tracks failed=%i\n", nfail);
 
    free(trk);
    free(hit);
