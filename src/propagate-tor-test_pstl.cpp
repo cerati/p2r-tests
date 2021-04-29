@@ -1,5 +1,6 @@
 /*
-icc propagate-toz-test.C -o propagate-toz-test.exe -fopenmp -O3
+nvc++ -O2 -std=c++17 -stdpar -gpu=cc75 -std=c++17 src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
+g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_pstl
 */
 
 #include <stdio.h>
@@ -940,7 +941,7 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
      newErr[18*bsize+it] = trkErr(18, terr_blk_offset) - newErr[18*bsize+it];
      newErr[19*bsize+it] = trkErr(19, terr_blk_offset) - newErr[19*bsize+it];
      newErr[20*bsize+it] = trkErr(20, terr_blk_offset) - newErr[20*bsize+it];
-     //fake transfer
+     //fake transfer?
      trkErr( 0, terr_blk_offset) = newErr[ 0*bsize+it];
      trkErr( 1, terr_blk_offset) = newErr[ 1*bsize+it];
      trkErr( 2, terr_blk_offset) = newErr[ 2*bsize+it];
@@ -1232,9 +1233,37 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   auto wall_start = std::chrono::high_resolution_clock::now();
-
    auto policy = std::execution::par_unseq;
+
+   std::cout << "Begin warming up..." << std::endl;
+   //
+   std::vector<float> x_(1000*nevts*nb);
+   std::vector<float> y_(1000*nevts*nb);
+
+   auto warm_start = std::chrono::high_resolution_clock::now();
+
+   std::fill(policy, x_.begin(), x_.end(), 1.0f);
+   std::fill(policy, y_.begin(), y_.end(), 2.0f);
+
+   double sum = 0.0;
+   for(int i = 0; i < 1000;i++)
+   {
+     float lsum = std::transform_reduce(policy,
+                                x_.begin(),
+                                x_.end(),
+                                y_.begin(),
+                                static_cast<float>(0.0),
+                                std::plus<float>(),
+                                [=](const auto &xi, const auto &yi) { return xi*yi;} );
+     sum += lsum;
+   }
+   auto warm_stop = std::chrono::high_resolution_clock::now();
+   auto warm_diff = warm_stop - warm_start;
+   auto warm_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(warm_diff).count()) / 1e6;
+
+   std::cout << "..done. Warmup time: " << warm_time << " secs. " << std::endl;
+
+   auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(itr=0; itr<NITER; itr++) {
 
