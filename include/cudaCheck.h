@@ -25,7 +25,7 @@ namespace cuda {
     out << error << ": " << message << "\n";
     if (description)
       out << description << "\n";
-    std::cout<< out.str();
+    std::cerr<< out.str() << std::endl;
     std::abort();
     return;
   }

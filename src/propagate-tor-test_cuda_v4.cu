@@ -807,18 +807,6 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
   MultHelixPropTransp(errorProp, temp, outErr);
 }
 
-inline void transferAsyncTrk(MPTRK* trk_dev, MPTRK* trk, cudaStream_t stream){
-
-  cudaMemcpyAsync(trk_dev, trk, nevts*nb*sizeof(MPTRK), cudaMemcpyHostToDevice, stream);
-}
-inline void transferAsyncHit(MPHIT* hit_dev, MPHIT* hit, cudaStream_t stream){
-
-    cudaMemcpyAsync(hit_dev,hit,nlayer*nevts*nb*sizeof(MPHIT), cudaMemcpyHostToDevice, stream);
-}
-inline void transfer_backAsync(MPTRK* trk_host, MPTRK* trk,cudaStream_t stream){
-  cudaMemcpyAsync(trk_host, trk, nevts*nb*sizeof(MPTRK), cudaMemcpyDeviceToHost, stream);
-}
-
 __device__ __constant__ int ie_range = (int) nevts/num_streams; 
 //__global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, MP6x6SF* newErr,MP6x6F* errorProp , const int stream){
 __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int stream){
@@ -831,7 +819,11 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int st
    __shared__ struct MP2F res_loc;
    __shared__ struct MP6x6SF newErr;
 
-  for (size_t ti = blockIdx.x; ti< nb*nevts; ti+=gridDim.x){
+   const int end = (stream < num_streams) ?
+     nb*nevts / num_streams : // for "full" streams
+     nb*nevts % num_streams; // possible remainder
+
+   for (size_t ti = blockIdx.x; ti< end; ti+=gridDim.x){
       int ie = ti/nb;
       int ib = ti%nb;
       const MPTRK* btracks = bTk(trk,ie,ib);
@@ -844,7 +836,7 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int st
                     &rotT00, &rotT01, &resErr_loc, &kGain, &res_loc, &(newErr));
        }
     //if((index)%100==0 ) printf("index = %i ,(block,grid)=(%i,%i), track = (%.3f)\n ", index,blockDim.x,gridDim.x,&(*btracks).par.data[8]);
-  }
+   }
 }
 
 int main (int argc, char* argv[]) {
@@ -904,8 +896,8 @@ int main (int argc, char* argv[]) {
    int device = -1;
    cudaGetDevice(&device);
 
-  int stream_chunk = ((int)(nevts*ntrks/num_streams));
-  int stream_remainder = ((int)((nevts*ntrks)%num_streams));
+  int stream_chunk = ((int)(nevts*nb/num_streams));
+  int stream_remainder = ((int)((nevts*nb)%num_streams));
   int stream_range;
   if (stream_remainder == 0){ stream_range =num_streams;}
   else{stream_range = num_streams+1;}
@@ -940,6 +932,22 @@ int main (int argc, char* argv[]) {
    //cudaMalloc(&newErr,sizeof(MP6x6SF)*blockspergrid);
    //cudaMalloc(&errorProp,sizeof(MP6x6F)*blockspergrid);
 
+   auto chunkSize = [&](int s) {
+     return s < num_streams ? stream_chunk : stream_remainder;
+   };
+   auto forStream = [&](auto ptr, int s) {
+     return ptr + s*stream_chunk;
+   };
+   auto transferAsyncTrk = [&](int s) {
+     cudaCheck(cudaMemcpyAsync(forStream(trk_dev, s), forStream(trk, s), chunkSize(s)*sizeof(MPTRK), cudaMemcpyHostToDevice, streams[s]));
+   };
+   auto transferAsyncHit = [&](int s) {
+     cudaCheck(cudaMemcpyAsync(forStream(hit_dev, s), forStream(hit, s), chunkSize(s)*nlayer*sizeof(MPHIT), cudaMemcpyHostToDevice, streams[s]));
+   };
+   auto transfer_backAsync = [&](int s) {
+     cudaCheck(cudaMemcpyAsync(forStream(outtrk, s), forStream(outtrk_dev, s), chunkSize(s)*sizeof(MPTRK), cudaMemcpyDeviceToHost, streams[s]));
+   };
+
    auto doWork = [&](const char* msg, int nIters) {
      double wall_time = 0;
 
@@ -947,17 +955,17 @@ int main (int argc, char* argv[]) {
      for(int itr=0; itr<nIters; itr++) {
        auto wall_start = std::chrono::high_resolution_clock::now();
        for (int s = 0; s<num_streams;s++) {
-         transferAsyncTrk(trk_dev, trk,streams[s]);
-         transferAsyncHit(hit_dev, hit,streams[s]);
+         transferAsyncTrk(s);
+         transferAsyncHit(s);
        }
 
        for (int s = 0; s<num_streams;s++) {
-         GPUsequence<<<grid,block,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+         GPUsequence<<<grid,block,0,streams[s]>>>(forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s),s);
        }
 
 #ifdef MEASURE_D2H_TRANSFER
        for (int s = 0; s<num_streams;s++) {
-         transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+         transfer_backAsync(s);
        }
 #endif // MEASURE_D2H_TRANSFER
        cudaDeviceSynchronize();
@@ -966,19 +974,19 @@ int main (int argc, char* argv[]) {
      }
 #else // not MEASURE_H2D_TRANSFER
      for (int s = 0; s<num_streams;s++) {
-       transferAsyncTrk(trk_dev, trk,streams[s]);
-       transferAsyncHit(hit_dev, hit,streams[s]);
+       transferAsyncTrk(s);
+       transferAsyncHit(s);
      }
      cudaDeviceSynchronize();
      for(int itr=0; itr<nIters; itr++) {
        auto wall_start = std::chrono::high_resolution_clock::now();
        for (int s = 0; s<num_streams;s++) {
-         GPUsequence<<<grid,block,0,streams[s]>>>(trk_dev,hit_dev,outtrk_dev,s);
+         GPUsequence<<<grid,block,0,streams[s]>>>(forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s), s);
        }
 
 #ifdef MEASURE_D2H_TRANSFER
        for (int s = 0; s<num_streams;s++) {
-         transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+         transfer_backAsync(s);
        }
 #endif // MEASURE_D2H_TRANSFER
        cudaDeviceSynchronize();
@@ -989,7 +997,7 @@ int main (int argc, char* argv[]) {
 
 #ifndef MEASURE_D2H_TRANSFER
      for (int s = 0; s<num_streams;s++) {
-       transfer_backAsync(outtrk, outtrk_dev,streams[s]);
+       transfer_backAsync(s);
      }
      cudaDeviceSynchronize();
 #endif
