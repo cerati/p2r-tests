@@ -1,5 +1,5 @@
 /*
-nvc++ -O2 -std=c++17 -stdpar -gpu=cc75 -std=c++17 src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
+nvc++ -O2 -std=c++17 -stdpar -gpu=cc75 src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
 g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_pstl
 */
 
