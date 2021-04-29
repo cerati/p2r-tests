@@ -262,28 +262,6 @@ MPTRK* prepareTracks(ATRK inputtrk) {
   return result;
 }
 
-MPHIT* prepareHits(AHIT inputhit) {
-  MPHIT* result = (MPHIT*) malloc(nlayer*nevts*nb*sizeof(MPHIT));  //fixme, align?
-  // store in element order for bunches of bsize matrices (a la matriplex)
-  for (size_t lay=0;lay<nlayer;++lay) {
-    for (size_t ie=0;ie<nevts;++ie) {
-      for (size_t ib=0;ib<nb;++ib) {
-        for (size_t it=0;it<bsize;++it) {
-        	//pos
-        	for (size_t ip=0;ip<3;++ip) {
-        	  result[lay+nlayer*(ib + nb*ie)].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
-        	}
-        	//cov
-        	for (size_t ip=0;ip<6;++ip) {
-        	  result[lay+nlayer*(ib + nb*ie)].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
-        	}
-        }
-      }
-    }
-  }
-  return result;
-}
-
 MPHIT* prepareHits(std::vector<AHIT>& inputhits) {
   MPHIT* result = (MPHIT*) malloc(nlayer*nevts*nb*sizeof(MPHIT));  //fixme, align?
   // store in element order for bunches of bsize matrices (a la matriplex)
@@ -546,6 +524,7 @@ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3
      setipt(inPar, it, ipt(inPar, it) + kGain.data[ 9*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[10*bsize+it] * res_loc.data[ 1*bsize+it]);
      setphi(inPar, it, phi(inPar, it) + kGain.data[12*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[13*bsize+it] * res_loc.data[ 1*bsize+it]);
      settheta(inPar, it, theta(inPar, it) + kGain.data[15*bsize+it] * res_loc.data[ 0*bsize+it] + kGain.data[16*bsize+it] * res_loc.data[ 1*bsize+it]);
+    //note: if ipt changes sign we should update the charge, or we should get rid of the charge altogether and just use the sign of ipt
    }
 
    MP6x6SF newErr;
@@ -684,6 +663,7 @@ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg,
     for (size_t i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f;
     
     float r0 = hipo(x(inPar,it), y(inPar,it));
+    //note: in principle charge is not needed and could be the sign of ipt
     const float k = q(inChg,it) * kfact;
     const float r = hipo(x(msP,it), y(msP,it));
 
@@ -895,22 +875,22 @@ int main (int argc, char* argv[]) {
         for(size_t ib =ibx.begin(); ib<ibx.end();++ib){
           const MPTRK* btracks = bTk(trk, ie, ib);
           MPTRK* obtracks = bTk(outtrk, ie, ib);
+	  (*obtracks) = (*btracks);
           for(size_t layer=0; layer<nlayer; ++layer) {
             const MPHIT* bhits = bHit(hit, ie, ib, layer);
-	    if (layer==0) 
-	      propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
-	    else {
-	      /*
-	      for (size_t it=0; it<bsize;++it) {
-	      	printf("start lay=%lu prop track q=%i pos: x=%f, y=%f, z=%f, r=%f, c00=%f, c11=%f, c22=%f, c33=%f, c44=%f, 5c5=%f \n",
-	      	       layer, q(&obtracks->q,it), x(obtracks,it), y(obtracks,it), z(obtracks,it), sqrtf(x(obtracks,it)*x(obtracks,it) + y(obtracks,it)*y(obtracks,it)),
-	      	       obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(0,0,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(1,1,6))+it],
-	      	       obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(2,2,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(3,3,6))+it],
-	      	       obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(4,4,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(5,5,6))+it]);
-	      }
-	      */
-	      propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function, fixme (reusing charge from input)
+
+	    /*
+	    for (size_t it=0; it<bsize;++it) {
+	      printf("start lay=%lu prop track q=%i pos: x=%f, y=%f, z=%f, r=%f, c00=%f, c11=%f, c22=%f, c33=%f, c44=%f, 5c5=%f \n",
+		     layer, q(&obtracks->q,it), x(obtracks,it), y(obtracks,it), z(obtracks,it), sqrtf(x(obtracks,it)*x(obtracks,it) + y(obtracks,it)*y(obtracks,it)),
+		     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(0,0,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(1,1,6))+it],
+		     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(2,2,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(3,3,6))+it],
+		     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(4,4,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(5,5,6))+it]);
 	    }
+	    */
+
+	    propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*obtracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
+
 	    /*
 	    for (size_t it=0; it<bsize;++it) {
 	      printf("lay=%lu hit x=%f y=%f z=%f, c00=%f c11=%f c22=%f\n",layer, x(bhits,it), y(bhits,it), z(bhits,it),
@@ -925,7 +905,9 @@ int main (int argc, char* argv[]) {
 	    	     obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(4,4,6))+it],obtracks->cov.data[bsize*SymOffsets66(PosInMtrx(5,5,6))+it]);
 	    }
 	    */
+
             KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
+
 	    /*
 	    for (size_t it=0; it<bsize;++it) {
 	      printf("lay=%lu updt track q=%i pos: x=%f, y=%f, z=%f, r=%f, pt=%f, phi=%f, theta=%f, c00=%f, c11=%f, c22=%f, c33=%f, c44=%f, 5c5=%f \n",
