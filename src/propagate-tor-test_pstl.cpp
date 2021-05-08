@@ -1,5 +1,6 @@
 /*
-nvc++ -O2 -std=c++17 -stdpar -gpu=cc75 src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
+nvc++ -O2 -std=c++17 -stdpar=gpu -gpu=cc75 src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
+nvc++ -O2 -std=c++17 -stdpar=multicore src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl 
 g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_pstl
 */
 
@@ -26,7 +27,7 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #endif//__NVCOMPILER_CUDA__
 #endif
 #ifndef ntrks
-#define ntrks 8192
+#define ntrks 9600//8192
 #endif
 
 #define nb    (ntrks/bsize)
@@ -43,13 +44,7 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #define nlayer 20
 #endif
 
-//BACKEND selector
-#if defined(__NVCOMPILER_CUDA__)
-
-#include <thrust/iterator/counting_iterator.h>
-using namespace thrust;
-
-#else
+#ifndef __NVCOMPILER_CUDA__
 
 #if defined(__INTEL_COMPILER)
 #include <malloc.h>
@@ -57,12 +52,61 @@ using namespace thrust;
 #include <mm_malloc.h>
 #endif
 
-#include <tbb/tbb.h>
-using namespace tbb;
-
 constexpr int alloc_align  = (2*1024*1024);
 
-#endif //BACKEND selector
+#endif
+
+namespace impl {
+
+   template <typename IntType>
+   class counting_iterator {
+       static_assert(std::numeric_limits<IntType>::is_integer, "Cannot instantiate counting_iterator with a non-integer type");
+     public:
+       using value_type = IntType;
+       using difference_type = typename std::make_signed<IntType>::type;
+       using pointer = IntType*;
+       using reference = IntType&;
+       using iterator_category = std::random_access_iterator_tag;
+
+       counting_iterator() : value(0) { }
+       explicit counting_iterator(IntType v) : value(v) { }
+
+       value_type operator*() const { return value; }
+       value_type operator[](difference_type n) const { return value + n; }
+
+       counting_iterator& operator++() { ++value; return *this; }
+       counting_iterator operator++(int) {
+         counting_iterator result{value};
+         ++value;
+         return result;
+       }  
+       counting_iterator& operator--() { --value; return *this; }
+       counting_iterator operator--(int) {
+         counting_iterator result{value};
+         --value;
+         return result;
+       }
+       counting_iterator& operator+=(difference_type n) { value += n; return *this; }
+       counting_iterator& operator-=(difference_type n) { value -= n; return *this; }
+
+       friend counting_iterator operator+(counting_iterator const& i, difference_type n)          { return counting_iterator(i.value + n);  }
+       friend counting_iterator operator+(difference_type n, counting_iterator const& i)          { return counting_iterator(i.value + n);  }
+       friend difference_type   operator-(counting_iterator const& x, counting_iterator const& y) { return x.value - y.value;  }
+       friend counting_iterator operator-(counting_iterator const& i, difference_type n)          { return counting_iterator(i.value - n);  }
+
+       friend bool operator==(counting_iterator const& x, counting_iterator const& y) { return x.value == y.value;  }
+       friend bool operator!=(counting_iterator const& x, counting_iterator const& y) { return x.value != y.value;  }
+       friend bool operator<(counting_iterator const& x, counting_iterator const& y)  { return x.value < y.value; }
+       friend bool operator<=(counting_iterator const& x, counting_iterator const& y) { return x.value <= y.value; }
+       friend bool operator>(counting_iterator const& x, counting_iterator const& y)  { return x.value > y.value; }
+       friend bool operator>=(counting_iterator const& x, counting_iterator const& y) { return x.value >= y.value; }
+
+     private:
+       IntType value;
+   };
+
+} //impl
+
 
    template<typename Tp>
    struct AlignedAllocator {
@@ -655,7 +699,6 @@ inline void KalmanGainInv(const AccessorTp1 &a, const AccessorTp2 &b, MP3x3_ &c,
   const auto a_offset_ = a.GetThreadOffset(tid);
   const auto b_offset_ = b.GetThreadOffset(tid, lay);
   
-#pragma omp simd
   for (int it = 0; it < bsz; ++it)
   {
     const auto a_offset = a_offset_+it;
@@ -684,7 +727,7 @@ inline void KalmanGainInv(const AccessorTp1 &a, const AccessorTp2 &b, MP3x3_ &c,
 template<typename AccessorTp, size_t bsz = 1>
 inline void KalmanGain(const AccessorTp &a, const MP3x3_ &b, MP3x6_ &c, const int tid) {
   const auto a_offset_= a.GetThreadOffset(tid);
-#pragma simd
+
   for (int it = 0; it < bsz; ++it)
   {
     const auto a_offset = a_offset_+it;
@@ -739,7 +782,6 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
   const auto ipar_offset = inPar.GetThreadOffset(tid); 
   const auto herr_offset = hitErr.GetThreadOffset(tid, lay);   
   
-#pragma omp simd
   for (size_t it = 0;it < bsz; ++it) {
     const auto terr_blk_offset = terr_offset+it;
     const auto herr_blk_offset = herr_offset+it;    
@@ -825,7 +867,6 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
   }  
      
   MP2F_ res_loc;   
-#pragma omp simd
   for (size_t it = 0; it < bsz; ++it) { 
     const auto ipar_blk_offset = ipar_offset+it;
     
@@ -852,7 +893,6 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
   }
 
    MP6x6SF_ newErr;
-#pragma omp simd
    for (size_t it=0;it<bsize;++it)   {
      const auto terr_blk_offset = terr_offset+it;
 
@@ -1270,8 +1310,8 @@ int main (int argc, char* argv[]) {
      const int outer_loop_range = nevts*nb;
 
      std::for_each(policy,
-                   counting_iterator(0),
-                   counting_iterator(outer_loop_range),
+                   impl::counting_iterator(0),
+                   impl::counting_iterator(outer_loop_range),
                    [=,&trkNacc    = *trkNaccPtr,
                       &hitNacc    = *hitNaccPtr,
                       &outtrkNacc = *outtrkNaccPtr] (const auto i) {
