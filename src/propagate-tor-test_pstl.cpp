@@ -129,38 +129,21 @@ namespace impl {
        [[nodiscard]] Tp* allocate(std::size_t n){
 
          Tp* ptr = nullptr;
-#ifdef __NVCOMPILER_CUDA__
-         auto err = cudaMallocManaged((void **)&ptr,n*sizeof(Tp));
-
-         if( err != cudaSuccess ) {
-           ptr = (Tp *) NULL;
-           std::cerr << " cudaMallocManaged failed for " << n*sizeof(Tp) << " bytes " <<cudaGetErrorString(err)<< std::endl;
-           assert(0);
-         }
+#if defined( __NVCOMPILER_CUDA__) || defined(__INTEL_COMPILER)
+	 ptr = (Tp*) malloc(n*sizeof(Tp));
 #elif !defined(DPCPP_BACKEND)
-         //ptr = (Tp*)aligned_malloc(alloc_align, n*sizeof(Tp));
-#if defined(__INTEL_COMPILER)
-         ptr = (Tp*)malloc(bytes);
-#else
          ptr = (Tp*)_mm_malloc(n*sizeof(Tp),alloc_align);
 #endif
-         if(!ptr) throw std::bad_alloc();
-#endif
+	 if(!ptr) throw std::bad_alloc();
 
          return ptr;
        }
 
       void deallocate( Tp* p, std::size_t n) noexcept {
-#ifdef __NVCOMPILER_CUDA__
-         cudaFree((void *)p);
+#if defined(__NVCOMPILER_CUDA__) || defined(__INTEL_COMPILER)
+         free((void *)p);
 #elif !defined(DPCPP_BACKEND)
-
-#if defined(__INTEL_COMPILER)
-         free((void*)p);
-#else
          _mm_free((void *)p);
-#endif
-
 #endif
        }
      };
