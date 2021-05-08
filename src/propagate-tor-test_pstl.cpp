@@ -1,5 +1,5 @@
 /*
-nvc++ -O2 -std=c++17 -stdpar=gpu -gpu=cc75 src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
+nvc++ -O2 -std=c++17 -stdpar=gpu -gpu=cc75 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll  src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
 nvc++ -O2 -std=c++17 -stdpar=multicore src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl 
 g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_pstl
 */
@@ -1304,7 +1304,7 @@ int main (int argc, char* argv[]) {
                      }
                    });
 #if defined(__NVCOMPILER_CUDA__) 
-      convertTracks<order>(outtrk, outtrkNPtr.get());
+      //convertTracks<order>(outtrk, outtrkNPtr.get());
 #endif
 
    } //end of itr loop
