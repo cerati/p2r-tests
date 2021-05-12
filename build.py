@@ -24,7 +24,9 @@ technologies = {
     "cuda_v3":{
         "cuda":['nvcc']
     },
-
+    "cuda_v4":{
+        "cuda":['nvcc']
+    },
     "cuda":{
         "cuda":['nvcc']
     }
@@ -42,7 +44,8 @@ cmds ={
     "cuda":{"cuda":["srun","-n","1"]},
     #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
     "cuda_v2":{"cuda":["srun","-n","1"]},
-    "cuda_v3":{"cuda":["srun","-n","1"]}
+    "cuda_v3":{"cuda":["srun","-n","1"]},
+    "cuda_v4":{"cuda":["srun","-n","1"]}
 }
 # with default values
 scanParameters = [
