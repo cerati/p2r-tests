@@ -39,7 +39,8 @@ technologies = {
     #}
 }
 cmds ={
-    "tbb":{"threads":[]},
+    "tbb":{"threads":["srun","-n","1",'-c','40',"numactl", "--cpunodebind=1"]},
+    #"tbb":{"threads":[]},
     #"cuda":{"cuda":["srun","-n","1","-c","80","--exclusive","numactl","--cpunodebind=0"]}
     "cuda":{"cuda":["srun","-n","1"]},
     #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
