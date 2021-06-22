@@ -14,6 +14,18 @@ add the following to create detailed optimization report: `-qopt-report=5`
 
 ```./propagate-tor-test.exe```
 
+## instructions to compile and run p2r on lnx7188.classe.cornell.edu
+
+```
+source /opt/intel/oneapi/setvars.sh
+source /cvmfs/cms.cern.ch/slc7_amd64_gcc820/lcg/root/6.18.04-bcolbf/etc/profile.d/init.sh
+export TBB_GCC=/cvmfs/cms.cern.ch/slc7_amd64_gcc820/external/tbb/2019_U9
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$LIBJPEG_TURBO_ROOT/lib64
+
+icc -Wall -I. -O3 -fopenmp -march=native -xHost -qopt-zmm-usage=high src/propagate-tor-test_tbb.cpp -I$TBBROOT/include/ -L$TBBROOT/lib/intel64/gcc4.8/ -Wl,-rpath,/lib -ltbb -o propagate-tor-test.exe
+
+./propagate-tor-test.exe
+```
 
 ## instructions on cori
 ```
