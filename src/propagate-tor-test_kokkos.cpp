@@ -7,10 +7,11 @@ see README.txt for instructions
 #include <math.h>
 #include <unistd.h>
 #include <sys/time.h>
-#include <tbb/tbb.h>
 #include <iostream>
 #include <chrono>
 #include <iomanip>
+
+#include <Kokkos_Core.hpp>
 
 #ifndef bsize
 #define bsize 128
@@ -37,7 +38,6 @@ see README.txt for instructions
 #define nthreads 1
 #endif
 
-using namespace tbb;
 
 size_t PosInMtrx(size_t i, size_t j, size_t D) {
   return i*D+j;
@@ -837,15 +837,15 @@ int main (int argc, char* argv[]) {
    printf("done preparing!\n");
    
 
-   task_scheduler_init init(nthreads);
+   //task_scheduler_init init(nthreads);
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(itr=0; itr<NITER; itr++) {
-      parallel_for(blocked_range<size_t>(0,nevts,4),[&](blocked_range<size_t> iex){
-      for(size_t ie =iex.begin(); ie<iex.end();++ie){
-        parallel_for(blocked_range<size_t>(0,nb,4),[&](blocked_range<size_t> ibx){
-        for(size_t ib =ibx.begin(); ib<ibx.end();++ib){
+//      parallel_for(blocked_range<size_t>(0,nevts,4),[&](blocked_range<size_t> iex){
+      for(size_t ie =0; ie<nevts;++ie){
+//        parallel_for(blocked_range<size_t>(0,nb,4),[&](blocked_range<size_t> ibx){
+        for(size_t ib =0; ib<nb;++ib){
           const MPTRK* btracks = bTk(trk, ie, ib);
           MPTRK* obtracks = bTk(outtrk, ie, ib);
           for(size_t layer=0; layer<nlayer; ++layer) {
@@ -853,8 +853,8 @@ int main (int argc, char* argv[]) {
             propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
             KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
           }
-        }});
-      }});
+        };
+      };
    } //end of itr loop
    auto wall_stop = std::chrono::high_resolution_clock::now();
 
