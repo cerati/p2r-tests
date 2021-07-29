@@ -53,6 +53,9 @@ size_t SymOffsets66(size_t i) {
   return offs[i];
 }
 
+//using Kokkos::View<float*> =  Kokkos::View<float*>;
+//using ViewVectorInt =  Kokkos::View<int*>;
+
 struct ATRK {
   float par[6];
   float cov[21];
@@ -64,7 +67,6 @@ struct AHIT {
   float pos[3];
   float cov[6];
 };
-
 struct MP1I {
   int data[1*bsize];
 };
@@ -151,6 +153,10 @@ MPTRK* bTk(MPTRK* tracks, size_t ev, size_t ib) {
 const MPTRK* bTk(const MPTRK* tracks, size_t ev, size_t ib) {
   return &(tracks[ib + nb*ev]);
 }
+MPTRK* bTk(const Kokkos::View<MPTRK*> tracks, size_t ev, size_t ib) {
+  return &(tracks(ib + nb*ev));
+}
+
 
 float q(const MP1I* bq, size_t it){
   return (*bq).data[it];
@@ -177,6 +183,12 @@ float phi  (const MPTRK* btracks, size_t it){ return par(btracks, it, 4); }
 float theta(const MPTRK* btracks, size_t it){ return par(btracks, it, 5); }
 //
 float par(const MPTRK* tracks, size_t ev, size_t tk, size_t ipar){
+  size_t ib = tk/bsize;
+  const MPTRK* btracks = bTk(tracks, ev, ib);
+  size_t it = tk % bsize;
+  return par(btracks, it, ipar);
+}
+float par(const Kokkos::View<MPTRK*> tracks, size_t ev, size_t tk, size_t ipar){
   size_t ib = tk/bsize;
   const MPTRK* btracks = bTk(tracks, ev, ib);
   size_t it = tk % bsize;
@@ -209,11 +221,11 @@ void setipt  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 3, val)
 void setphi  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 4, val); }
 void settheta(MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 5, val); }
 
-const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib) {
-  return &(hits[ib + nb*ev]);
+const MPHIT* bHit(const Kokkos::View<MPHIT*> hits, size_t ev, size_t ib) {
+  return &(hits(ib + nb*ev));
 }
-const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib,size_t lay) {
-return &(hits[lay + (ib*nlayer) +(ev*nlayer*nb)]);
+const MPHIT* bHit(const Kokkos::View<MPHIT*> hits, size_t ev, size_t ib,size_t lay) {
+return &(hits(lay + (ib*nlayer) +(ev*nlayer*nb)));
 }
 //
 float pos(const MP3F* hpos, size_t it, size_t ipar){
@@ -226,44 +238,53 @@ float z(const MP3F* hpos, size_t it)    { return pos(hpos, it, 2); }
 float pos(const MPHIT* hits, size_t it, size_t ipar){
   return pos(&(*hits).pos,it,ipar);
 }
-float x(const MPHIT* hits, size_t it)    { return pos(hits, it, 0); }
-float y(const MPHIT* hits, size_t it)    { return pos(hits, it, 1); }
-float z(const MPHIT* hits, size_t it)    { return pos(hits, it, 2); }
+
+float pos(const Kokkos::View<MPHIT*> hits, size_t it, size_t ipar){
+  return pos(&(hits(0).pos),it,ipar);
+}
+float x(const Kokkos::View<MPHIT*> hits, size_t it)    { return pos(hits, it, 0); }
+float y(const Kokkos::View<MPHIT*> hits, size_t it)    { return pos(hits, it, 1); }
+float z(const Kokkos::View<MPHIT*> hits, size_t it)    { return pos(hits, it, 2); }
 //
-float pos(const MPHIT* hits, size_t ev, size_t tk, size_t ipar){
+float pos(const Kokkos::View<MPHIT*> hits, size_t ev, size_t tk, size_t ipar){
   size_t ib = tk/bsize;
   const MPHIT* bhits = bHit(hits, ev, ib);
   size_t it = tk % bsize;
   return pos(bhits,it,ipar);
 }
-float x(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 0); }
-float y(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 1); }
-float z(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 2); }
+float x(const Kokkos::View<MPHIT*> hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 0); }
+float y(const Kokkos::View<MPHIT*> hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 1); }
+float z(const Kokkos::View<MPHIT*> hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 2); }
 
-MPTRK* prepareTracks(ATRK inputtrk) {
-  MPTRK* result = (MPTRK*) malloc(nevts*nb*sizeof(MPTRK)); //fixme, align?
+Kokkos::View<MPTRK*>::HostMirror prepareTracks(ATRK inputtrk, Kokkos::View<MPTRK*> trk ) {
+
+ // auto result = (MPTRK*) malloc(nevts*nb*sizeof(MPTRK)); //fixme, align?
+
+  auto result = Kokkos::create_mirror_view( trk );
+
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t ie=0;ie<nevts;++ie) {
     for (size_t ib=0;ib<nb;++ib) {
       for (size_t it=0;it<bsize;++it) {
 	      //par
 	      for (size_t ip=0;ip<6;++ip) {
-	        result[ib + nb*ie].par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
+	        result(ib + nb*ie).par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
 	      }
 	      //cov
 	      for (size_t ip=0;ip<21;++ip) {
-	        result[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip];
+	        result(ib + nb*ie).cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip];
 	      }
 	      //q
-	      result[ib + nb*ie].q.data[it] = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);//fixme check
+	      result(ib + nb*ie).q.data[it] = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);//fixme check
       }
     }
   }
   return result;
 }
 
-MPHIT* prepareHits(AHIT inputhit) {
-  MPHIT* result = (MPHIT*) malloc(nlayer*nevts*nb*sizeof(MPHIT));  //fixme, align?
+Kokkos::View<MPHIT*>::HostMirror prepareHits(AHIT inputhit, Kokkos::View<MPHIT*> hit) {
+  
+  auto result = Kokkos::create_mirror_view( hit );
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
     for (size_t ie=0;ie<nevts;++ie) {
@@ -271,11 +292,11 @@ MPHIT* prepareHits(AHIT inputhit) {
         for (size_t it=0;it<bsize;++it) {
         	//pos
         	for (size_t ip=0;ip<3;++ip) {
-        	  result[lay+nlayer*(ib + nb*ie)].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
+        	  result(lay+nlayer*(ib + nb*ie)).pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
         	}
         	//cov
         	for (size_t ip=0;ip<6;++ip) {
-        	  result[lay+nlayer*(ib + nb*ie)].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
+        	  result(lay+nlayer*(ib + nb*ie)).cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
         	}
         }
       }
@@ -802,7 +823,7 @@ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg,
 int main (int argc, char* argv[]) {
 
    int itr;
-   ATRK inputtrk = {
+   ATRK inputtrk ={
      {-12.806846618652344, -7.723824977874756, 38.13014221191406,0.23732035065189902, -2.613372802734375, 0.35594117641448975},
      {6.290299552347278e-07,4.1375109560704004e-08,7.526661534029699e-07,2.0973730840978533e-07,1.5431574240665213e-07,9.626245400795597e-08,-2.804026640189443e-06,
       6.219111130687595e-06,2.649119409845118e-07,0.00253512163402557,-2.419662877381737e-07,4.3124190760040646e-07,3.1068903991780678e-09,0.000923913115050627,
@@ -828,8 +849,15 @@ int main (int argc, char* argv[]) {
 
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
-   MPTRK* trk = prepareTracks(inputtrk);
-   MPHIT* hit = prepareHits(inputhit);
+
+   Kokkos::View<MPTRK*>             trk; // device pointer
+   Kokkos::View<MPTRK*>::HostMirror h_trk = prepareTracks(inputtrk,trk);  // host pointer
+   Kokkos::deep_copy( trk , h_trk);
+
+   Kokkos::View<MPHIT*> hit;
+   Kokkos::View<MPHIT*>::HostMirror  h_hit = prepareHits(inputhit,hit);
+   Kokkos::deep_copy( hit, h_hit );
+
    MPTRK* outtrk = (MPTRK*) malloc(nevts*nb*sizeof(MPTRK));
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
@@ -846,11 +874,13 @@ int main (int argc, char* argv[]) {
       for(size_t ie =0; ie<nevts;++ie){
 //        parallel_for(blocked_range<size_t>(0,nb,4),[&](blocked_range<size_t> ibx){
         for(size_t ib =0; ib<nb;++ib){
-          const MPTRK* btracks = bTk(trk, ie, ib);
+          MPTRK* btracks = bTk(trk, ie, ib);
           MPTRK* obtracks = bTk(outtrk, ie, ib);
           for(size_t layer=0; layer<nlayer; ++layer) {
             const MPHIT* bhits = bHit(hit, ie, ib, layer);
-            propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
+            //propagateToR(&(btracks(0).cov), &(btracks(0).par), &(btracks(0).q), &(bhits(0).pos), &(obtracks(0).cov), &(obtracks(0).par)); // vectorized function
+            //KalmanUpdate(&(obtracks(0).cov),&(obtracks(0).par),&(bhits(0).cov),&(bhits.(0).pos));
+            propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos,  &(*obtracks).cov, &(*obtracks).par);
             KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
           }
         };
@@ -949,9 +979,9 @@ int main (int argc, char* argv[]) {
    printf("track phi avg=%f\n", avgphi);
    printf("track theta avg=%f\n", avgtheta);
 
-   free(trk);
-   free(hit);
-   free(outtrk);
+   //free(trk);
+   //free(hit);
+   //free(outtrk);
 
    return 0;
 }
