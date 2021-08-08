@@ -850,6 +850,9 @@ int main (int argc, char* argv[]) {
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
+   Kokkos::initialize();
+   {
+
    Kokkos::View<MPTRK*>             trk; // device pointer
    Kokkos::View<MPTRK*>::HostMirror h_trk = prepareTracks(inputtrk,trk);  // host pointer
    Kokkos::deep_copy( trk , h_trk);
@@ -870,22 +873,19 @@ int main (int argc, char* argv[]) {
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(itr=0; itr<NITER; itr++) {
-//      parallel_for(blocked_range<size_t>(0,nevts,4),[&](blocked_range<size_t> iex){
       for(size_t ie =0; ie<nevts;++ie){
-//        parallel_for(blocked_range<size_t>(0,nb,4),[&](blocked_range<size_t> ibx){
         for(size_t ib =0; ib<nb;++ib){
           MPTRK* btracks = bTk(trk, ie, ib);
           MPTRK* obtracks = bTk(outtrk, ie, ib);
           for(size_t layer=0; layer<nlayer; ++layer) {
             const MPHIT* bhits = bHit(hit, ie, ib, layer);
-            //propagateToR(&(btracks(0).cov), &(btracks(0).par), &(btracks(0).q), &(bhits(0).pos), &(obtracks(0).cov), &(obtracks(0).par)); // vectorized function
-            //KalmanUpdate(&(obtracks(0).cov),&(obtracks(0).par),&(bhits(0).cov),&(bhits.(0).pos));
             propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos,  &(*obtracks).cov, &(*obtracks).par);
             KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
           }
         };
       };
    } //end of itr loop
+
    auto wall_stop = std::chrono::high_resolution_clock::now();
 
    auto wall_diff = wall_stop - wall_start;
@@ -893,6 +893,7 @@ int main (int argc, char* argv[]) {
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
+
 
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
    float avgpt = 0, avgphi = 0, avgtheta = 0;
@@ -982,6 +983,8 @@ int main (int argc, char* argv[]) {
    //free(trk);
    //free(hit);
    //free(outtrk);
+   };
+   Kokkos::finalize();
 
    return 0;
 }
