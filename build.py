@@ -29,7 +29,10 @@ technologies = {
     },
     "cuda":{
         "cuda":['nvcc']
-    }
+    },
+    "acc.v3":{
+        "cuda":['nvcc']
+     }
 
     #"kokkos": {
     #  "serial": ["icc", "gcc"],
