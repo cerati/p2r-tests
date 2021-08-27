@@ -83,7 +83,7 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
     if compiler == "nvcc":
         cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17",'-maxrregcount=64','-g','-lineinfo'])
     if compiler == "nvc++":
-        cmd.extend(["nvc++","-Iinclude","-O2","-std=c++17","-stdpar=gpu","-gpu=cc75","-gpu=managed","-gpu=fma","-gpu=fastmath","-gpu=autocollapse","-gpu=loadcache:L1","-gpu=unroll"])
+        cmd.extend(["nvc++","-Iinclude","-O2","-std=c++17","-stdpar=gpu","-gpu=cc70","-gpu=managed","-gpu=fma","-gpu=fastmath","-gpu=autocollapse","-gpu=loadcache:L1","-gpu=unroll"])
     if compiler == "nvc++_x86":
         cmd.extend(["nvc++","-Iinclude","-O2","-std=c++17","-stdpar=multicore"])
 
