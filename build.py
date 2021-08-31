@@ -49,7 +49,8 @@ cmds ={
     #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
     "cuda_v2":{"cuda":["srun","-n","1"]},
     "cuda_v3":{"cuda":["srun","-n","1"]},
-    "cuda_v4":{"cuda":["srun","-n","1"]}
+    "cuda_v4":{"cuda":["srun","-n","1"]},
+    "acc.v3":{"cuda":["srun","-n","1"]}
 }
 # with default values
 scanParameters = [
