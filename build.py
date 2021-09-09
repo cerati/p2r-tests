@@ -31,7 +31,8 @@ technologies = {
         "cuda":['nvcc']
     },
     "acc.v3":{
-        "cuda":['nvcc']
+        "cuda":['nvc++'],
+        "cpu":['nvc++']
      }
 
     #"kokkos": {
@@ -50,14 +51,15 @@ cmds ={
     "cuda_v2":{"cuda":["srun","-n","1"]},
     "cuda_v3":{"cuda":["srun","-n","1"]},
     "cuda_v4":{"cuda":["srun","-n","1"]},
-    "acc.v3":{"cuda":["srun","-n","1"]}
+    "acc.v3":{"cuda":["srun","-n","1"],
+             "cpu":["srun","-n","1"]}
 }
 # with default values
 scanParameters = [
     ("ntrks", 9600),
     ("nevts", 100),
     ("NITER", 5),
-    ("bsize", 128),
+    ("bsize", 32),
     ("nlayer", 20),
     ("nthreads", 1),
     ("num_streams", 10),
@@ -70,7 +72,7 @@ ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
 result_re = re.compile("done ntracks=(?P<ntracks>\d+) tot time=(?P<time>\S+) ")
 
-def compilationCommand(compiler, technology, target, source, scanPoint):
+def compilationCommand(compiler, technology, backend, target, source, scanPoint):
     cmd = []
     if compiler == "gcc":
         cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native"])
@@ -80,6 +82,13 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
 
     if compiler == "nvcc":
         cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17",'-maxrregcount=64','-g','-lineinfo'])
+
+    if technology=="acc.v3":
+        if backend=="cuda":
+            cmd.extend(["nvc++","-Iinclude","-std=c++17",'-acc','-fast','-gpu=fastmath','-gpu=cc70',"-DNUM_WORKERS=8","-Msafeptr"])
+        elif backend=="cpu":
+            cmd.extend(["nvc++","-Iinclude","-std=c++17",'-acc=multicore'
+                        ,'-fast','-Mfprelaxed',"-Msafeptr",'-Mvect=simd:256',"-DNUM_WORKERS=1"])
 
     cmd.extend(["-o", target, source])
         
@@ -120,10 +129,10 @@ def execute(command, verbose):
         raise ExeException(p.returncode)
     return out
 
-def build(opts, src, compiler, technology, scanPoint):
-    target = "{}_{}_{}".format(prefix, technology, compiler)
+def build(opts, src, compiler, technology, backend, scanPoint):
+    target = "{}_{}_{}_{}".format(prefix, technology,backend, compiler)
     print("Building {} for {} with {} for {} as {}".format(src, technology, compiler, scanPoint, target))
-    cmd = compilationCommand(compiler, technology, target, src, scanPoint)
+    cmd = compilationCommand(compiler, technology,backend, target, src, scanPoint)
     if opts.verbose or opts.dryRun:
         print(" ".join(cmd))
 
@@ -212,7 +221,7 @@ def main(opts):
                         print('Alread found this point in result, skipping:', scanPoint_tuple)
                         continue 
                     try:
-                        exe = build(opts, source, comp, tech, scanPoint)
+                        exe = build(opts, source, comp, tech,backend, scanPoint)
                     except ExeException as e:
                         return e.errorCode()
 
