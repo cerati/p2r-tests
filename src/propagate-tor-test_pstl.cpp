@@ -1004,7 +1004,7 @@ constexpr float kfact= 100/3.8;
 constexpr int Niter=5;
 
 template <class MPTRKAccessors, class MPHITAccessors, size_t bsz = 1>
-void propagateToZ(MPTRKAccessors       &obtracks,
+void propagateToR(MPTRKAccessors       &obtracks,
                   const MPTRKAccessors &btracks,
                   const MPHITAccessors &bhits,
                   const int tid,
@@ -1299,7 +1299,7 @@ int main (int argc, char* argv[]) {
                       &hitNacc    = *hitNaccPtr,
                       &outtrkNacc = *outtrkNaccPtr] (const auto i) {
                      for(int layer=0; layer<nlayer; ++layer) {
-                       propagateToZ<MPTRKAccessorTp, MPHITAccessorTp, bsize>(outtrkNacc, trkNacc, hitNacc, i, layer);
+                       propagateToR<MPTRKAccessorTp, MPHITAccessorTp, bsize>(outtrkNacc, trkNacc, hitNacc, i, layer);
                        KalmanUpdate<MPTRKAccessorTp, MPHITAccessorTp, bsize>(outtrkNacc, hitNacc, i, layer);
                      }
                    });
