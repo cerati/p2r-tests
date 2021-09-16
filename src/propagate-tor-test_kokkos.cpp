@@ -14,10 +14,10 @@ see README.txt for instructions
 #include <Kokkos_Core.hpp>
 
 #ifndef bsize
-#define bsize 128
+#define bsize 32
 #endif
 #ifndef ntrks
-#define ntrks 9600
+#define ntrks 8192
 #endif
 
 #define nb    ntrks/bsize
@@ -882,14 +882,16 @@ int main (int argc, char* argv[]) {
 
    printf("done preparing!\n");
    
-
+   typedef Kokkos::TeamPolicy<>               team_policy;
+   typedef Kokkos::TeamPolicy<>::member_type  member_type;
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(itr=0; itr<NITER; itr++) {
-      Kokkos::parallel_for("Kernel", nevts, KOKKOS_LAMBDA(size_t ie){
-        //for(size_t ie =0; ie<nevts;++ie){
-         for(size_t ib =0; ib<nb;++ib){
+      Kokkos::parallel_for("Kernel", team_policy(nevts,Kokkos::AUTO), 
+                                    KOKKOS_LAMBDA( const member_type &teamMember){
+        size_t ie = teamMember.league_rank();
+        Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,nb),[&] (const size_t ib){ 
           MPTRK* btracks = bTk(trk, ie, ib);
           MPTRK* obtracks = bTk(outtrk, ie, ib);
           for(size_t layer=0; layer<nlayer; ++layer) {
@@ -897,11 +899,12 @@ int main (int argc, char* argv[]) {
             propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos,  &(*obtracks).cov, &(*obtracks).par);
             KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
           }
-        };
-      //};
+        });
      });
    } //end of itr loop
 
+   //Syncthreads
+   Kokkos::fence();
    auto wall_stop = std::chrono::high_resolution_clock::now();
 
    auto wall_diff = wall_stop - wall_start;
