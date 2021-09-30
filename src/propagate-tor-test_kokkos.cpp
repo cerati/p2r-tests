@@ -326,12 +326,14 @@ Kokkos::View<MPHIT*>::HostMirror prepareHits(AHIT inputhit, Kokkos::View<MPHIT*>
 }
 
 #define N bsize
-KOKKOS_FUNCTION void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
+template<typename member_type>
+KOKKOS_FUNCTION void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C, const member_type& teamMember) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
 //parallel_for(0,N,[&](int n){
- for (int n = 0; n < N; ++n)
+ //for (int n = 0; n < N; ++n)
+  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t n) 
   {
     c[ 0*N+n] = a[ 0*N+n]*b[ 0*N+n] + a[ 1*N+n]*b[ 1*N+n] + a[ 3*N+n]*b[ 6*N+n] + a[ 4*N+n]*b[10*N+n];
     c[ 1*N+n] = a[ 0*N+n]*b[ 1*N+n] + a[ 1*N+n]*b[ 2*N+n] + a[ 3*N+n]*b[ 7*N+n] + a[ 4*N+n]*b[11*N+n];
@@ -369,15 +371,17 @@ KOKKOS_FUNCTION void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C)
     c[33*N+n] = b[18*N+n];
     c[34*N+n] = b[19*N+n];
     c[35*N+n] = b[20*N+n];
-  }//);
+  });//);
 }
 
-KOKKOS_FUNCTION void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
+template<typename member_type>
+KOKKOS_FUNCTION void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C, const member_type& teamMember) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
 //parallel_for(0,N,[&](int n){
-  for (int n = 0; n < N; ++n)
+  //for (int n = 0; n < N; ++n)
+  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t n) 
   {
     c[ 0*N+n] = b[ 0*N+n]*a[ 0*N+n] + b[ 1*N+n]*a[ 1*N+n] + b[ 3*N+n]*a[ 3*N+n] + b[ 4*N+n]*a[ 4*N+n];
     c[ 1*N+n] = b[ 6*N+n]*a[ 0*N+n] + b[ 7*N+n]*a[ 1*N+n] + b[ 9*N+n]*a[ 3*N+n] + b[10*N+n]*a[ 4*N+n];
@@ -400,7 +404,7 @@ KOKKOS_FUNCTION void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6
     c[18*N+n] = b[30*N+n]*a[18*N+n] + b[31*N+n]*a[19*N+n] + b[33*N+n]*a[21*N+n] + b[34*N+n]*a[22*N+n];
     c[19*N+n] = b[30*N+n]*a[24*N+n] + b[31*N+n]*a[25*N+n] + b[33*N+n]*a[27*N+n] + b[34*N+n]*a[28*N+n];
     c[20*N+n] = b[35*N+n];
-  }//);
+  });//);
 }
 
 
@@ -459,11 +463,13 @@ KOKKOS_FUNCTION inline float hipo(float x, float y)
   return std::sqrt(x*x + y*y);
 }
 
+template <typename member_type>
 KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP,
                                 MP1F *rotT00, MP1F *rotT01, MP2x2SF *resErr_loc, MP3x6 *kGain,
-                                MP2F *res_loc, MP6x6SF * newErr ){
+                                MP2F *res_loc, MP6x6SF * newErr, const member_type& teamMember){
   
-  for (size_t it=0;it<bsize;++it) {
+  //for (size_t it=0;it<bsize;++it) {
+  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it){ 
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00->data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
     rotT01->data[it] =  (x(msP,it) + x(inPar,it)) / (2*r);    
@@ -475,9 +481,10 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
     resErr_loc->data[ 1*bsize+it] = (trkErr->data[3*bsize+it] + hitErr->data[3*bsize+it])*rotT00->data[it] +
                                    (trkErr->data[4*bsize+it] + hitErr->data[4*bsize+it])*rotT01->data[it];
     resErr_loc->data[ 2*bsize+it] = (trkErr->data[5*bsize+it] + hitErr->data[5*bsize+it]);
-  }
+  });
 
-  for (size_t it=0;it<bsize;++it)
+  //for (size_t it=0;it<bsize;++it)
+  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it) 
   {
     const double det = (double)resErr_loc->data[0*bsize+it] * resErr_loc->data[2*bsize+it] -
                        (double)resErr_loc->data[1*bsize+it] * resErr_loc->data[1*bsize+it];
@@ -486,9 +493,10 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
     resErr_loc->data[1*bsize+it] *= -s;
     resErr_loc->data[2*bsize+it]  = s * resErr_loc->data[0*bsize+it];
     resErr_loc->data[0*bsize+it]  = tmp;
-  }
+  });
 
-   for (size_t it=0;it<bsize;++it)
+  // for (size_t it=0;it<bsize;++it)
+  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it)
    {
       kGain->data[ 0*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00->data[it]*resErr_loc->data[ 0*bsize+it]) +
 	                        trkErr->data[ 1*bsize+it]*(rotT01->data[it]*resErr_loc->data[ 0*bsize+it]) +
@@ -532,9 +540,10 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
 	                        trkErr->data[16*bsize+it]*(rotT01->data[it]*resErr_loc->data[ 1*bsize+it]) +
 	                        trkErr->data[17*bsize+it]*resErr_loc->data[ 2*bsize+it];
       kGain->data[17*bsize+it] = 0;
-   }
+   });
 
-   for (size_t it=0;it<bsize;++it)
+  // for (size_t it=0;it<bsize;++it)
+  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it)
    {
      res_loc->data[0*bsize+it] =  rotT00->data[it]*(x(msP,it) - x(inPar,it)) + rotT01->data[it]*(y(msP,it) - y(inPar,it));
      res_loc->data[1*bsize+it] =  z(msP,it) - z(inPar,it);
@@ -545,9 +554,10 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
      setipt(inPar, it, ipt(inPar, it) + kGain->data[ 9*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[10*bsize+it] * res_loc->data[ 1*bsize+it]);
      setphi(inPar, it, phi(inPar, it) + kGain->data[12*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[13*bsize+it] * res_loc->data[ 1*bsize+it]);
      settheta(inPar, it, theta(inPar, it) + kGain->data[15*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[16*bsize+it] * res_loc->data[ 1*bsize+it]);
-   }
+   });
 
-   for (size_t it=0;it<bsize;++it)
+  // for (size_t it=0;it<bsize;++it)
+  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it)
    {
      newErr->data[ 0*bsize+it] = kGain->data[ 0*bsize+it]*rotT00->data[it]*trkErr->data[ 0*bsize+it] +
                                 kGain->data[ 0*bsize+it]*rotT01->data[it]*trkErr->data[ 1*bsize+it] +
@@ -634,7 +644,7 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
      newErr->data[18*bsize+it] = trkErr->data[18*bsize+it] - newErr->data[18*bsize+it];
      newErr->data[19*bsize+it] = trkErr->data[19*bsize+it] - newErr->data[19*bsize+it];
      newErr->data[20*bsize+it] = trkErr->data[20*bsize+it] - newErr->data[20*bsize+it];
-   }
+   });
 
   /*
   MPlexLH K;           // kalman gain, fixme should be L2
@@ -656,7 +666,7 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
   outErr.Subtract(psErr, outErr);
   */
   
-  trkErr = &newErr;
+  trkErr = newErr;
 }
 
 KOKKOS_FUNCTION inline void sincos4(const float x, float& sin, float& cos)
@@ -671,11 +681,12 @@ KOKKOS_FUNCTION inline void sincos4(const float x, float& sin, float& cos)
 
 constexpr float kfact= 100/3.8;
 constexpr int Niter=5;
+template <typename member_type>
 KOKKOS_FUNCTION void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
-                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp) {
+                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp, const member_type& teamMember) {
   
   //MP6x6F errorProp, temp;
-  for (size_t it=0;it<bsize;++it) {	
+  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it){ 
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp->data[bsize*PosInMtrx(i,i,6) + it] = 1.f;
     
@@ -819,10 +830,10 @@ KOKKOS_FUNCTION void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const
     errorProp->data[bsize*PosInMtrx(5,3,6) + it] = 0.f;
     errorProp->data[bsize*PosInMtrx(5,4,6) + it] = 0.f;
     errorProp->data[bsize*PosInMtrx(5,5,6) + it] = 1.f;
-  }
+  });
 
-  MultHelixProp(errorProp, inErr, temp);
-  MultHelixPropTransp(errorProp, temp, outErr);
+  MultHelixProp(errorProp, inErr, temp, teamMember);
+  MultHelixPropTransp(errorProp, temp, outErr, teamMember);
 }
 
 int main (int argc, char* argv[]) {
@@ -879,38 +890,52 @@ int main (int argc, char* argv[]) {
    
    typedef Kokkos::TeamPolicy<>               team_policy;
    typedef Kokkos::TeamPolicy<>::member_type  member_type;
-   typedef Kokkos::View< double*,
-                         Kokkos::DefaultExecutionSpace::scratch_memory_space,
-                         Kokkos::MemoryTraits<Kokkos::Unmanaged> >
-           ScratchViewType;
 
-   struct MP6x6F errorProp, temp;
-   struct MP1F rotT00, rotT01; 
-   struct MP2x2SF resErr_loc; 
-   struct MP3x6 kGain;
-   struct MP2F res_loc;
-   struct MP6x6SF newErr;
+   using mp6x6F_view_type  = Kokkos::View< MP6x6F,Kokkos::DefaultExecutionSpace::scratch_memory_space,Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
+   using mp1F_view_type    = Kokkos::View< MP1F,Kokkos::DefaultExecutionSpace::scratch_memory_space,Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
+   using mp2x2SF_view_type = Kokkos::View< MP2x2SF,Kokkos::DefaultExecutionSpace::scratch_memory_space,Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
+   using mp3x6_view_type   = Kokkos::View< MP3x6,Kokkos::DefaultExecutionSpace::scratch_memory_space,Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
+   using mp2F_view_type    = Kokkos::View< MP2F,Kokkos::DefaultExecutionSpace::scratch_memory_space,Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
+   using mp6x6SF_view_type = Kokkos::View< MP6x6SF,Kokkos::DefaultExecutionSpace::scratch_memory_space,Kokkos::MemoryTraits<Kokkos::Unmanaged> >;
 
-   int scratch_size = ScratchViewType::shmem_size( sizeof(errorProp)*2+sizeof(rotT00)*2+sizeof(resErr_loc)+sizeof(kGain)+sizeof(res_loc)+sizeof(newErr) );
+   size_t mp6x6F_bytes       = 2*mp6x6F_view_type::shmem_size();
+   size_t mp1F_bytes         = 2*mp1F_view_type::shmem_size();
+   size_t mp2x2SF_bytes      = mp2x2SF_view_type::shmem_size();
+   size_t mp3x6_view_bytes   = mp3x6_view_type::shmem_size();
+   size_t mp2F_view_bytes    = mp2F_view_type::shmem_size();
+   size_t mp6x6SF_view_bytes = mp6x6SF_view_type::shmem_size();
 
+   auto total_shared_bytes =mp6x6F_bytes+mp1F_bytes+mp2x2SF_bytes+mp3x6_view_bytes+mp2F_view_bytes+mp6x6SF_view_bytes ;
+
+   int shared_view_level = 0;
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(itr=0; itr<NITER; itr++) {
-      Kokkos::parallel_for("Kernel", team_policy(nevts,Kokkos::AUTO).set_scratch_size( 0, Kokkos::PerTeam( scratch_size )), 
+      Kokkos::parallel_for("Kernel", team_policy(nevts*nb,Kokkos::AUTO).set_scratch_size( 0, Kokkos::PerTeam( total_shared_bytes )), 
                                     KOKKOS_LAMBDA( const member_type &teamMember){
-        size_t ie = teamMember.league_rank();
-        Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,nb),[&] (const size_t ib){ 
+        size_t ie = teamMember.league_rank()/nb;
+        size_t ib = teamMember.league_rank()%nb;
+
+        mp6x6F_view_type errorProp( teamMember.team_scratch(shared_view_level) );
+        mp6x6F_view_type temp ( teamMember.team_scratch(shared_view_level));
+        mp1F_view_type   rotT00( teamMember.team_scratch(shared_view_level));
+        mp1F_view_type   rotT01( teamMember.team_scratch(shared_view_level));
+        mp2x2SF_view_type resErr_loc( teamMember.team_scratch(shared_view_level));
+        mp3x6_view_type   kGain ( teamMember.team_scratch(shared_view_level));
+        mp2F_view_type    res_loc( teamMember.team_scratch(shared_view_level));
+        mp6x6SF_view_type  newErr( teamMember.team_scratch(shared_view_level));
+        
           MPTRK* btracks = bTk(trk, ie, ib);
           MPTRK* obtracks = bTk(outtrk, ie, ib);
           for(size_t layer=0; layer<nlayer; ++layer) {
             const MPHIT* bhits = bHit(hit, ie, ib, layer);
             propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos,
-                          &(*obtracks).cov, &(*obtracks).par,&(errorProp),&temp);
+                          &(*obtracks).cov, &(*obtracks).par,(errorProp.data()),(temp.data()),teamMember);
             KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,
-                        &rotT00, &rotT01, &resErr_loc, &kGain, &res_loc, &(newErr));
+                        (rotT00.data()), (rotT01.data()), (resErr_loc.data()), (kGain.data()), (res_loc.data()), (newErr.data()), teamMember);
           }
-        });
+        //});
      });
    } //end of itr loop
 
