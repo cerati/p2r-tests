@@ -903,6 +903,17 @@ int main (int argc, char* argv[]) {
    int device = -1;
    cudaGetDevice(&device);
 
+  printf(" Runing on cudaDevice: %d\n", device);
+
+  int nDevices;
+  cudaGetDeviceCount(&nDevices);
+  for (int i = 0; i < nDevices; i++) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, i);
+    printf(" Device Number: %d\n", i);
+    printf("  Device name: %s\n", prop.name);
+  }
+
   int stream_chunk = ((int)(nevts*nb/num_streams));
   int stream_remainder = ((int)((nevts*nb)%num_streams));
   int stream_range;
