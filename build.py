@@ -29,7 +29,12 @@ technologies = {
     },
     "cuda":{
         "cuda":['nvcc']
-    }
+    },
+    "pstl":{
+        "cpu":['gcc'], # add other compilers
+        'cuda': ['nvc++','nvc++_x86']
+    },
+
 
     #"kokkos": {
     #  "serial": ["icc", "gcc"],
@@ -46,21 +51,23 @@ cmds ={
     #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
     "cuda_v2":{"cuda":["srun","-n","1"]},
     "cuda_v3":{"cuda":["srun","-n","1"]},
+    "pstl":{"cuda":["srun","-n","1"],
+            "cpu":["srun","-n","1"]}
     "cuda_v4":{"cuda":["srun","-n","1"]}
 }
 # with default values
 scanParameters = [
-    ("ntrks", 9600),
+    ("ntrks", 8192),
     ("nevts", 100),
     ("NITER", 5),
-    ("bsize", 128),
+    ("bsize", 32),
     ("nlayer", 20),
     ("nthreads", 1),
     ("num_streams", 10),
     ("threadsperblock", 1000),
     ("threadsperblockx", 2),
     ("threadsperblocky", 16),
-    #("blockspergrid", 40)
+    ("blockspergrid", 40)
 ]
 ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
@@ -69,17 +76,24 @@ result_re = re.compile("done ntracks=(?P<ntracks>\d+) tot time=(?P<time>\S+) ")
 def compilationCommand(compiler, technology, target, source, scanPoint):
     cmd = []
     if compiler == "gcc":
-        cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native"])
+        if technology=="pstl":
+            cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native", "-std=c++17","-mavx512f",'-lm',"-lgomp","-ltbb"])
+        else:
+            cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native", "-std=c++17"])
 
     if compiler == "icc":
         cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
 
     if compiler == "nvcc":
         cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17",'-maxrregcount=64','-g','-lineinfo'])
+    if compiler == "nvc++":
+        cmd.extend(["nvc++","-Iinclude","-O2","-std=c++17","-stdpar=gpu","-gpu=cc70","-gpu=managed","-gpu=fma","-gpu=fastmath","-gpu=autocollapse","-gpu=loadcache:L1","-gpu=unroll"])
+    if compiler == "nvc++_x86":
+        cmd.extend(["nvc++","-Iinclude","-O2","-std=c++17","-stdpar=multicore"])
 
     cmd.extend(["-o", target, source])
         
-    if technology == "tbb":
+    if technology == "tbb" :
         cmd.append("-ltbb")
 
     cmd.extend(["-D{}={}".format(name, getattr(scanPoint, name)) for name in ScanPoint._fields])
@@ -194,7 +208,6 @@ def main(opts):
                 outputJson = "result_{}.json".format("_".join(filter(None,[tech,backend,comp,opts.output])))
                 alreadyExists = set()
                 if not opts.overwrite and os.path.exists(outputJson):
-                    print("Updating output: ",outputJson)
                     with open(outputJson) as inp:
                         data = json.load(inp)
                 if not opts.append:
