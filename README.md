@@ -87,4 +87,15 @@ Example command:
 ```
 python build.py -t cuda_v3 --num_streams 1  -v --ntrks 9600 --nevts 100 --nlayer 20 --threadsperblockx 16 --threadsperblocky 2
 ```
- 
+### PSTL version
+
+```
+module load nvhpc/21.7
+module load gcc/9.3.0 # needed for gcc  version
+module load tbb       # needed for gcc  version
+``` 
+
+Example command:
+```
+python build.py -t pstl -v -c nvc++,nvc++_x86,gcc --dryRun
+```
