@@ -29,8 +29,10 @@ technologies = {
     },
     "cuda":{
         "cuda":['nvcc']
+    },
+    "hip":{
+        "hip":['hipcc'],
     }
-
     #"kokkos": {
     #  "serial": ["icc", "gcc"],
     #  "threads": ["icc", "gcc"],
@@ -46,27 +48,28 @@ cmds ={
     #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
     "cuda_v2":{"cuda":["srun","-n","1"]},
     "cuda_v3":{"cuda":["srun","-n","1"]},
-    "cuda_v4":{"cuda":["srun","-n","1"]}
+    "cuda_v4":{"cuda":["srun","-n","1"]},
+    "hip":{"hip":[]},
 }
 # with default values
 scanParameters = [
-    ("ntrks", 9600),
+    ("ntrks", 8192),
     ("nevts", 100),
     ("NITER", 5),
-    ("bsize", 128),
+    ("bsize", 32),
     ("nlayer", 20),
     ("nthreads", 1),
-    ("num_streams", 10),
-    ("threadsperblock", 1000),
-    ("threadsperblockx", 2),
-    ("threadsperblocky", 16),
+    ("num_streams", 1),
+    #("threadsperblock", 1000),
+    ("threadsperblockx", 32),
+    #("threadsperblocky", 16),
     #("blockspergrid", 40)
 ]
 ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
 result_re = re.compile("done ntracks=(?P<ntracks>\d+) tot time=(?P<time>\S+) ")
 
-def compilationCommand(compiler, technology, target, source, scanPoint):
+def compilationCommand(compiler, technology, target, source, scanPoint,opts):
     cmd = []
     if compiler == "gcc":
         cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native"])
@@ -76,6 +79,8 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
 
     if compiler == "nvcc":
         cmd.extend(["nvcc",'-arch=sm_70',"-Iinclude","-std=c++17",'-maxrregcount=64','-g','-lineinfo'])
+    if compiler == "hipcc":
+        cmd.extend(["hipcc","-Iinclude","-std=c++17"])
 
     cmd.extend(["-o", target, source])
         
@@ -83,6 +88,10 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
         cmd.append("-ltbb")
 
     cmd.extend(["-D{}={}".format(name, getattr(scanPoint, name)) for name in ScanPoint._fields])
+    if opts.noH2D:
+        cmd.extend(["-DEXCLUDE_H2D_TRANSFER"])
+    if opts.noD2H:
+        cmd.extend(["-DEXCLUDE_D2H_TRANSFER"])
         
     return cmd
 
@@ -119,7 +128,7 @@ def execute(command, verbose):
 def build(opts, src, compiler, technology, scanPoint):
     target = "{}_{}_{}".format(prefix, technology, compiler)
     print("Building {} for {} with {} for {} as {}".format(src, technology, compiler, scanPoint, target))
-    cmd = compilationCommand(compiler, technology, target, src, scanPoint)
+    cmd = compilationCommand(compiler, technology, target, src, scanPoint,opts)
     if opts.verbose or opts.dryRun:
         print(" ".join(cmd))
 
@@ -251,6 +260,10 @@ if __name__ == "__main__":
                         help="Overwrite the output JSON instead of updating it")
     parser.add_argument("--append", action="store_true",
                         help="Append new (stream, threads) results insteads of ignoring already existing point")
+    parser.add_argument("--noH2D", action="store_true",
+                        help="exclude H2D transfer in measured time")
+    parser.add_argument("--noD2H", action="store_true",
+                        help="exclude D2H transfer in measured time")
 
 
     for par, default in scanParameters:
