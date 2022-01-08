@@ -48,7 +48,7 @@ see README.txt for instructions
 #endif
 
 #ifndef num_streams
-#define num_streams 1
+#define num_streams 2
 #endif
 
 #ifndef threadsperblockx
@@ -912,12 +912,6 @@ int main (int argc, char* argv[]) {
    // Select the first device available on a system, for the chosen accelerator
    auto const device = alpaka::getDevByIdx<Acc>(0u);
 
-   // Define type for a queue with requested properties:
-   // in this example we require the queue to be blocking the host side
-   // while operations on the device (kernels, memory transfers) are running
-   using QueueAcc = alpaka::Queue<Acc, alpaka::Blocking>;
-   // Create a queue for the device
-   QueueAcc queue(device);
 
    printf("Streams: %d, blocks: %d, threads(x): (%d), bsize = (%i)\n",num_streams,blockspergrid,threadsperblockx,bsize);
    
@@ -983,15 +977,23 @@ int main (int argc, char* argv[]) {
 
    WorkDiv const workDiv = WorkDiv(blocksPerGrid,threadsPerBlock,elementsPerThread); 
 
+   // Define type for a queue with requested properties:
+   // in this example we require the queue to be blocking the host side
+   // while operations on the device (kernels, memory transfers) are running
+   using QueueAcc = alpaka::Queue<Acc, alpaka::Blocking>;
+   // Create a queue for the device
+  // QueueAcc queue(device);
+
   int stream_chunk = ((int)(nevts*nb/num_streams));
   int stream_remainder = ((int)((nevts*nb)%num_streams));
   int stream_range;
   if (stream_remainder == 0){ stream_range =num_streams;}
   else{stream_range = num_streams+1;}
-  cudaStream_t streams[stream_range];
+  //cudaStream_t streams[stream_range];
+
+  QueueAcc * queue = (QueueAcc*)malloc(sizeof(QueueAcc) * stream_range);
   for (int s = 0; s<stream_range;s++){
-    //cudaStreamCreateWithFlags(&streams[s],cudaStreamNonBlocking);
-    //cudaStreamCreate(&streams[s]);
+    queue[s] = QueueAcc(device);
   }
 
    gettimeofday(&timecheck, NULL);
@@ -1009,14 +1011,10 @@ int main (int argc, char* argv[]) {
 
   GPUsequenceKernel GPUsequence;
 
-  auto const taskKernel(alpaka::createTaskKernel<Acc>(
-    workDiv,
-    GPUsequence,
-    trk_dev,
-    hit_dev,
-    outtrk_dev,
-    0  
-    ));
+  auto const taskKernel = [&](int s) {
+        auto const task(alpaka::createTaskKernel<Acc>(workDiv, GPUsequence, trk_dev,hit_dev, outtrk_dev,    s     ));
+        return task;
+    };
 
 
    auto chunkSize = [&](int s) {
@@ -1026,33 +1024,38 @@ int main (int argc, char* argv[]) {
      return ptr + s*stream_chunk;
    };
    auto transferAsyncTrk = [&](int s) {
-     printf(" Transferring Trk for stream chunk = %ld\n", s);
-     alpaka::memcpy(queue, trk_bufDev, trk_bufHost, MPTRKExtent);
+     //printf(" Transferring Trk for stream chunk = %ld\n", s);
+     alpaka::memcpy(queue[s], trk_bufDev, trk_bufHost, MPTRKExtent);
    };
    auto transferAsyncHit = [&](int s) {
-     printf(" Transferring Hit for stream chunk = %ld\n", s);
-     alpaka::memcpy(queue, hit_bufDev, hit_bufHost, MPHITExtent);
+     //printf(" Transferring Hit for stream chunk = %ld\n", s);
+     alpaka::memcpy(queue[s], hit_bufDev, hit_bufHost, MPHITExtent);
    };
    auto transfer_backAsync = [&](int s) {
-     alpaka::memcpy(queue, outtrk_bufHost, outtrk_bufDev, MPTRKExtent);
+     alpaka::memcpy(queue[s], outtrk_bufHost, outtrk_bufDev, MPTRKExtent);
    };
 
    auto doWork = [&](const char* msg, int nIters) {
      double wall_time = 0;
-       for (int s = 0; s<num_streams;s++) {
-         transferAsyncTrk(s);
-         transferAsyncHit(s);
-       }
-       auto wall_start = std::chrono::high_resolution_clock::now();
-       alpaka::enqueue(queue, taskKernel);
-       alpaka::wait(queue); // wait in case we are using an asynchronous queue to time actual kernel runtime
-       auto wall_stop = std::chrono::high_resolution_clock::now();
-       wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
-       for (int s = 0; s<num_streams;s++) {
-         transfer_backAsync(s);
-       }
+      // for (int s = 0; s<num_streams;s++) {
+      //   transferAsyncTrk(s);
+      //   transferAsyncHit(s);
+      // }
+      // auto wall_start = std::chrono::high_resolution_clock::now();
+      //  //enqueue all streams
+      // for (int s = 0; s<num_streams;s++) {
+      //  alpaka::enqueue(queue[s], taskKernel(s));
+      // }
+      //  //wait for all streams
+      // for (int s = 0; s<num_streams;s++) {
+      //  alpaka::wait(queue[s]); 
+      // }
+      // auto wall_stop = std::chrono::high_resolution_clock::now();
+      // wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
+      // for (int s = 0; s<num_streams;s++) {
+      //   transfer_backAsync(s);
+      // }
 
-/*
 #ifdef MEASURE_H2D_TRANSFER
      for(int itr=0; itr<nIters; itr++) {
        auto wall_start = std::chrono::high_resolution_clock::now();
@@ -1062,16 +1065,16 @@ int main (int argc, char* argv[]) {
        }
 
        for (int s = 0; s<num_streams;s++) {
-         //GPUsequence<<<grid,block,0,streams[s]>>>(forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s),s);
-         //alpaka::enqueue(queue, taskKernel);
+         alpaka::enqueue(queue[s], taskKernel(s));
        }
-
 #ifdef MEASURE_D2H_TRANSFER
        for (int s = 0; s<num_streams;s++) {
          transfer_backAsync(s);
        }
 #endif // MEASURE_D2H_TRANSFER
-        alpaka::wait(queue); // wait in case we are using an asynchronous queue to time actual kernel runtime
+       for (int s = 0; s<num_streams;s++) {
+        alpaka::wait(queue[s]); 
+        }
        auto wall_stop = std::chrono::high_resolution_clock::now();
        wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
      }
@@ -1080,19 +1083,23 @@ int main (int argc, char* argv[]) {
        transferAsyncTrk(s);
        transferAsyncHit(s);
      }
-     alpaka::wait(queue); // wait in case we are using an asynchronous queue to time actual kernel runtime
+     //wait for all transferr to finish
+     for (int s = 0; s<num_streams;s++) {
+     alpaka::wait(queue); 
+     }
      for(int itr=0; itr<nIters; itr++) {
        auto wall_start = std::chrono::high_resolution_clock::now();
        for (int s = 0; s<num_streams;s++) {
-         //alpaka::enqueue(queue, taskKernel);
+         alpaka::enqueue(queue[s], taskKernel(s));
        }
-
 #ifdef MEASURE_D2H_TRANSFER
        for (int s = 0; s<num_streams;s++) {
          transfer_backAsync(s);
        }
 #endif // MEASURE_D2H_TRANSFER
-       alpaka::wait(queue); // wait in case we are using an asynchronous queue to time actual kernel runtime
+       for (int s = 0; s<num_streams;s++) {
+       alpaka::wait(queue[s]); 
+      }
        auto wall_stop = std::chrono::high_resolution_clock::now();
        wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
      }
@@ -1101,10 +1108,9 @@ int main (int argc, char* argv[]) {
 #ifndef MEASURE_D2H_TRANSFER
      for (int s = 0; s<num_streams;s++) {
        transfer_backAsync(s);
+       alpaka::wait(queue[s]); 
      }
-     alpaka::wait(queue); // wait in case we are using an asynchronous queue to time actual kernel runtime
 #endif
-*/
      return wall_time;
    };
 
