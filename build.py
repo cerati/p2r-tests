@@ -33,7 +33,7 @@ technologies = {
     "acc.v3":{
         "cuda":['nvc++'],
         "cpu":['nvc++']
-     }
+     },
     "pstl":{
         "cpu":['gcc'], # add other compilers
         'cuda': ['nvc++','nvc++_x86']
@@ -58,10 +58,10 @@ cmds ={
     "cuda_v3":{"cuda":["srun","-n","1"]},
     "cuda_v4":{"cuda":["srun","-n","1"]},
     "acc.v3":{"cuda":["srun","-n","1"],
-             "cpu":["srun","-n","1"]}
+             "cpu":["srun","-n","1"]},
     "pstl":{"cuda":["srun","-n","1"],
-            "cpu":["srun","-n","1"]}
-    "cuda_v4":{"cuda":["srun","-n","1"]}
+            "cpu":["srun","-n","1"]},
+    "cuda_v4":{"cuda":["srun","-n","1"]},
     "hip":{"hip":[]},
 }
 # with default values

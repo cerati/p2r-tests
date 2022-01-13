@@ -19,6 +19,7 @@ find_package(alpaka REQUIRED)
 #-------------------------------------------------------------------------------
 # Add executable.
 
+set(CMAKE_CUDA_ARCHITECTURES 70)
 alpaka_add_executable(
     ${_TARGET_NAME}
     src/propagate-tor-test_alpaka.cpp)
