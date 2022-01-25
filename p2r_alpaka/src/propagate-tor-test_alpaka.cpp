@@ -918,6 +918,8 @@ int main (int argc, char* argv[]) {
   
    //switches accelerator based on CMAKE option 
    using Acc = alpaka::ExampleDefaultAcc<Dim, Idx>;
+   using WorkDiv = alpaka::WorkDivMembers<Dim, Idx>;
+   using Vec = alpaka::Vec<Dim, Idx>;
  
    std::cout << "Using alpaka accelerator: " << alpaka::getAccName<Acc>() << std::endl;
 
@@ -951,38 +953,81 @@ int main (int argc, char* argv[]) {
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
+  int stream_chunk = ((int)(nevts*nb/num_streams));
+  int stream_remainder = ((int)((nevts*nb)%num_streams));
+  int stream_range;
+  if (stream_remainder == 0){ stream_range =num_streams;}
+  else{stream_range = num_streams+1;}
+  //cudaStream_t streams[stream_range];
+
+   auto chunkSize = [&](int s) {
+     return s < num_streams ? stream_chunk : stream_remainder;
+   };
+   auto forStream = [&](auto ptr, int s) {
+     return ptr + s*stream_chunk;
+   };
+
    Idx const nMPHIT(nevts*nb*nlayer);   
    Idx const nMPTRK(nevts*nb);   
    alpaka::Vec<Dim, Idx> MPHITExtent(nMPHIT);
    alpaka::Vec<Dim, Idx> MPTRKExtent(nMPTRK);
-  
+    
    using DevHost = alpaka::DevCpu;
    auto const devHost = alpaka::getDevByIdx<DevHost>(0u);
+
+   using MPTRKBufHost = alpaka::Buf<DevHost, MPTRK, Dim, Idx>;
+   using MPHITBufHost = alpaka::Buf<DevHost, MPHIT, Dim, Idx>;
+   using MPTRKBufDev = alpaka::Buf<Acc, MPTRK, Dim, Idx>;
+   using MPHITBufDev = alpaka::Buf<Acc, MPHIT, Dim, Idx>;
+ 
+   std::vector<Vec> MPTRKExtents;
+   std::vector<Vec> MPHITExtents;
+   std::vector<MPTRKBufHost> trk_bufHosts,outtrk_bufHosts;
+   std::vector<MPHITBufHost> hit_bufHosts;
+   std::vector<MPTRKBufDev> trk_bufDevs,outtrk_bufDevs;
+   std::vector<MPHITBufDev> hit_bufDevs;
+
+   MPTRK* trks[num_streams];
+   MPHIT* hits[num_streams];
+   MPHIT* outtrks[num_streams];
+   MPTRK* trks_dev[num_streams];
+   MPHIT* hits_dev[num_streams];
+   MPHIT* outtrks_dev[num_streams];
+
+   MPTRK* alltrks;
+   MPHIT* allhits;
+   alltrks = prepareTracks(inputtrk,alltrks);
+   allhits = prepareHits(inputhits,allhits);
+
+   for(int s=0;s<num_streams;s++){
+        MPTRKExtents.emplace_back(Idx(chunkSize(s)));
+        MPHITExtents.emplace_back(Idx(chunkSize(s*nlayer)));
     
-   //using BufHost = alpaka::Buf<DevHost, 
-   auto trk_bufHost    = alpaka::allocBuf<MPTRK,Idx>(devHost, MPTRKExtent);
-   auto hit_bufHost    = alpaka::allocBuf<MPHIT,Idx>(devHost, MPHITExtent);
-   auto outtrk_bufHost = alpaka::allocBuf<MPTRK,Idx>(devHost, MPTRKExtent);
+        trk_bufHosts.emplace_back(alpaka::allocBuf<MPTRK,Idx>(devHost,MPTRKExtents[s]));
+        hit_bufHosts.emplace_back(alpaka::allocBuf<MPHIT,Idx>(devHost,MPHITExtents[s]));
+        outtrk_bufHosts.emplace_back(alpaka::allocBuf<MPTRK,Idx>(devHost,MPTRKExtents[s]));
 
-   MPTRK* trk(alpaka::getPtrNative(trk_bufHost));
-   trk = prepareTracks(inputtrk,trk);
+        //device pointers
+        trk_bufDevs.emplace_back(alpaka::allocBuf<MPTRK,Idx>(device,MPTRKExtents[s]));
+        hit_bufDevs.emplace_back(alpaka::allocBuf<MPHIT,Idx>(device,MPHITExtents[s]));
+        outtrk_bufDevs.emplace_back(alpaka::allocBuf<MPTRK,Idx>(device,MPTRKExtents[s]));
+   }
 
-   MPHIT* hit(alpaka::getPtrNative(hit_bufHost));
-   hit = prepareHits(inputhits,hit);
+   for(int s=0;s<num_streams;s++){
+        trks[s] = alpaka::getPtrNative(trk_bufHosts[s]);
+        trks[s] = forStream(alltrks,s);
 
-   MPTRK* outtrk(alpaka::getPtrNative(outtrk_bufHost));
+        hits[s] = alpaka::getPtrNative(hit_bufHosts[s]);
+        hits[s] = forStream(allhits,s);
+        outtrks[s] = alpaka::getPtrNative(outtrk_bufHosts[s]); 
 
-   //device pointers
-   auto trk_bufDev    = alpaka::allocBuf<MPTRK,Idx>(device, MPTRKExtent);
-   auto outtrk_bufDev = alpaka::allocBuf<MPTRK,Idx>(device, MPTRKExtent);
-   auto hit_bufDev    = alpaka::allocBuf<MPHIT,Idx>(device, MPHITExtent);
+        trks_dev[s] = alpaka::getPtrNative(trk_bufDevs[s]);
+        hits_dev[s] = alpaka::getPtrNative(hit_bufDevs[s]);
+        outtrks_dev[s] = alpaka::getPtrNative(outtrk_bufDevs[s]);
 
-   MPTRK* trk_dev(alpaka::getPtrNative(trk_bufDev));
-   MPHIT* hit_dev(alpaka::getPtrNative(hit_bufDev));
-   MPTRK* outtrk_dev(alpaka::getPtrNative(outtrk_bufDev));
+    } 
 
-   using WorkDiv = alpaka::WorkDivMembers<Dim, Idx>;
-   using Vec = alpaka::Vec<Dim, Idx>;
+    
    Vec const elementsPerThread(Vec::all(static_cast<Idx>(1)));
    Vec const blocksPerGrid(Vec::all(static_cast<Idx>(blockspergrid)));
    Vec const threadsPerBlock(Vec::all(static_cast<Idx>(threadsperblockx)));
@@ -995,13 +1040,6 @@ int main (int argc, char* argv[]) {
    using QueueAcc = alpaka::Queue<Acc, alpaka::NonBlocking>;
    // Create a queue for the device
   // QueueAcc queue(device);
-
-  int stream_chunk = ((int)(nevts*nb/num_streams));
-  int stream_remainder = ((int)((nevts*nb)%num_streams));
-  int stream_range;
-  if (stream_remainder == 0){ stream_range =num_streams;}
-  else{stream_range = num_streams+1;}
-  //cudaStream_t streams[stream_range];
 
   std::vector<QueueAcc> queue;
   for (int s =0; s<stream_range;s++) {
@@ -1024,50 +1062,29 @@ int main (int argc, char* argv[]) {
   GPUsequenceKernel GPUsequence;
 
   auto const taskKernel = [&](int s) {
-        auto const task(alpaka::createTaskKernel<Acc>(workDiv, GPUsequence, trk_dev,hit_dev, outtrk_dev,    s     ));
+        auto const task(alpaka::createTaskKernel<Acc>(workDiv, GPUsequence, trks_dev[s], hits_dev[s], outtrks_dev[s],    s     ));
         return task;
     };
 
 
-   auto chunkSize = [&](int s) {
-     return s < num_streams ? stream_chunk : stream_remainder;
-   };
-   auto forStream = [&](auto ptr, int s) {
-     return ptr + s*stream_chunk;
-   };
    auto transferAsyncTrk = [&](int s) {
      //printf(" Transferring Trk for stream chunk = %ld\n", s);
-     alpaka::memcpy(queue[s], trk_bufDev, trk_bufHost, MPTRKExtent);
+     //alpaka::memcpy(queue[s], trk_bufDev, trk_bufHost, MPTRKExtent);
+     alpaka::memcpy(queue[s], trk_bufDevs[s], trk_bufHosts[s], MPTRKExtents[s]);
    };
    auto transferAsyncHit = [&](int s) {
      //printf(" Transferring Hit for stream chunk = %ld\n", s);
-     alpaka::memcpy(queue[s], hit_bufDev, hit_bufHost, MPHITExtent);
+     //alpaka::memcpy(queue[s], hit_bufDev, hit_bufHost, MPHITExtent);
+     alpaka::memcpy(queue[s], hit_bufDevs[s], hit_bufHosts[s], MPHITExtents[s]);
    };
    auto transfer_backAsync = [&](int s) {
-     alpaka::memcpy(queue[s], outtrk_bufHost, outtrk_bufDev, MPTRKExtent);
+     //alpaka::memcpy(queue[s], outtrk_bufHost, outtrk_bufDev, MPTRKExtent);
+     alpaka::memcpy(queue[s], outtrk_bufHosts[s], outtrk_bufDevs[s], MPTRKExtents[s]);
    };
 
    auto doWork = [&](const char* msg, int nIters) {
      std::cout<< msg <<std::endl;
      double wall_time = 0;
-      // for (int s = 0; s<num_streams;s++) {
-      //   transferAsyncTrk(s);
-      //   transferAsyncHit(s);
-      // }
-      // auto wall_start = std::chrono::high_resolution_clock::now();
-      //  //enqueue all streams
-      // for (int s = 0; s<num_streams;s++) {
-      //  alpaka::enqueue(queue[s], taskKernel(s));
-      // }
-      //  //wait for all streams
-      // for (int s = 0; s<num_streams;s++) {
-      //  alpaka::wait(queue[s]); 
-      // }
-      // auto wall_stop = std::chrono::high_resolution_clock::now();
-      // wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
-      // for (int s = 0; s<num_streams;s++) {
-      //   transfer_backAsync(s);
-      // }
 
 #ifdef MEASURE_H2D_TRANSFER
      for(int itr=0; itr<nIters; itr++) {
