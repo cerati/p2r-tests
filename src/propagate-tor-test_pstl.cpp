@@ -375,13 +375,21 @@ struct MPHITAccessor {
 };
 
 template<FieldOrder order>
-std::shared_ptr<MPHIT> prepareHitsN(struct AHIT inputhit) {
+std::shared_ptr<MPHIT> prepareHitsN(std::vector<AHIT>& inputhits) {
   auto result = std::make_shared<MPHIT>(ntrks, nevts, nlayer);
   //create an accessor field:
   std::unique_ptr<MPHITAccessor<order>> rA(new MPHITAccessor<order>(*result));
 
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
+  
+    size_t mylay = lay;
+    if (lay>=inputhits.size()) {
+      // int wraplay = inputhits.size()/lay;
+      exit(1);
+    }
+    
+    AHIT& inputhit = inputhits[mylay];
     for (size_t ie=0;ie<nevts;++ie) {
       for (size_t ib=0;ib<nb;++ib) {
         for (size_t it=0;it<bsize;++it) {
@@ -567,11 +575,18 @@ void convertHits(MPHIT_* out, const MPHIT* inp) {
   return;
 }
 
-MPHIT_* prepareHits(struct AHIT inputhit) {
+MPHIT_* prepareHits(std::vector<AHIT>& inputhits) {
   MPHIT_* result = new MPHIT_[nlayer*nevts*nb];
-
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
+
+    size_t mylay = lay;
+    if (lay>=inputhits.size()) {
+      // int wraplay = inputhits.size()/lay;
+      exit(1);
+    }
+    AHIT& inputhit = inputhits[mylay];
+
     for (size_t ie=0;ie<nevts;++ie) {
       for (size_t ib=0;ib<nb;++ib) {
         for (size_t it=0;it<bsize;++it) {
@@ -589,6 +604,7 @@ MPHIT_* prepareHits(struct AHIT inputhit) {
   }
   return result;
 }
+
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -964,28 +980,6 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
      newErr[18*bsize+it] = trkErr(18, terr_blk_offset) - newErr[18*bsize+it];
      newErr[19*bsize+it] = trkErr(19, terr_blk_offset) - newErr[19*bsize+it];
      newErr[20*bsize+it] = trkErr(20, terr_blk_offset) - newErr[20*bsize+it];
-     //fake transfer?
-     trkErr( 0, terr_blk_offset) = newErr[ 0*bsize+it];
-     trkErr( 1, terr_blk_offset) = newErr[ 1*bsize+it];
-     trkErr( 2, terr_blk_offset) = newErr[ 2*bsize+it];
-     trkErr( 3, terr_blk_offset) = newErr[ 3*bsize+it];
-     trkErr( 4, terr_blk_offset) = newErr[ 4*bsize+it];
-     trkErr( 5, terr_blk_offset) = newErr[ 5*bsize+it];
-     trkErr( 6, terr_blk_offset) = newErr[ 6*bsize+it];
-     trkErr( 7, terr_blk_offset) = newErr[ 7*bsize+it];
-     trkErr( 8, terr_blk_offset) = newErr[ 8*bsize+it];
-     trkErr( 9, terr_blk_offset) = newErr[ 9*bsize+it];
-     trkErr(10, terr_blk_offset) = newErr[10*bsize+it];
-     trkErr(11, terr_blk_offset) = newErr[11*bsize+it];
-     trkErr(12, terr_blk_offset) = newErr[12*bsize+it];
-     trkErr(13, terr_blk_offset) = newErr[13*bsize+it];
-     trkErr(14, terr_blk_offset) = newErr[14*bsize+it];
-     trkErr(15, terr_blk_offset) = newErr[15*bsize+it];
-     trkErr(16, terr_blk_offset) = newErr[16*bsize+it];
-     trkErr(17, terr_blk_offset) = newErr[17*bsize+it];
-     trkErr(18, terr_blk_offset) = newErr[18*bsize+it];
-     trkErr(19, terr_blk_offset) = newErr[19*bsize+it];
-     trkErr(20, terr_blk_offset) = newErr[20*bsize+it];
    }
    // 
                  
@@ -1000,7 +994,7 @@ auto sincos4 = [](const float x, float& sin, float& cos) {
    sin  = x - 0.16666667f*x*x2;
 };
 
-constexpr float kfact= 100/3.8;
+constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 
 template <class MPTRKAccessors, class MPHITAccessors, size_t bsz = 1>
@@ -1199,26 +1193,22 @@ void propagateToR(MPTRKAccessors       &obtracks,
 
 int main (int argc, char* argv[]) {
 
-   int itr;
-   struct ATRK inputtrk = {
-     {-12.806846618652344, -7.723824977874756, 38.13014221191406,0.23732035065189902, -2.613372802734375, 0.35594117641448975},
-     {6.290299552347278e-07,4.1375109560704004e-08,7.526661534029699e-07,2.0973730840978533e-07,1.5431574240665213e-07,9.626245400795597e-08,-2.804026640189443e-06,
-      6.219111130687595e-06,2.649119409845118e-07,0.00253512163402557,-2.419662877381737e-07,4.3124190760040646e-07,3.1068903991780678e-09,0.000923913115050627,
-      0.00040678296006807003,-7.755406890332818e-07,1.68539375883925e-06,6.676875566525437e-08,0.0008420574605423793,7.356584799406111e-05,0.0002306247719158348},
-     1
-   };
+   #include "input_track.h"
 
-   struct AHIT inputhit = {
-     {-20.7824649810791, -12.24150276184082, 57.8067626953125},
-     {2.545517190810642e-06,-2.6680759219743777e-06,2.8030024168401724e-06,0.00014160551654640585,0.00012282167153898627,11.385087966918945}
-   };
+   std::vector<AHIT> inputhits{inputhit21,inputhit20,inputhit19,inputhit18,inputhit17,inputhit16,inputhit15,inputhit14,
+                               inputhit13,inputhit12,inputhit11,inputhit10,inputhit09,inputhit08,inputhit07,inputhit06,
+                               inputhit05,inputhit04,inputhit03,inputhit02,inputhit01,inputhit00};
 
-   printf("track in pos: %f, %f, %f \n", inputtrk.par[0], inputtrk.par[1], inputtrk.par[2]);
-   printf("track in cov: %.2e, %.2e, %.2e \n", inputtrk.cov[SymOffsets66[0]],
+   printf("track in pos: x=%f, y=%f, z=%f, r=%f, pt=%f, phi=%f, theta=%f \n", inputtrk.par[0], inputtrk.par[1], inputtrk.par[2],
+	  sqrtf(inputtrk.par[0]*inputtrk.par[0] + inputtrk.par[1]*inputtrk.par[1]),
+	  1./inputtrk.par[3], inputtrk.par[4], inputtrk.par[5]);
+   printf("track in cov: xx=%.2e, yy=%.2e, zz=%.2e \n", inputtrk.cov[SymOffsets66[0]],
 	                                       inputtrk.cov[SymOffsets66[(1*6+1)]],
 	                                       inputtrk.cov[SymOffsets66[(2*6+2)]]);
-   printf("hit in pos: %f %f %f \n", inputhit.pos[0], inputhit.pos[1], inputhit.pos[2]);
-
+   for (size_t lay=0; lay<nlayer; lay++){
+     printf("hit in layer=%lu, pos: x=%f, y=%f, z=%f, r=%f \n", lay, inputhits[lay].pos[0], inputhits[lay].pos[1], inputhits[lay].pos[2], sqrtf(inputhits[lay].pos[0]*inputhits[lay].pos[0] + inputhits[lay].pos[1]*inputhits[lay].pos[1]));
+   }
+   
    printf("produce nevts=%i ntrks=%i smearing by=%f \n", nevts, ntrks, smear);
    printf("NITER=%d\n", NITER);
 
@@ -1232,7 +1222,7 @@ int main (int argc, char* argv[]) {
    using MPTRKAccessorTp = MPTRKAccessor<order>;
    using MPHITAccessorTp = MPHITAccessor<order>;
 
-   MPHIT_* hit    = prepareHits(inputhit);
+   MPHIT_* hit    = prepareHits(inputhits);
    MPTRK_* outtrk = (MPTRK_*) malloc(nevts*nb*sizeof(MPTRK_));
 
    gettimeofday(&timecheck, NULL);
@@ -1241,7 +1231,7 @@ int main (int argc, char* argv[]) {
    auto trkNPtr = prepareTracksN<order>(inputtrk);
    std::unique_ptr<MPTRKAccessorTp> trkNaccPtr(new MPTRKAccessorTp(*trkNPtr));
 
-   auto hitNPtr = prepareHitsN<order>(inputhit);
+   auto hitNPtr = prepareHitsN<order>(inputhits);
    std::unique_ptr<MPHITAccessorTp> hitNaccPtr(new MPHITAccessorTp(*hitNPtr));
 
    std::unique_ptr<MPTRK> outtrkNPtr(new MPTRK(ntrks, nevts));
@@ -1288,7 +1278,7 @@ int main (int argc, char* argv[]) {
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
-   for(itr=0; itr<NITER; itr++) {
+   for(int itr=0; itr<NITER; itr++) {
 
      const int outer_loop_range = nevts*nb;
 
