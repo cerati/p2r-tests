@@ -48,7 +48,7 @@ see README.txt for instructions
 #endif
 
 #ifndef num_streams
-#define num_streams 4 
+#define num_streams 1 
 #endif
 
 #ifndef threadsperblockx
@@ -265,8 +265,8 @@ ALPAKA_FN_ACC  float x(const MPHIT* hits, size_t ev, size_t tk)    { return pos(
 ALPAKA_FN_ACC  float y(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 1); }
 ALPAKA_FN_ACC  float z(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 2); }
 
-MPTRK* prepareTracks(ATRK inputtrk,MPTRK* result) {
-
+MPTRK* prepareTracks(ATRK inputtrk) {
+  MPTRK* result = (MPTRK*) std::malloc(nevts*nb*sizeof(MPTRK));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t ie=0;ie<nevts;++ie) {
     for (size_t ib=0;ib<nb;++ib) {
@@ -287,8 +287,9 @@ MPTRK* prepareTracks(ATRK inputtrk,MPTRK* result) {
   return result;
 }
 
-MPHIT* prepareHits(std::vector<AHIT>& inputhits,MPHIT* result) {
-
+MPHIT* prepareHits(std::vector<AHIT>& inputhits) {
+  
+  MPHIT* result = (MPHIT*) std::malloc(nlayer*nevts*nb*sizeof(MPHIT));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
 
@@ -989,15 +990,16 @@ int main (int argc, char* argv[]) {
 
    MPTRK* trks[num_streams];
    MPHIT* hits[num_streams];
-   MPHIT* outtrks[num_streams];
+   MPTRK* outtrks[num_streams];
    MPTRK* trks_dev[num_streams];
    MPHIT* hits_dev[num_streams];
-   MPHIT* outtrks_dev[num_streams];
+   MPTRK* outtrks_dev[num_streams];
 
-   MPTRK* alltrks;
-   MPHIT* allhits;
-   alltrks = prepareTracks(inputtrk,alltrks);
-   allhits = prepareHits(inputhits,allhits);
+   MPTRK* alltrks;  // all trks on hosts
+   MPHIT* allhits;  // all hits on hosts
+   MPTRK* outtrk;   // all outtrks
+   alltrks = prepareTracks(inputtrk);
+   allhits = prepareHits(inputhits);
 
    for(int s=0;s<num_streams;s++){
         MPTRKExtents.emplace_back(Idx(chunkSize(s)));
@@ -1013,12 +1015,23 @@ int main (int argc, char* argv[]) {
         outtrk_bufDevs.emplace_back(alpaka::allocBuf<MPTRK,Idx>(device,MPTRKExtents[s]));
    }
 
+   int offset=0;
    for(int s=0;s<num_streams;s++){
         trks[s] = alpaka::getPtrNative(trk_bufHosts[s]);
-        trks[s] = forStream(alltrks,s);
 
+        std::copy(alltrks+offset,alltrks+offset+chunkSize(s), trks[s]); // stitch the outtrks from different streams together
+        offset+=chunkSize(s);
+
+        //for (int i=s*chunkSize(s); i<chunkSize(s);i++){ 
+        //    trks[s][i] = alltrks[i];
+        //}
+        //off
+        std::cout<< "stream s = "<< s << "  size of trks= "<< sizeof(trks[s]) <<" chunkSize = " << chunkSize(s)<< std::endl;
+        //std::cout<< "trk [10] = "<< trks[0].par.data[8] << std::endl;
         hits[s] = alpaka::getPtrNative(hit_bufHosts[s]);
-        hits[s] = forStream(allhits,s);
+        for (int i=s*nlayer*chunkSize(s); i<nlayer*chunkSize(s);i++){ 
+            hits[s] = &allhits[i];
+        }
         outtrks[s] = alpaka::getPtrNative(outtrk_bufHosts[s]); 
 
         trks_dev[s] = alpaka::getPtrNative(trk_bufDevs[s]);
@@ -1068,8 +1081,8 @@ int main (int argc, char* argv[]) {
 
 
    auto transferAsyncTrk = [&](int s) {
-     //printf(" Transferring Trk for stream chunk = %ld\n", s);
      //alpaka::memcpy(queue[s], trk_bufDev, trk_bufHost, MPTRKExtent);
+     //printf(" Transferring Trk for stream chunk = %ld\n", s);
      alpaka::memcpy(queue[s], trk_bufDevs[s], trk_bufHosts[s], MPTRKExtents[s]);
    };
    auto transferAsyncHit = [&](int s) {
@@ -1158,7 +1171,11 @@ int main (int argc, char* argv[]) {
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
 
-
+   offset = 0;
+   for(int s=0;s<num_streams;s++){
+    std::copy(outtrks[s],outtrks[s]+chunkSize(s), outtrk+offset); // stitch the outtrks from different streams together
+    offset += chunkSize(s);
+   }
    int nnans = 0, nfail = 0;
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
    float avgpt = 0, avgphi = 0, avgtheta = 0;
