@@ -20,6 +20,11 @@ find_package(alpaka REQUIRED)
 # Add executable.
 
 set(CMAKE_CUDA_ARCHITECTURES 70)
+add_compile_definitions(num_streams=4)
+#add_compile_definitions(EXCLUDE_H2D_TRANSFER=1)
+#add_compile_definitions(EXCLUDE_D2H_TRANSFER=1)
+#set(CMAKE_BUILD_TYPE Debug)
+#set(CMAKE_BUILD_TYPE RelWithDebInfo)
 alpaka_add_executable(
     ${_TARGET_NAME}
     src/propagate-tor-test_alpaka.cpp)
