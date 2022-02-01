@@ -996,14 +996,14 @@ int main (int argc, char* argv[]) {
    MPTRK* outtrks_dev[num_streams];
 
    MPTRK* alltrks;  // all trks on hosts
-   MPHIT* allhits;  // all hits on hosts
-   MPTRK* outtrk;   // all outtrks
+   MPHIT* allhits;  // all hits on hosts, get pointers from alpaka buffer
+   MPTRK* outtrk = (MPTRK*) std::malloc(nevts*nb*sizeof(MPTRK)); // all out tracks on host, manually allocate memory
    alltrks = prepareTracks(inputtrk);
    allhits = prepareHits(inputhits);
 
    for(int s=0;s<num_streams;s++){
         MPTRKExtents.emplace_back(Idx(chunkSize(s)));
-        MPHITExtents.emplace_back(Idx(chunkSize(s*nlayer)));
+        MPHITExtents.emplace_back(Idx(chunkSize(s)*nlayer));
     
         trk_bufHosts.emplace_back(alpaka::allocBuf<MPTRK,Idx>(devHost,MPTRKExtents[s]));
         hit_bufHosts.emplace_back(alpaka::allocBuf<MPHIT,Idx>(devHost,MPHITExtents[s]));
@@ -1016,22 +1016,17 @@ int main (int argc, char* argv[]) {
    }
 
    int offset=0;
+   int offset_hits=0;
    for(int s=0;s<num_streams;s++){
         trks[s] = alpaka::getPtrNative(trk_bufHosts[s]);
 
         std::copy(alltrks+offset,alltrks+offset+chunkSize(s), trks[s]); // stitch the outtrks from different streams together
         offset+=chunkSize(s);
 
-        //for (int i=s*chunkSize(s); i<chunkSize(s);i++){ 
-        //    trks[s][i] = alltrks[i];
-        //}
-        //off
-        std::cout<< "stream s = "<< s << "  size of trks= "<< sizeof(trks[s]) <<" chunkSize = " << chunkSize(s)<< std::endl;
-        //std::cout<< "trk [10] = "<< trks[0].par.data[8] << std::endl;
+        //std::cout<< "stream s = "<< s << "  size of trks= "<< sizeof(trks[s]) <<" chunkSize = " << chunkSize(s)<< std::endl;
         hits[s] = alpaka::getPtrNative(hit_bufHosts[s]);
-        for (int i=s*nlayer*chunkSize(s); i<nlayer*chunkSize(s);i++){ 
-            hits[s] = &allhits[i];
-        }
+        std::copy(allhits+offset_hits,allhits+offset_hits+chunkSize(s)*nlayer, hits[s]); // stitch the outtrks from different streams together
+        offset_hits+= chunkSize(s)*nlayer;
         outtrks[s] = alpaka::getPtrNative(outtrk_bufHosts[s]); 
 
         trks_dev[s] = alpaka::getPtrNative(trk_bufDevs[s]);
@@ -1128,7 +1123,7 @@ int main (int argc, char* argv[]) {
      }
      //wait for all transferr to finish
      for (int s = 0; s<num_streams;s++) {
-     alpaka::wait(queue); 
+     alpaka::wait(queue[s]); 
      }
      for(int itr=0; itr<nIters; itr++) {
        auto wall_start = std::chrono::high_resolution_clock::now();
@@ -1162,9 +1157,13 @@ int main (int argc, char* argv[]) {
 
 #ifdef MEASURE_H2D_TRANSFER
    printf("Measuring H2D Transfer\n");
+#else
+   printf("Excluding H2D Transfer\n");
 #endif
 #ifdef MEASURE_D2H_TRANSFER
    printf("Measuring D2H Transfer\n");
+#else
+   printf("Excluding D2H Transfer\n");
 #endif
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
