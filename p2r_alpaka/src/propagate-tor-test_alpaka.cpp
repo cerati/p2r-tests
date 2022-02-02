@@ -452,9 +452,9 @@ ALPAKA_FN_ACC inline float hipo(float x, float y)
 }
 
 ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP,
-                            	MP1F *rotT00, MP1F *rotT01, MP2x2SF *resErr_loc, MP3x6 *kGain,
-                                MP2F *res_loc, MP6x6SF * newErr,
-                                size_t const threadIdx, size_t const blockDim ){
+                            	MP1F  *rotT00, MP1F  *rotT01, MP2x2SF  *resErr_loc, MP3x6  *kGain,
+                                MP2F  *res_loc, MP6x6SF  * newErr,
+                                uint32_t const threadIdx, uint32_t const blockDim ){
   //MP1F rotT00;
   //MP1F rotT01;
   //MP2x2SF resErr_loc;
@@ -841,11 +841,11 @@ public:
        using Idx = alpaka::Idx<TAcc>;
        using Vec = alpaka::Vec<Dim, Idx>;
 
-       Vec const ThreadIdx(alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc)[0u]);
-       Vec const ThreadExtent(alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc)[0u]);
+       uint32_t const ThreadIdx(alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc)[0u]);
+       uint32_t const ThreadExtent(alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc)[0u]);
 
-       auto BlockIdx(alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc)[0u]);
-       auto BlockExtent(alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc)[0u]);
+       uint32_t BlockIdx(alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc)[0u]);
+       uint32_t BlockExtent(alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc)[0u]);
 
        auto errorProp = alpaka::declareSharedVar<MP6x6F,__COUNTER__>(acc);
        auto temp = alpaka::declareSharedVar<MP6x6F,__COUNTER__>(acc);
@@ -856,7 +856,7 @@ public:
        auto res_loc = alpaka::declareSharedVar<MP2F,__COUNTER__>(acc);
        auto newErr = alpaka::declareSharedVar<MP6x6SF,__COUNTER__>(acc);
 
-       for (size_t ti=BlockIdx; ti< end; ti+=BlockExtent){
+       for (uint32_t ti=BlockIdx; ti< end; ti+=BlockExtent){
           int ie = ti/nb;
           int ib = ti%nb;
           const MPTRK* btracks = bTk(trk,ie,ib);
@@ -865,16 +865,16 @@ public:
           for (int layer=0;layer<nlayer;++layer){	
             const MPHIT* bhits = bHit(hit,ie,ib,layer);
               propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*obtracks).q, &(*bhits).pos, 
-                           &(*obtracks).cov, &(*obtracks).par, &(errorProp), &temp,ThreadIdx[0u], ThreadExtent[0u]);
+                           &(*obtracks).cov, &(*obtracks).par, &(errorProp), &temp,ThreadIdx, ThreadExtent);
               KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,
                             &rotT00, &rotT01, &resErr_loc, &kGain, &res_loc, &(newErr),
-                            ThreadIdx[0u],ThreadExtent[0u]);
+                            ThreadIdx,ThreadExtent);
            }
         //printf("index = %i ,(blockIdx,blockExt)=(%i,%i), ,(ThreadIdx,ThreadExt)=(%i,%i) \n ",
-        //printf("index = %i ,(blockIdx,blockExt)=(%i,%i), ,(ThreadIdx,ThreadExt)=(%i,%i), track = (%.3f) \n ",
-        //                                         ti,BlockIdx,BlockExtent,
-        //                                         ThreadIdx[0u],ThreadExtent[0u],
-        //                                          &(*btracks).par.data[8]);
+        //printf("index = %u ,(blockIdx,blockExt)=(%u,%u), (ThreadIdx,ThreadExt)=(%u,%u), track = (%.3f) \n ",
+        //                                         (unsigned int) ti,(unsigned int) BlockIdx,(unsigned int) BlockExtent,
+        //                                         (unsigned int) ThreadIdx,(unsigned int) ThreadExtent);
+                                                  //&(*btracks).par.data[8]);
        }
         
     }
@@ -1013,6 +1013,12 @@ int main (int argc, char* argv[]) {
         trk_bufDevs.emplace_back(alpaka::allocBuf<MPTRK,Idx>(device,MPTRKExtents[s]));
         hit_bufDevs.emplace_back(alpaka::allocBuf<MPHIT,Idx>(device,MPHITExtents[s]));
         outtrk_bufDevs.emplace_back(alpaka::allocBuf<MPTRK,Idx>(device,MPTRKExtents[s]));
+   }
+    // For async copy
+   for(int s=0;s<num_streams;s++){
+        prepareForAsyncCopy(trk_bufHosts[s]);
+        prepareForAsyncCopy(hit_bufHosts[s]);
+        prepareForAsyncCopy(outtrk_bufHosts[s]);
    }
 
    int offset=0;
