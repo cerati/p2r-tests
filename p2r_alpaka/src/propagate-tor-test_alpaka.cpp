@@ -319,7 +319,7 @@ MPHIT* prepareHits(std::vector<AHIT>& inputhits) {
 }
 
 #define N bsize
-ALPAKA_FN_ACC void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C,size_t const threadIdx, size_t const blockDim) {
+ALPAKA_FN_INLINE ALPAKA_FN_ACC void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C,size_t const threadIdx, size_t const blockDim) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
@@ -364,7 +364,7 @@ ALPAKA_FN_ACC void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C,si
   }//);
 }
 
-ALPAKA_FN_ACC void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C, size_t const threadIdx, size_t const blockDim) {
+ALPAKA_FN_INLINE ALPAKA_FN_ACC void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C, size_t const threadIdx, size_t const blockDim) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
