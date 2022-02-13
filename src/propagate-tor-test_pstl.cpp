@@ -959,27 +959,13 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
                          kGain[15*bsz+it]*rotT01[it]*trkErr(16, terr_blk_offset) +
                          kGain[16*bsz+it]*trkErr(17, terr_blk_offset);     
 
-     newErr[ 0*bsize+it] = trkErr( 0, terr_blk_offset) - newErr[ 0*bsize+it];
-     newErr[ 1*bsize+it] = trkErr( 1, terr_blk_offset) - newErr[ 1*bsize+it];
-     newErr[ 2*bsize+it] = trkErr( 2, terr_blk_offset) - newErr[ 2*bsize+it];
-     newErr[ 3*bsize+it] = trkErr( 3, terr_blk_offset) - newErr[ 3*bsize+it];
-     newErr[ 4*bsize+it] = trkErr( 4, terr_blk_offset) - newErr[ 4*bsize+it];
-     newErr[ 5*bsize+it] = trkErr( 5, terr_blk_offset) - newErr[ 5*bsize+it];
-     newErr[ 6*bsize+it] = trkErr( 6, terr_blk_offset) - newErr[ 6*bsize+it];
-     newErr[ 7*bsize+it] = trkErr( 7, terr_blk_offset) - newErr[ 7*bsize+it];
-     newErr[ 8*bsize+it] = trkErr( 8, terr_blk_offset) - newErr[ 8*bsize+it];
-     newErr[ 9*bsize+it] = trkErr( 9, terr_blk_offset) - newErr[ 9*bsize+it];
-     newErr[10*bsize+it] = trkErr(10, terr_blk_offset) - newErr[10*bsize+it];
-     newErr[11*bsize+it] = trkErr(11, terr_blk_offset) - newErr[11*bsize+it];
-     newErr[12*bsize+it] = trkErr(12, terr_blk_offset) - newErr[12*bsize+it];
-     newErr[13*bsize+it] = trkErr(13, terr_blk_offset) - newErr[13*bsize+it];
-     newErr[14*bsize+it] = trkErr(14, terr_blk_offset) - newErr[14*bsize+it];
-     newErr[15*bsize+it] = trkErr(15, terr_blk_offset) - newErr[15*bsize+it];
-     newErr[16*bsize+it] = trkErr(16, terr_blk_offset) - newErr[16*bsize+it];
-     newErr[17*bsize+it] = trkErr(17, terr_blk_offset) - newErr[17*bsize+it];
-     newErr[18*bsize+it] = trkErr(18, terr_blk_offset) - newErr[18*bsize+it];
-     newErr[19*bsize+it] = trkErr(19, terr_blk_offset) - newErr[19*bsize+it];
-     newErr[20*bsize+it] = trkErr(20, terr_blk_offset) - newErr[20*bsize+it];
+ #pragma unroll
+     for (int i = 0; i < 21; i++){
+       auto tmp_ = trkErr( i, terr_blk_offset) - newErr[ i*bsize+it];
+       newErr[ i*bsize+it] = tmp_;
+       trkErr( i, terr_blk_offset) = tmp_;
+     }
+
    }
    // 
                  
