@@ -18,6 +18,7 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #include <memory>
 #include <numeric>
 #include <execution>
+#include <random>
 
 #ifndef bsize
 #if defined(__NVCOMPILER_CUDA__)
@@ -35,7 +36,7 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #ifndef nevts
 #define nevts 100
 #endif
-#define smear 0.1
+#define smear 0.00001
 
 #ifndef NITER
 #define NITER 5
@@ -330,21 +331,26 @@ std::shared_ptr<MPTRK> prepareTracksN(struct ATRK inputtrk) {
   std::unique_ptr<MPTRKAccessor<order>> rA(new MPTRKAccessor<order>(*result));
 
   // store in element order for bunches of bsize matrices (a la matriplex)
+  std::random_device rd{};
+  std::mt19937 gen{rd()};
+  gen.seed(1);
+  std::uniform_real_distribution<float> urdist(0.0,1.0);
+
   for (size_t ie=0;ie<nevts;++ie) {
     for (size_t ib=0;ib<nb;++ib) {
       for (size_t it=0;it<bsize;++it) {
         //const int l = it+ib*bsize+ie*nb*bsize;
         const int tid = ib+ie*nb;
-    	  //par
-    	  for (size_t ip=0;ip<6;++ip) {
-          rA->par(ip, tid, it, 0) = (1+smear*randn(0,1))*inputtrk.par[ip];
-    	  }
-    	  //cov
-    	  for (size_t ip=0;ip<21;++ip) {
-          rA->cov(ip, tid, it, 0) = (1+smear*randn(0,1))*inputtrk.cov[ip];
-    	  }
-    	  //q
-        rA->q(0, tid, it, 0) = inputtrk.q-2*ceil(-0.5 + (float)rand() / RAND_MAX);
+    	//par
+    	for (size_t ip=0;ip<6;++ip) {
+          rA->par(ip, tid, it, 0) = (1.f+smear*urdist(gen))*inputtrk.par[ip];
+    	}
+    	//cov
+    	for (size_t ip=0;ip<21;++ip) {
+          rA->cov(ip, tid, it, 0) = (1.f+smear*urdist(gen))*inputtrk.cov[ip];
+    	}
+    	//q
+        rA->q(0, tid, it, 0) = inputtrk.q;
       }
     }
   }
@@ -381,6 +387,11 @@ std::shared_ptr<MPHIT> prepareHitsN(std::vector<AHIT>& inputhits) {
   std::unique_ptr<MPHITAccessor<order>> rA(new MPHITAccessor<order>(*result));
 
   // store in element order for bunches of bsize matrices (a la matriplex)
+  std::random_device rd{};
+  std::mt19937 gen{rd()};
+  gen.seed(2);
+  std::uniform_real_distribution<float> urdist(0.0,1.0);
+
   for (size_t lay=0;lay<nlayer;++lay) {
   
     size_t mylay = lay;
@@ -395,14 +406,14 @@ std::shared_ptr<MPHIT> prepareHitsN(std::vector<AHIT>& inputhits) {
         for (size_t it=0;it<bsize;++it) {
           //const int l = it + ib*bsize + ie*nb*bsize + lay*nb*bsize*nevts;
           const int tid = ib + ie*nb;
-        	//pos
-        	for (size_t ip=0;ip<3;++ip) {
-            rA->pos(ip, tid, it, lay) = (1+smear*randn(0,1))*inputhit.pos[ip];
-        	}
-        	//cov
-        	for (size_t ip=0;ip<6;++ip) {
-            rA->cov(ip, tid, it, lay) = (1+smear*randn(0,1))*inputhit.cov[ip];
-        	}
+          //pos
+          for (size_t ip=0;ip<3;++ip) {
+            rA->pos(ip, tid, it, lay) = (1+smear*urdist(gen))*inputhit.pos[ip];
+          }
+          //cov
+          for (size_t ip=0;ip<6;++ip) {
+            rA->cov(ip, tid, it, lay) = (1+smear*urdist(gen))*inputhit.cov[ip];
+          }
         }
       }
     }
@@ -1233,34 +1244,6 @@ int main (int argc, char* argv[]) {
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
    auto policy = std::execution::par_unseq;
-
-   std::cout << "Begin warming up..." << std::endl;
-   //
-   std::vector<float> x_(1000*nevts*nb);
-   std::vector<float> y_(1000*nevts*nb);
-
-   auto warm_start = std::chrono::high_resolution_clock::now();
-
-   std::fill(policy, x_.begin(), x_.end(), 1.0f);
-   std::fill(policy, y_.begin(), y_.end(), 2.0f);
-
-   double sum = 0.0;
-   for(int i = 0; i < 1000;i++)
-   {
-     float lsum = std::transform_reduce(policy,
-                                x_.begin(),
-                                x_.end(),
-                                y_.begin(),
-                                static_cast<float>(0.0),
-                                std::plus<float>(),
-                                [=](const auto &xi, const auto &yi) { return xi*yi;} );
-     sum += lsum;
-   }
-   auto warm_stop = std::chrono::high_resolution_clock::now();
-   auto warm_diff = warm_stop - warm_start;
-   auto warm_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(warm_diff).count()) / 1e6;
-
-   std::cout << "..done. Warmup time: " << warm_time << " secs. " << std::endl;
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
