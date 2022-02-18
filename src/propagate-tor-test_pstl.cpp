@@ -347,7 +347,7 @@ std::shared_ptr<MPTRK> prepareTracksN(struct ATRK inputtrk) {
     	}
     	//cov
     	for (size_t ip=0;ip<21;++ip) {
-          rA->cov(ip, tid, it, 0) = (1.f+smear*urdist(gen))*inputtrk.cov[ip];
+          rA->cov(ip, tid, it, 0) = (1.f+smear*urdist(gen))*inputtrk.cov[ip]*100;
     	}
     	//q
         rA->q(0, tid, it, 0) = inputtrk.q;
@@ -972,9 +972,7 @@ void KalmanUpdate(MPTRKAccessors       &obtracks,
 
  #pragma unroll
      for (int i = 0; i < 21; i++){
-       auto tmp_ = trkErr( i, terr_blk_offset) - newErr[ i*bsize+it];
-       newErr[ i*bsize+it] = tmp_;
-       trkErr( i, terr_blk_offset) = tmp_;
+       trkErr( i, terr_blk_offset) = trkErr( i, terr_blk_offset) - newErr[ i*bsize+it];
      }
 
    }
