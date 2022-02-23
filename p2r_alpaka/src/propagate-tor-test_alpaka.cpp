@@ -667,8 +667,10 @@ ALPAKA_FN_ACC inline void sincos4(const float x, float& sin, float& cos)
 constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 ALPAKA_FN_ACC void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
-                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp,size_t const threadIdx, size_t const blockDim) {
-  
+                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp,uint32_t const threadIdx, uint32_t const blockDim) {
+ 
+   
+  //printf("propagateToR :(ThreadIdx,blockDim)=(%i,%i) \n ",threadIdx,blockDim);
   for(size_t it=threadIdx;it<bsize;it+=blockDim){
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp->data[bsize*PosInMtrx(i,i,6) + it] = 1.f;
@@ -847,14 +849,14 @@ public:
        uint32_t BlockIdx(alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc)[0u]);
        uint32_t BlockExtent(alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc)[0u]);
 
-       auto errorProp = alpaka::declareSharedVar<MP6x6F,__COUNTER__>(acc);
-       auto temp = alpaka::declareSharedVar<MP6x6F,__COUNTER__>(acc);
-       auto rotT00 = alpaka::declareSharedVar<MP1F,__COUNTER__>(acc);
-       auto rotT01 = alpaka::declareSharedVar<MP1F,__COUNTER__>(acc);
-       auto resErr_loc = alpaka::declareSharedVar<MP2x2SF,__COUNTER__>(acc);
-       auto kGain = alpaka::declareSharedVar<MP3x6,__COUNTER__>(acc);
-       auto res_loc = alpaka::declareSharedVar<MP2F,__COUNTER__>(acc);
-       auto newErr = alpaka::declareSharedVar<MP6x6SF,__COUNTER__>(acc);
+       auto & errorProp = alpaka::declareSharedVar<MP6x6F,__COUNTER__>(acc);
+       auto & temp = alpaka::declareSharedVar<MP6x6F,__COUNTER__>(acc);
+       auto & rotT00 = alpaka::declareSharedVar<MP1F,__COUNTER__>(acc);
+       auto & rotT01 = alpaka::declareSharedVar<MP1F,__COUNTER__>(acc);
+       auto & resErr_loc = alpaka::declareSharedVar<MP2x2SF,__COUNTER__>(acc);
+       auto & kGain = alpaka::declareSharedVar<MP3x6,__COUNTER__>(acc);
+       auto & res_loc = alpaka::declareSharedVar<MP2F,__COUNTER__>(acc);
+       auto & newErr = alpaka::declareSharedVar<MP6x6SF,__COUNTER__>(acc);
 
        for (uint32_t ti=BlockIdx; ti< end; ti+=BlockExtent){
           int ie = ti/nb;
@@ -864,7 +866,7 @@ public:
           (*obtracks) = (*btracks);
           for (int layer=0;layer<nlayer;++layer){	
             const MPHIT* bhits = bHit(hit,ie,ib,layer);
-              propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*obtracks).q, &(*bhits).pos, 
+              propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, 
                            &(*obtracks).cov, &(*obtracks).par, &(errorProp), &temp,ThreadIdx, ThreadExtent);
               KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,
                             &rotT00, &rotT01, &resErr_loc, &kGain, &res_loc, &(newErr),
@@ -879,38 +881,6 @@ public:
         
     }
 };
-//__global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, MP6x6SF* newErr,MP6x6F* errorProp , const int stream){
-//void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int stream){
-//  ///*__shared__*/ struct MP6x6F errorProp, temp; // shared memory here causes a race condition. Probably move to inside the p2z function? i forgot why I did it this way to begin with. maybe to make it shared?
-//
-//   __shared__ struct MP6x6F errorProp, temp;
-//   __shared__ struct MP1F rotT00, rotT01; 
-//   __shared__ struct MP2x2SF resErr_loc; 
-//   __shared__ struct MP3x6 kGain;
-//   __shared__ struct MP2F res_loc;
-//   __shared__ struct MP6x6SF newErr;
-//
-//   const int end = (stream < num_streams) ?
-//     nb*nevts / num_streams : // for "full" streams
-//     nb*nevts % num_streams; // possible remainder
-//
-//   for (size_t ti = blockIdx.x; ti< end; ti+=gridDim.x){
-//      int ie = ti/nb;
-//      int ib = ti%nb;
-//      const MPTRK* btracks = bTk(trk,ie,ib);
-//      MPTRK* obtracks = bTk(outtrk,ie,ib);
-//       (*obtracks) = (*btracks);
-//      for (int layer=0;layer<nlayer;++layer){	
-//        const MPHIT* bhits = bHit(hit,ie,ib,layer);
-//          propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*obtracks).q, &(*bhits).pos, 
-//                       &(*obtracks).cov, &(*obtracks).par, &(errorProp),&temp);
-//          KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,
-//                    &rotT00, &rotT01, &resErr_loc, &kGain, &res_loc, &(newErr));
-//       }
-//    //if((index)%100==0 ) printf("index = %i ,(block,grid)=(%i,%i), track = (%.3f)\n ", index,blockDim.x,gridDim.x,&(*btracks).par.data[8]);
-//   }
-//}
-
 
 int main (int argc, char* argv[]) {
 
