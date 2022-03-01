@@ -157,9 +157,6 @@ enum class FieldOrder{P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER,
                       
 enum class ConversionType{P2R_CONVERT_TO_INTERNAL_ORDER, P2R_CONVERT_FROM_INTERNAL_ORDER};   
 
-using IntAllocator   = AlignedAllocator<int>;
-using FloatAllocator = AlignedAllocator<float>;
-
 const std::array<size_t, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
 
 struct ATRK {
@@ -179,27 +176,6 @@ constexpr int iparZ     = 2;
 constexpr int iparIpt   = 3;
 constexpr int iparPhi   = 4;
 constexpr int iparTheta = 5;
-
-float randn(float mu, float sigma) {
-  float U1, U2, W, mult;
-  static float X1, X2;
-  static int call = 0;
-  if (call == 1) {
-    call = !call;
-    return (mu + sigma * (float) X2);
-  } do {
-    U1 = -1 + ((float) rand () / RAND_MAX) * 2;
-    U2 = -1 + ((float) rand () / RAND_MAX) * 2;
-    W = pow (U1, 2) + pow (U2, 2);
-  }
-  while (W >= 1 || W == 0); 
-  mult = sqrt ((-2 * log (W)) / W);
-  X1 = U1 * mult;
-  X2 = U2 * mult; 
-  call = !call; 
-  return (mu + sigma * (float) X1);
-}
-
 
 template <typename T, int N, int bSize>
 struct MPNX_ {
@@ -228,17 +204,17 @@ struct MPTRK_ {
   MP6x6SF_ cov;
   MP1I_    q;
 
-  MPTRK_() : par{{0.f}}, cov{{0.f}}, q{{0}} {}
   //  MP22I   hitidx;
 };
-
-using MPTRKAllocator = AlignedAllocator<MPTRK_>;
 
 struct MPHIT_ {
   MP3F_    pos;
   MP3x3SF_ cov;
 };
 
+using IntAllocator   = AlignedAllocator<int>;
+using FloatAllocator = AlignedAllocator<float>;
+using MPTRKAllocator = AlignedAllocator<MPTRK_>;
 using MPHITAllocator = AlignedAllocator<MPHIT_>;
 
 template <typename T, typename Allocator, int n, int bSize>
@@ -402,8 +378,6 @@ struct MPTRKAccessor {
     
     return;
   }
-
-
 };
 
 
@@ -413,7 +387,6 @@ struct MPHIT {
 
   MPHIT() : pos(), cov(){}
   MPHIT(const int ntrks_, const int nevts_, const int nlayers_) : pos(ntrks_, nevts_, nlayers_), cov(ntrks_, nevts_, nlayers_) {}
-
 };
 
 template <FieldOrder Order>
@@ -439,8 +412,7 @@ struct MPHITAccessor {
     this->cov.save(src.cov, tid, layer);
     
     return;
-  }
-  
+  } 
 };
 
 
@@ -516,6 +488,30 @@ void convertHits(policy_tp &policy, std::vector<MPHIT_, MPHITAllocator> &externa
   
   return;
 }
+
+///////////////////////////////////////
+//Gen. utils
+
+float randn(float mu, float sigma) {
+  float U1, U2, W, mult;
+  static float X1, X2;
+  static int call = 0;
+  if (call == 1) {
+    call = !call;
+    return (mu + sigma * (float) X2);
+  } do {
+    U1 = -1 + ((float) rand () / RAND_MAX) * 2;
+    U2 = -1 + ((float) rand () / RAND_MAX) * 2;
+    W = pow (U1, 2) + pow (U2, 2);
+  }
+  while (W >= 1 || W == 0); 
+  mult = sqrt ((-2 * log (W)) / W);
+  X1 = U1 * mult;
+  X2 = U2 * mult; 
+  call = !call; 
+  return (mu + sigma * (float) X1);
+}
+
 
 template<typename MPTRKAllocator>
 void prepareTracks(std::vector<MPTRK_, MPTRKAllocator> &trcks, ATRK &inputtrk) {
