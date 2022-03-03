@@ -1225,8 +1225,10 @@ int main (int argc, char* argv[]) {
    long setup_start, setup_stop;
    struct timeval timecheck;
 #if defined(__NVCOMPILER_CUDA__)
+   std::cout << "Using NVcompiler..." << std::endl;
    constexpr auto order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER;
 #else
+   std::cout << "Using Intel compiler..." << std::endl;
    constexpr auto order = FieldOrder::P2R_MATIDX_LAYER_TRACKBLK_EVENT_ORDER;
 #endif
    using MPTRKAccessorTp = MPTRKAccessor<order>;
@@ -1285,6 +1287,21 @@ int main (int argc, char* argv[]) {
    auto warm_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(warm_diff).count()) / 1e6;
 
    std::cout << "..done. Warmup time: " << warm_time << " secs. " << std::endl;
+   //std::cout << "Begin first access..." << std::endl;
+   //  const int outer_loop_range = nevts*nb;
+
+   //  std::for_each(policy,
+   //                impl::counting_iterator(0),
+   //                impl::counting_iterator(outer_loop_range),
+   //                [=,&trkNacc    = *trkNaccPtr,
+   //                   &hitNacc    = *hitNaccPtr,
+   //                   &outtrkNacc = *outtrkNaccPtr] (const auto i) {
+   //                  for(int layer=0; layer<nlayer; ++layer) {
+   //                    propagateToR<MPTRKAccessorTp, MPHITAccessorTp, bsize>(outtrkNacc, trkNacc, hitNacc, i, layer);
+   //                    KalmanUpdate<MPTRKAccessorTp, MPHITAccessorTp, bsize>(outtrkNacc, hitNacc, i, layer);
+   //                  }
+   //                });
+   //std::cout << "Done first access..." << std::endl;
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 

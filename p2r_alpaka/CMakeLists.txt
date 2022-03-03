@@ -25,7 +25,7 @@ add_compile_definitions(num_streams=1)
 #add_compile_definitions(EXCLUDE_D2H_TRANSFER=1)
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_BUILD_TYPE RelWithDebInfo)
-add_compile_options(-maxrregcount=64)
+#add_compile_options(-maxrregcount=64)
 add_compile_options(-std=c++17)
 alpaka_add_executable(
     ${_TARGET_NAME}
