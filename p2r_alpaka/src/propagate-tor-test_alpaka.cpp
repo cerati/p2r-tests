@@ -51,8 +51,12 @@ see README.txt for instructions
 #define num_streams 1 
 #endif
 
+#ifndef elementsperthread 
+#define elementsperthread 32
+#endif
+
 #ifndef threadsperblockx
-#define threadsperblockx 32
+#define threadsperblockx 1
 #endif
 #ifndef blockspergrid
 #define blockspergrid (nevts*nb)
@@ -454,7 +458,7 @@ ALPAKA_FN_ACC inline float hipo(float x, float y)
 ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP,
                             	MP1F  *rotT00, MP1F  *rotT01, MP2x2SF  *resErr_loc, MP3x6  *kGain,
                                 MP2F  *res_loc, MP6x6SF  * newErr,
-                                uint32_t const threadIdx, uint32_t const blockDim ){
+                                uint32_t const threadIdx, uint32_t const blockDim, uint32_t const ElemExtent ){
   //MP1F rotT00;
   //MP1F rotT01;
   //MP2x2SF resErr_loc;
@@ -667,11 +671,14 @@ ALPAKA_FN_ACC inline void sincos4(const float x, float& sin, float& cos)
 constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 ALPAKA_FN_ACC void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
-                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp,uint32_t const threadIdx, uint32_t const blockDim) {
+                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp,
+                uint32_t const threadIdx, uint32_t const blockDim,uint32_t const ElemExtent) {
  
    
-  //printf("propagateToR :(ThreadIdx,blockDim)=(%i,%i) \n ",threadIdx,blockDim);
+  //printf("propagateToR :(ThreadIdx,blockDim,ElemExtent)=(%i,%i,%i) \n ",threadIdx,blockDim,ElemExtent);
+  //for(size_t it=threadIdx;it<bsize;it+=blockDim){
   for(size_t it=threadIdx;it<bsize;it+=blockDim){
+
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp->data[bsize*PosInMtrx(i,i,6) + it] = 1.f;
     
@@ -815,6 +822,7 @@ ALPAKA_FN_ACC void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const M
     errorProp->data[bsize*PosInMtrx(5,3,6) + it] = 0.f;
     errorProp->data[bsize*PosInMtrx(5,4,6) + it] = 0.f;
     errorProp->data[bsize*PosInMtrx(5,5,6) + it] = 1.f;
+   
   }
 
   MultHelixProp(errorProp, inErr, temp, threadIdx, blockDim);
@@ -842,6 +850,9 @@ public:
        using Dim = alpaka::Dim<TAcc>;
        using Idx = alpaka::Idx<TAcc>;
        using Vec = alpaka::Vec<Dim, Idx>;
+       
+       //uint32_t const ElemIdx(alpaka::getIdx<alpaka::Thread, alpaka::Elems>(acc)[0u]);
+       uint32_t const ElemExtent(alpaka::getWorkDiv<alpaka::Thread, alpaka::Elems>(acc)[0u]);
 
        uint32_t const ThreadIdx(alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc)[0u]);
        uint32_t const ThreadExtent(alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc)[0u]);
@@ -867,10 +878,10 @@ public:
           for (int layer=0;layer<nlayer;++layer){	
             const MPHIT* bhits = bHit(hit,ie,ib,layer);
               propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, 
-                           &(*obtracks).cov, &(*obtracks).par, &(errorProp), &temp,ThreadIdx, ThreadExtent);
+                           &(*obtracks).cov, &(*obtracks).par, &(errorProp), &temp,ThreadIdx, ThreadExtent,ElemExtent);
               KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,
                             &rotT00, &rotT01, &resErr_loc, &kGain, &res_loc, &(newErr),
-                            ThreadIdx,ThreadExtent);
+                            ThreadIdx,ThreadExtent,ElemExtent);
            }
         //printf("index = %i ,(blockIdx,blockExt)=(%i,%i), ,(ThreadIdx,ThreadExt)=(%i,%i) \n ",
         //printf("index = %u ,(blockIdx,blockExt)=(%u,%u), (ThreadIdx,ThreadExt)=(%u,%u), track = (%.3f) \n ",
@@ -1012,7 +1023,7 @@ int main (int argc, char* argv[]) {
     } 
 
     
-   Vec const elementsPerThread(Vec::all(static_cast<Idx>(1)));
+   Vec const elementsPerThread(Vec::all(static_cast<Idx>(elementsperthread)));
    Vec const blocksPerGrid(Vec::all(static_cast<Idx>(blockspergrid)));
    Vec const threadsPerBlock(Vec::all(static_cast<Idx>(threadsperblockx)));
 
