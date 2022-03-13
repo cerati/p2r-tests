@@ -157,12 +157,6 @@ namespace impl {
 
 } //impl
 
-
-enum class FieldOrder{P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER,
-                      P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER};
-                      
-enum class ConversionType{P2R_CONVERT_TO_INTERNAL_ORDER, P2R_CONVERT_FROM_INTERNAL_ORDER};   
-
 const std::array<int, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
 
 struct ATRK {
@@ -189,6 +183,23 @@ struct MPNX_ {
    //basic accessors
    __device__ __host__ inline const T& operator[](const int idx) const {return data[idx];}
    __device__ __host__ inline T& operator[](const int idx) {return data[idx];}
+   
+   __device__ __host__ void load(MPNX_& dst) const{
+     //const int l = it+ib*bsize+ie*nb*bsize;
+     for (size_t ip=0;ip<N;++ip) {    	
+       dst.data[ip] = this->data[ip];  
+     }
+     return;
+   }
+
+   __device__ __host__ void save(const MPNX_& src) {
+     //const int l = it+ib*bsize+ie*nb*bsize;
+     for (size_t ip=0;ip<N;++ip) {    	
+       this->data[ip] = src.data[ip];  
+     }
+     return;
+   }
+
 };
 
 using MP1I_    = MPNX_<int,   1 >;
@@ -209,273 +220,42 @@ struct MPTRK_ {
   MP1I_    q;
 
   //  MP22I   hitidx;
+  __device__ __host__ void load(MPTRK_ &dst){
+    par.load(dst.par);
+    cov.load(dst.cov);
+    q.load(dst.q);    
+    return;	  
+  }
+  __device__ __host__ void save(const MPTRK_ &src){
+    par.save(src.par);
+    cov.save(src.cov);
+    q.save(src.q);
+    return;
+  }
+
 };
 
 struct MPHIT_ {
   MP3F_    pos;
   MP3x3SF_ cov;
+  
+  //
+  __device__ __host__  void load(MPHIT_ &dst){
+    pos.load(dst.pos);
+    cov.load(dst.cov);
+    return;
+  }
+  __device__ __host__  void save(const MPHIT_ &src){
+    pos.save(src.pos);
+    cov.save(src.cov);
+
+    return;
+  }
+
 };
 
-using IntAllocator   = impl::UVMAllocator<int>;
-using FloatAllocator = impl::UVMAllocator<float>;
 using MPTRKAllocator = impl::UVMAllocator<MPTRK_>;
 using MPHITAllocator = impl::UVMAllocator<MPHIT_>;
-
-template <typename T, typename Allocator, int n>
-struct MPNX {
-   using DataType = T;
-
-   static constexpr int N    = n;
-
-   const int nTrks;//note that bSize is a tuning parameter!
-   const int nEvts;
-   const int nLayers;
-
-   std::vector<T, Allocator> data;
-
-   MPNX() : nTrks(0), nEvts(0), nLayers(0), data(n){}
-
-   MPNX(const int ntrks_, const int nevts_, const int nlayers_ = 1) :
-      nTrks(ntrks_),
-      nEvts(nevts_),
-      nLayers(nlayers_),
-      data(n*nTrks*nEvts*nLayers){
-   }
-
-   MPNX(const std::vector<T, Allocator> data_, const int ntrks_, const int nevts_, const int nlayers_ = 1) :
-      nTrks(ntrks_),
-      nEvts(nevts_),
-      nLayers(nlayers_),
-      data(data_) {
-     if(data_.size() > n*nTrks*nEvts*nLayers) {std::cerr << "Incorrect dim parameters."; }
-   }
-};
-
-using MP1I    = MPNX<int,  IntAllocator,   1 >;
-using MP1F    = MPNX<float,FloatAllocator, 1 >;
-using MP2F    = MPNX<float,FloatAllocator, 2 >;
-using MP3F    = MPNX<float,FloatAllocator, 3 >;
-using MP6F    = MPNX<float,FloatAllocator, 6 >;
-using MP3x3   = MPNX<float,FloatAllocator, 9 >;
-using MP3x6   = MPNX<float,FloatAllocator, 18>;
-using MP2x2SF = MPNX<float,FloatAllocator, 3 >;
-using MP3x3SF = MPNX<float,FloatAllocator, 6 >;
-using MP6x6SF = MPNX<float,FloatAllocator, 21>;
-using MP6x6F  = MPNX<float,FloatAllocator, 36>;
-
-
-template <typename MPNTp, FieldOrder Order>
-struct MPNXAccessor {
-   typedef typename MPNTp::DataType T;
-
-   static constexpr int n   = MPNTp::N;//matrix linear dim (total number of els)
-
-   int nTrks;
-   int nEvts;
-   int nLayers;
-
-   int NevtsNtrks;
-
-   int stride;
-   
-   int thread_stride;
-
-   T* data_; //accessor field only for the data access, not allocated here
-
-   MPNXAccessor() = default;
-
-   MPNXAccessor(const MPNTp &v) :
-        nTrks(v.nTrks),
-        nEvts(v.nEvts),
-        nLayers(v.nLayers),
-        NevtsNtrks(nEvts*nTrks),
-        stride(Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER ? nTrks*nEvts*nLayers  : nTrks*nEvts*n),
-        thread_stride(Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER ? stride  : NevtsNtrks),              
-        data_(const_cast<T*>(v.data.data())){ }
-
-   __device__ __host__ inline T& operator[](const int idx) const {return data_[idx];}
-
-   __device__ __host__ inline T& operator()(const int mat_idx, const int trkev_idx, const int layer_idx) const {
-     if      constexpr (Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER)
-       return data_[mat_idx*stride + layer_idx*NevtsNtrks + trkev_idx];//using defualt order batch id (the fastest) > track id > event id > layer id (the slowest)
-     else //(Order == FieldOrder::P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER)
-       return data_[layer_idx*stride + mat_idx*NevtsNtrks + trkev_idx];
-   }//i is the internal dof index
-
-   __device__ __host__ inline T& operator()(const int thrd_idx, const int blk_offset) const { return data_[thrd_idx*thread_stride + blk_offset];}//
-
-   __device__ __host__ inline int GetThreadOffset(const int thrd_idx, const int layer_idx = 0) const {
-     if      constexpr (Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER)
-       return (layer_idx*NevtsNtrks + thrd_idx);//using defualt order batch id (the fastest) > track id > event id > layer id (the slowest)
-     else //(Order == FieldOrder::P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER)
-       return (layer_idx*stride + thrd_idx);
-   }
-   
-   __device__ __host__ inline void load(MPNX_<T, n>& dest, const int tid, const int layer = 0) const {
-      auto tid_offset = GetThreadOffset(tid, layer);
-#pragma unroll
-      for(int id = 0; id < n; id++){
-          dest[id] = this->operator()(id, tid_offset);
-      }
-      return;
-   }
-   __device__ __host__ inline void save(const MPNX_<T, n>& src, const int tid, const int layer = 0){
-      auto tid_offset = GetThreadOffset(tid, layer); 
-#pragma unroll
-      for(int id = 0; id < n; id++){
-        this->operator()(id, tid_offset) = src[id];
-      }
-      return;
-   }  
-  
-};
-
-struct MPTRK {
-  MP6F    par;
-  MP6x6SF cov;
-  MP1I    q;
-
-  MPTRK() : par(), cov(), q() {}
-  MPTRK(const int ntrks_, const int nevts_) : par(ntrks_, nevts_), cov(ntrks_, nevts_), q(ntrks_, nevts_) {}
-  //  MP22I   hitidx;
-};
-
-template <FieldOrder Order>
-struct MPTRKAccessor {
-  using MP6FAccessor   = MPNXAccessor<MP6F,    Order>;
-  using MP6x6SFAccessor= MPNXAccessor<MP6x6SF, Order>;
-  using MP1IAccessor   = MPNXAccessor<MP1I,    Order>;
-
-  MP6FAccessor    par;
-  MP6x6SFAccessor cov;
-  MP1IAccessor    q;
-
-  MPTRKAccessor() : par(), cov(), q() {}
-  MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
-  
-  __device__ __host__ inline void load(MPTRK_ &dst, const int tid, const int layer = 0) const {
-    this->par.load(dst.par, tid, layer);
-    this->cov.load(dst.cov, tid, layer);
-    this->q.load(dst.q, tid, layer);
-    
-    return;
-  }
-  
-  __device__ __host__ inline void save(MPTRK_ &src, const int tid, const int layer = 0) {
-    this->par.save(src.par, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    this->q.save(src.q, tid, layer);
-    
-    return;
-  }
-};
-
-struct MPHIT {
-  MP3F    pos;
-  MP3x3SF cov;
-
-  MPHIT() : pos(), cov(){}
-  MPHIT(const int ntrks_, const int nevts_, const int nlayers_) : pos(ntrks_, nevts_, nlayers_), cov(ntrks_, nevts_, nlayers_) {}
-};
-
-template <FieldOrder Order>
-struct MPHITAccessor {
-  using MP3FAccessor   = MPNXAccessor<MP3F,    Order>;
-  using MP3x3SFAccessor= MPNXAccessor<MP3x3SF, Order>;
-
-  MP3FAccessor    pos;
-  MP3x3SFAccessor cov;
-
-  MPHITAccessor() : pos(), cov() {}
-  MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
-  
-  __device__ __host__ void load(MPHIT_ &dst, const int tid, const int layer = 0) const {
-    this->pos.load(dst.pos, tid, layer);
-    this->cov.load(dst.cov, tid, layer);
-    
-    return;
-  }
-  
-  __device__ __host__ void save(MPHIT_ &src, const int tid, const int layer = 0) {
-    this->pos.save(src.pos, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    
-    return;
-  } 
-};
-
-
-template<FieldOrder order, typename MPTRKAllocator, ConversionType convers_tp>
-void convertTracks(std::vector<MPTRK_, MPTRKAllocator> &external_order_data, MPTRK* internal_order_data) {
-  //create an accessor field:
-  std::unique_ptr<MPTRKAccessor<order>> ind(new MPTRKAccessor<order>(*internal_order_data));
-  // store in element order for bunches of bsize matrices (a la matriplex)
-  const int outer_loop_range = nevts*ntrks;
-  //
-  std::for_each(impl::counting_iterator(0),
-                impl::counting_iterator(outer_loop_range),
-                [=, exd_ = external_order_data.data(), &ind_ = *ind] (const auto tid) {
-                  {
-                  //const int l = it+ib*bsize+ie*ntrks*bsize;
-                    //par
-    	            for (int ip=0;ip<6;++ip) {
-    	              if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-    	                exd_[tid].par.data[ip] = ind_.par(ip, tid, 0);
-    	              else
-    	                ind_.par(ip, tid, 0) = exd_[tid].par.data[ip];  
-    	            }
-    	            //cov
-    	            for (int ip=0;ip<21;++ip) {
-    	              if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-    	                exd_[tid].cov.data[ip] = ind_.cov(ip, tid, 0);
-    	              else
-    	                ind_.cov(ip, tid, 0) = exd_[tid].cov.data[ip];
-    	            }
-    	            //q
-    	            if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-    	              exd_[tid].q.data[0] = ind_.q(0, tid, 0);//fixme check
-    	            else
-    	              ind_.q(0, tid, 0) = exd_[tid].q.data[0];
-                  }
-                });
-   //
-   return;
-}
-
-
-template<FieldOrder order, typename MPHITAllocator, ConversionType convers_tp>
-void convertHits(std::vector<MPHIT_, MPHITAllocator> &external_order_data, MPHIT* internal_oder_data) {
-  //create an accessor field:
-  std::unique_ptr<MPHITAccessor<order>> ind(new MPHITAccessor<order>(*internal_oder_data));
-  // store in element order for bunches of bsize matrices (a la matriplex)
-  const int outer_loop_range = nevts*ntrks;
-  
-  std::for_each(impl::counting_iterator(0),
-                impl::counting_iterator(outer_loop_range),
-                [=, exd_ = external_order_data.data(), &ind_ = *ind] (const auto tid) {
-                   //  
-                   for(int layer=0; layer<nlayer; ++layer) {  
-                     {
-                       //pos
-                       for (int ip=0;ip<3;++ip) {
-                         if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-                           exd_[layer+nlayer*tid].pos.data[ip] = ind_.pos(ip, tid, layer);
-                         else
-                           ind_.pos(ip, tid, layer) = exd_[layer+nlayer*tid].pos.data[ip];
-                       }
-                       //cov
-                       for (int ip=0;ip<6;++ip) {
-                         if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-                           exd_[layer+nlayer*tid].cov.data[ip] = ind_.cov(ip, tid, layer);
-                         else
-                           ind_.cov(ip, tid, layer) = exd_[layer+nlayer*tid].cov.data[ip];
-                       }
-                     } 
-                  }
-               });
-  
-  return;
-}
 
 ///////////////////////////////////////
 //Gen. utils
@@ -1081,8 +861,8 @@ __device__ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_,
   return;
 }
 
-template <FieldOrder order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER, bool grid_stride = true>
-__global__ void launch_p2r_kernels(MPTRKAccessor<order> &obtracksAcc, MPTRKAccessor<order> &btracksAcc, MPHITAccessor<order> &bhitsAcc, const int length){
+template <bool grid_stride = true>
+__global__ void launch_p2r_kernels(MPTRK_ *obtracks_, MPTRK_ *btracks_, MPHIT_ *bhits_, const int length){
    auto i = threadIdx.x + blockIdx.x * blockDim.x;
 
    MPTRK_ btracks;
@@ -1091,17 +871,18 @@ __global__ void launch_p2r_kernels(MPTRKAccessor<order> &obtracksAcc, MPTRKAcces
 
    while (i < length) {
      //
-     btracksAcc.load(btracks, i);
+     btracks_[i].load(btracks);
+     
      for(int layer=0; layer<nlayer; ++layer) {  
        //
-       bhitsAcc.load(bhits, i, layer);
+       bhits_[layer+nlayer*i].load(bhits);
        //
        propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
        KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
        //
      }
      //
-     obtracksAcc.save(obtracks, i);
+     obtracks_[i].save(obtracks);
      
      if (grid_stride)
        i += gridDim.x * blockDim.x;
@@ -1136,51 +917,22 @@ int main (int argc, char* argv[]) {
    long setup_start, setup_stop;
    struct timeval timecheck;
 
-   constexpr auto order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER;
-
-   using MPTRKAccessorTp = MPTRKAccessor<order>;
-   using MPHITAccessorTp = MPHITAccessor<order>;
-
-   impl::UVMAllocator<MPTRKAccessorTp> mptrk_uvm_alloc;
-   impl::UVMAllocator<MPHITAccessorTp> mphit_uvm_alloc;
-
-   gettimeofday(&timecheck, NULL);
-   setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
-
-   std::unique_ptr<MPTRK> trcksPtr(new MPTRK(ntrks, nevts));
-   auto trcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_uvm_alloc, *trcksPtr);
+   std::vector<MPTRK_, MPTRKAllocator > trcks(nevts*ntrks); 
+   prepareTracks<MPTRKAllocator>(trcks, inputtrk);
    //
-   std::unique_ptr<MPHIT> hitsPtr(new MPHIT(ntrks, nevts, nlayer));
-   auto hitsAccPtr = std::allocate_shared<MPHITAccessorTp>(mphit_uvm_alloc, *hitsPtr);
+   std::vector<MPHIT_, MPHITAllocator> hits(nlayer*nevts*ntrks);
+   prepareHits<MPHITAllocator>(hits, inputhits);
    //
-   std::unique_ptr<MPTRK> outtrcksPtr(new MPTRK(ntrks, nevts));
-   auto outtrcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_uvm_alloc, *outtrcksPtr);
-   //
-   using hostmptrk_allocator = std::allocator<MPTRK_>;
-   using hostmphit_allocator = std::allocator<MPHIT_>;
-
-   std::vector<MPTRK_, hostmptrk_allocator > trcks(nevts*ntrks); 
-   prepareTracks<hostmptrk_allocator>(trcks, inputtrk);
-   //
-   std::vector<MPHIT_, hostmphit_allocator> hits(nlayer*nevts*ntrks);
-   prepareHits<hostmphit_allocator>(hits, inputhits);
-   //
-   std::vector<MPTRK_, hostmptrk_allocator> outtrcks(nevts*ntrks);
+   std::vector<MPTRK_, MPTRKAllocator> outtrcks(nevts*ntrks);
    
-   convertHits<order, hostmphit_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(hits,     hitsPtr.get());
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(trcks,    trcksPtr.get());
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
-
-   cudaDeviceSynchronize();
-
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
    printf("done preparing!\n");
 
-   printf("Size of struct MPTRK trk[] = %ld\n", nevts*ntrks*sizeof(MPTRK));
-   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*ntrks*sizeof(MPTRK));
-   printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*ntrks*sizeof(MPHIT));
+   printf("Size of struct MPTRK trk[] = %ld\n", nevts*ntrks*sizeof(MPTRK_));
+   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*ntrks*sizeof(MPTRK_));
+   printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*ntrks*sizeof(MPHIT_));
 
    const int phys_length      = nevts*ntrks;
    const int outer_loop_range = phys_length;
@@ -1188,7 +940,7 @@ int main (int argc, char* argv[]) {
    dim3 blocks(threadsperblock, 1, 1);
    dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
    // A warmup run to migrate data on the device
-   launch_p2r_kernels<<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
+   launch_p2r_kernels<<<grid, blocks>>>(outtrcks.data(), trcks.data(), hits.data(), phys_length);
 
    cudaDeviceSynchronize();
 
@@ -1196,7 +948,7 @@ int main (int argc, char* argv[]) {
 
    for(int itr=0; itr<NITER; itr++) {
 
-     launch_p2r_kernels<<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
+     launch_p2r_kernels<<<grid, blocks>>>(outtrcks.data(), trcks.data(), hits.data(), phys_length);
 
    } //end of itr loop
 
@@ -1211,7 +963,6 @@ int main (int argc, char* argv[]) {
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, 1, ntrks, wall_time, (setup_stop-setup_start)*0.001, -1);
 
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
    auto outtrk = outtrcks.data();
 
    int nnans = 0, nfail = 0;
