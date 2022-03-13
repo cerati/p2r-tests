@@ -1213,8 +1213,6 @@ int main (int argc, char* argv[]) {
    convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
    auto outtrk = outtrcks.data();
 
-   printf("CHECK :: outtrk[63].(MP6F_)par[2] = %f (%f)\n", outtrk[63].par[2], z(outtrk,0,63));
-
    int nnans = 0, nfail = 0;
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
    float avgpt = 0, avgphi = 0, avgtheta = 0;

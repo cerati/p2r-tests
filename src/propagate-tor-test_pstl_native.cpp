@@ -807,8 +807,8 @@ void propagateToR(const MP6x6SF &inErr, const MP6F &inPar, const MP1I &inChg,
                                  
   }
   
-  MultHelixProp<N>(errorProp, inErr_, temp);
-  MultHelixPropTransp<N>(errorProp, temp, outErr_);  
+  MultHelixProp<N>(errorProp, inErr, temp);
+  MultHelixPropTransp<N>(errorProp, temp, outErr);  
   
   return;
 }
