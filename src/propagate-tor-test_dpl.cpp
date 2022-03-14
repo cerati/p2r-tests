@@ -46,32 +46,6 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #include <CL/sycl.hpp>
 using oneapi::dpl::counting_iterator;
 
-enum class FieldOrder{P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER,
-                      P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER,
-                      P2R_MATIDX_LAYER_TRACKBLK_EVENT_ORDER};
-
-namespace impl {
-
-  /**
-     Simple array object which mimics std::array
-  */
-  template <typename T, int n> struct array {
-    using value_type = T;
-    T data[n];
-
-    constexpr T &operator[](int i) { return data[i]; }
-    constexpr const T &operator[](int i) const { return data[i]; }
-    constexpr int size() const { return n; }
-
-    array() = default;
-    array(const array<T, n> &) = default;
-    array(array<T, n> &&) = default;
-
-    array<T, n> &operator=(const array<T, n> &) = default;
-    array<T, n> &operator=(array<T, n> &&) = default;
-  };
-}
-
 const std::array<size_t, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
 
 struct ATRK {
@@ -94,7 +68,7 @@ constexpr int iparTheta = 5;
 
 template <typename T, int N, int bSize>
 struct MPNX {
-   impl::array<T,N*bSize> data;
+   std::array<T,N*bSize> data;
    //basic accessors
    const T& operator[](const int idx) const {return data[idx];}
    T& operator[](const int idx) {return data[idx];}
@@ -825,9 +799,7 @@ int main (int argc, char* argv[]) {
    //
    std::vector<MPTRK, decltype(MPTRKAllocator)> outtrcks(nevts*nb, MPTRKAllocator);
    
-   //auto policy = std::execution::par_unseq;
    auto policy = oneapi::dpl::execution::make_device_policy(cq);
-   //auto policy = std::execution::seq;
 
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
@@ -906,7 +878,7 @@ int main (int argc, char* argv[]) {
        float hy_ = inputhits[nlayer-1].pos[1];
        float hz_ = inputhits[nlayer-1].pos[2];
        float hr_ = sqrtf(hx_*hx_ + hy_*hy_);
-/*
+
        if (std::isfinite(x_)==false ||
           std::isfinite(y_)==false ||
           std::isfinite(z_)==false ||
@@ -923,7 +895,7 @@ int main (int argc, char* argv[]) {
 	 nfail++;
 	 continue;
        }
-*/
+
        avgpt += pt_;
        avgphi += phi_;
        avgtheta += theta_;
