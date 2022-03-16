@@ -1,11 +1,13 @@
 /*
-nvc++ -O2 -std=c++17 -stdpar=gpu -gpu=cc75 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll  src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
-nvc++ -O2 -std=c++17 -stdpar=multicore src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl 
-g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_pstl
+export PSTL_USAGE_WARNINGS=1
+export ONEDPL_USE_DPCPP_BACKEND=1
+
+dpcpp -std=c++17 -O2 src/propagate-tor-test_dpl.cpp -o test-dpl.exe -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
+
 */
 
 #include <oneapi/dpl/algorithm>
-#include <oneapi/dpl/execution>//<= why does it need tbb?
+#include <oneapi/dpl/execution>
 #include <oneapi/dpl/iterator>
 #include <oneapi/dpl/random>
 
@@ -34,7 +36,7 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #ifndef nevts
 #define nevts 100
 #endif
-#define smear 0.0001
+#define smear 0.00001
 
 #ifndef NITER
 #define NITER 5
@@ -610,10 +612,10 @@ void propagateToR(const MP6x6SF &inErr, const MP6F &inPar, const MP1I &inChg,
     const float thetain = inPar(iparTheta, it); 
     //
     float r0 = hipo(xin, yin);
-    const float k = inChg[it]*kfact;//?
+    const float k = inChg[it]*kfact;
     
-    const float xmsP = msP(iparX, it);//?
-    const float ymsP = msP(iparY, it);//?
+    const float xmsP = msP(iparX, it);
+    const float ymsP = msP(iparY, it);
     
     const float r = hipo(xmsP, ymsP);    
     
@@ -907,7 +909,7 @@ int main (int argc, char* argv[]) {
        avgdy += (y_-hy_)/y_;
        avgdz += (z_-hz_)/z_;
        avgdr += (r_-hr_)/r_;
-       if((it+ie*ntrks)%100000==0) printf("iTrk = %i,  track (x,y,z,r)=(%.6f,%.6f,%.6f,%.6f) \n", it+ie*ntrks, x_,y_,z_,r_);
+       //if((it+ie*ntrks)%100000==0) printf("iTrk = %i,  track (x,y,z,r)=(%.6f,%.6f,%.6f,%.6f) \n", it+ie*ntrks, x_,y_,z_,r_);
      }
    }
 
