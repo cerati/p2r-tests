@@ -310,7 +310,7 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 ///MAIN compute kernels
 
 template<int N = 1>
-SYCL_EXTERNAL inline void MultHelixProp(const MP6x6F &a, const MP6x6SF &b, MP6x6F &c) {//ok
+inline void MultHelixProp(const MP6x6F &a, const MP6x6SF &b, MP6x6F &c) {//ok
 #pragma unroll
   for (int it = 0;it < N; it++) {
     c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
@@ -356,7 +356,7 @@ SYCL_EXTERNAL inline void MultHelixProp(const MP6x6F &a, const MP6x6SF &b, MP6x6
 }
 
 template<int N = 1>
-SYCL_EXTERNAL inline void MultHelixPropTransp(const MP6x6F &a, const MP6x6F &b, MP6x6SF &c) {//
+inline void MultHelixPropTransp(const MP6x6F &a, const MP6x6F &b, MP6x6SF &c) {//
 
   for (int it = 0;it < N; it++) {
     
@@ -386,7 +386,7 @@ SYCL_EXTERNAL inline void MultHelixPropTransp(const MP6x6F &a, const MP6x6F &b, 
 }
 
 template <int N = 1>
-SYCL_EXTERNAL void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3F &msP){	  
+void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3F &msP){	  
   
   MP1F    rotT00;
   MP1F    rotT01;
@@ -575,7 +575,7 @@ constexpr float kfact= 100/(-0.299792458f*3.8112f);
 constexpr int Niter=5;
 
 template <int N = 1>
-SYCL_EXTERNAL void propagateToR(const MP6x6SF &inErr, const MP6F &inPar, const MP1I &inChg, 
+void propagateToR(const MP6x6SF &inErr, const MP6F &inPar, const MP1I &inChg, 
                   const MP3F &msP, MP6x6SF &outErr, MP6F &outPar) {
   //aux objects  
   MP6x6F errorProp;
