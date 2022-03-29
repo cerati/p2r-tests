@@ -402,75 +402,72 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 ///MAIN compute kernels
 
 [[intel::sycl_explicit_simd]] inline void MultHelixProp(const MP6x6F_ &a, const MP6x6SF_ &b, MP6x6F_ &c) {
-  {
-    c[ 0] = a[ 0]*b[ 0] + a[ 1]*b[ 1] + a[ 3]*b[ 6] + a[ 4]*b[10];
-    c[ 1] = a[ 0]*b[ 1] + a[ 1]*b[ 2] + a[ 3]*b[ 7] + a[ 4]*b[11];
-    c[ 2] = a[ 0]*b[ 3] + a[ 1]*b[ 4] + a[ 3]*b[ 8] + a[ 4]*b[12];
-    c[ 3] = a[ 0]*b[ 6] + a[ 1]*b[ 7] + a[ 3]*b[ 9] + a[ 4]*b[13];
-    c[ 4] = a[ 0]*b[10] + a[ 1]*b[11] + a[ 3]*b[13] + a[ 4]*b[14];
-    c[ 5] = a[ 0]*b[15] + a[ 1]*b[16] + a[ 3]*b[18] + a[ 4]*b[19];
-    c[ 6] = a[ 6]*b[ 0] + a[ 7]*b[ 1] + a[ 9]*b[ 6] + a[10]*b[10];
-    c[ 7] = a[ 6]*b[ 1] + a[ 7]*b[ 2] + a[ 9]*b[ 7] + a[10]*b[11];
-    c[ 8] = a[ 6]*b[ 3] + a[ 7]*b[ 4] + a[ 9]*b[ 8] + a[10]*b[12];
-    c[ 9] = a[ 6]*b[ 6] + a[ 7]*b[ 7] + a[ 9]*b[ 9] + a[10]*b[13];
-    c[10] = a[ 6]*b[10] + a[ 7]*b[11] + a[ 9]*b[13] + a[10]*b[14];
-    c[11] = a[ 6]*b[15] + a[ 7]*b[16] + a[ 9]*b[18] + a[10]*b[19];
+  
+  c[ 0] = a[ 0]*b[ 0] + a[ 1]*b[ 1] + a[ 3]*b[ 6] + a[ 4]*b[10];
+  c[ 1] = a[ 0]*b[ 1] + a[ 1]*b[ 2] + a[ 3]*b[ 7] + a[ 4]*b[11];
+  c[ 2] = a[ 0]*b[ 3] + a[ 1]*b[ 4] + a[ 3]*b[ 8] + a[ 4]*b[12];
+  c[ 3] = a[ 0]*b[ 6] + a[ 1]*b[ 7] + a[ 3]*b[ 9] + a[ 4]*b[13];
+  c[ 4] = a[ 0]*b[10] + a[ 1]*b[11] + a[ 3]*b[13] + a[ 4]*b[14];
+  c[ 5] = a[ 0]*b[15] + a[ 1]*b[16] + a[ 3]*b[18] + a[ 4]*b[19];
+  c[ 6] = a[ 6]*b[ 0] + a[ 7]*b[ 1] + a[ 9]*b[ 6] + a[10]*b[10];
+  c[ 7] = a[ 6]*b[ 1] + a[ 7]*b[ 2] + a[ 9]*b[ 7] + a[10]*b[11];
+  c[ 8] = a[ 6]*b[ 3] + a[ 7]*b[ 4] + a[ 9]*b[ 8] + a[10]*b[12];
+  c[ 9] = a[ 6]*b[ 6] + a[ 7]*b[ 7] + a[ 9]*b[ 9] + a[10]*b[13];
+  c[10] = a[ 6]*b[10] + a[ 7]*b[11] + a[ 9]*b[13] + a[10]*b[14];
+  c[11] = a[ 6]*b[15] + a[ 7]*b[16] + a[ 9]*b[18] + a[10]*b[19];
     
-    c[12] = a[12]*b[ 0] + a[13]*b[ 1] + b[ 3] + a[15]*b[ 6] + a[16]*b[10] + a[17]*b[15];
-    c[13] = a[12]*b[ 1] + a[13]*b[ 2] + b[ 4] + a[15]*b[ 7] + a[16]*b[11] + a[17]*b[16];
-    c[14] = a[12]*b[ 3] + a[13]*b[ 4] + b[ 5] + a[15]*b[ 8] + a[16]*b[12] + a[17]*b[17];
-    c[15] = a[12]*b[ 6] + a[13]*b[ 7] + b[ 8] + a[15]*b[ 9] + a[16]*b[13] + a[17]*b[18];
-    c[16] = a[12]*b[10] + a[13]*b[11] + b[12] + a[15]*b[13] + a[16]*b[14] + a[17]*b[19];
-    c[17] = a[12]*b[15] + a[13]*b[16] + b[17] + a[15]*b[18] + a[16]*b[19] + a[17]*b[20];
+  c[12] = a[12]*b[ 0] + a[13]*b[ 1] + b[ 3] + a[15]*b[ 6] + a[16]*b[10] + a[17]*b[15];
+  c[13] = a[12]*b[ 1] + a[13]*b[ 2] + b[ 4] + a[15]*b[ 7] + a[16]*b[11] + a[17]*b[16];
+  c[14] = a[12]*b[ 3] + a[13]*b[ 4] + b[ 5] + a[15]*b[ 8] + a[16]*b[12] + a[17]*b[17];
+  c[15] = a[12]*b[ 6] + a[13]*b[ 7] + b[ 8] + a[15]*b[ 9] + a[16]*b[13] + a[17]*b[18];
+  c[16] = a[12]*b[10] + a[13]*b[11] + b[12] + a[15]*b[13] + a[16]*b[14] + a[17]*b[19];
+  c[17] = a[12]*b[15] + a[13]*b[16] + b[17] + a[15]*b[18] + a[16]*b[19] + a[17]*b[20];
     
-    c[18] = a[18]*b[ 0] + a[19]*b[ 1] + a[21]*b[ 6] + a[22]*b[10];
-    c[19] = a[18]*b[ 1] + a[19]*b[ 2] + a[21]*b[ 7] + a[22]*b[11];
-    c[20] = a[18]*b[ 3] + a[19]*b[ 4] + a[21]*b[ 8] + a[22]*b[12];
-    c[21] = a[18]*b[ 6] + a[19]*b[ 7] + a[21]*b[ 9] + a[22]*b[13];
-    c[22] = a[18]*b[10] + a[19]*b[11] + a[21]*b[13] + a[22]*b[14];
-    c[23] = a[18]*b[15] + a[19]*b[16] + a[21]*b[18] + a[22]*b[19];
-    c[24] = a[24]*b[ 0] + a[25]*b[ 1] + a[27]*b[ 6] + a[28]*b[10];
-    c[25] = a[24]*b[ 1] + a[25]*b[ 2] + a[27]*b[ 7] + a[28]*b[11];
-    c[26] = a[24]*b[ 3] + a[25]*b[ 4] + a[27]*b[ 8] + a[28]*b[12];
-    c[27] = a[24]*b[ 6] + a[25]*b[ 7] + a[27]*b[ 9] + a[28]*b[13];
-    c[28] = a[24]*b[10] + a[25]*b[11] + a[27]*b[13] + a[28]*b[14];
-    c[29] = a[24]*b[15] + a[25]*b[16] + a[27]*b[18] + a[28]*b[19];
-    c[30] = b[15];
-    c[31] = b[16];
-    c[32] = b[17];
-    c[33] = b[18];
-    c[34] = b[19];
-    c[35] = b[20];    
-  }
+  c[18] = a[18]*b[ 0] + a[19]*b[ 1] + a[21]*b[ 6] + a[22]*b[10];
+  c[19] = a[18]*b[ 1] + a[19]*b[ 2] + a[21]*b[ 7] + a[22]*b[11];
+  c[20] = a[18]*b[ 3] + a[19]*b[ 4] + a[21]*b[ 8] + a[22]*b[12];
+  c[21] = a[18]*b[ 6] + a[19]*b[ 7] + a[21]*b[ 9] + a[22]*b[13];
+  c[22] = a[18]*b[10] + a[19]*b[11] + a[21]*b[13] + a[22]*b[14];
+  c[23] = a[18]*b[15] + a[19]*b[16] + a[21]*b[18] + a[22]*b[19];
+  c[24] = a[24]*b[ 0] + a[25]*b[ 1] + a[27]*b[ 6] + a[28]*b[10];
+  c[25] = a[24]*b[ 1] + a[25]*b[ 2] + a[27]*b[ 7] + a[28]*b[11];
+  c[26] = a[24]*b[ 3] + a[25]*b[ 4] + a[27]*b[ 8] + a[28]*b[12];
+  c[27] = a[24]*b[ 6] + a[25]*b[ 7] + a[27]*b[ 9] + a[28]*b[13];
+  c[28] = a[24]*b[10] + a[25]*b[11] + a[27]*b[13] + a[28]*b[14];
+  c[29] = a[24]*b[15] + a[25]*b[16] + a[27]*b[18] + a[28]*b[19];
+  c[30] = b[15];
+  c[31] = b[16];
+  c[32] = b[17];
+  c[33] = b[18];
+  c[34] = b[19];
+  c[35] = b[20];    
+  
   return;
 }
 
-[[intel::sycl_explicit_simd]] inline void MultHelixPropTransp(const MP6x6F_ &a, const MP6x6F_ &b, MP6x6SF_ &c) {//
-
-  {
+[[intel::sycl_explicit_simd]] inline void MultHelixPropTransp(const MP6x6F_ &a, const MP6x6F_ &b, MP6x6SF_ &c) {//  
+  c[ 0] = b[ 0]*a[ 0] + b[ 1]*a[ 1] + b[ 3]*a[ 3] + b[ 4]*a[ 4];
+  c[ 1] = b[ 6]*a[ 0] + b[ 7]*a[ 1] + b[ 9]*a[ 3] + b[10]*a[ 4];
+  c[ 2] = b[ 6]*a[ 6] + b[ 7]*a[ 7] + b[ 9]*a[ 9] + b[10]*a[10];
+  c[ 3] = b[12]*a[ 0] + b[13]*a[ 1] + b[15]*a[ 3] + b[16]*a[ 4];
+  c[ 4] = b[12]*a[ 6] + b[13]*a[ 7] + b[15]*a[ 9] + b[16]*a[10];
+  c[ 5] = b[12]*a[12] + b[13]*a[13] + b[14] + b[15]*a[15] + b[16]*a[16] + b[17]*a[17];
+  c[ 6] = b[18]*a[ 0] + b[19]*a[ 1] + b[21]*a[ 3] + b[22]*a[ 4];
+  c[ 7] = b[18]*a[ 6] + b[19]*a[ 7] + b[21]*a[ 9] + b[22]*a[10];
+  c[ 8] = b[18]*a[12] + b[19]*a[13] + b[20] + b[21]*a[15] + b[22]*a[16] + b[23]*a[17];
+  c[ 9] = b[18]*a[18] + b[19]*a[19] + b[21]*a[21] + b[22]*a[22];
+  c[10] = b[24]*a[ 0] + b[25]*a[ 1] + b[27]*a[ 3] + b[28]*a[ 4];
+  c[11] = b[24]*a[ 6] + b[25]*a[ 7] + b[27]*a[ 9] + b[28]*a[10];
+  c[12] = b[24]*a[12] + b[25]*a[13] + b[26] + b[27]*a[15] + b[28]*a[16] + b[29]*a[17];
+  c[13] = b[24]*a[18] + b[25]*a[19] + b[27]*a[21] + b[28]*a[22];
+  c[14] = b[24]*a[24] + b[25]*a[25] + b[27]*a[27] + b[28]*a[28];
+  c[15] = b[30]*a[ 0] + b[31]*a[ 1] + b[33]*a[ 3] + b[34]*a[ 4];
+  c[16] = b[30]*a[ 6] + b[31]*a[ 7] + b[33]*a[ 9] + b[34]*a[10];
+  c[17] = b[30]*a[12] + b[31]*a[13] + b[32] + b[33]*a[15] + b[34]*a[16] + b[35]*a[17];
+  c[18] = b[30]*a[18] + b[31]*a[19] + b[33]*a[21] + b[34]*a[22];
+  c[19] = b[30]*a[24] + b[31]*a[25] + b[33]*a[27] + b[34]*a[28];
+  c[20] = b[35];
     
-    c[ 0] = b[ 0]*a[ 0] + b[ 1]*a[ 1] + b[ 3]*a[ 3] + b[ 4]*a[ 4];
-    c[ 1] = b[ 6]*a[ 0] + b[ 7]*a[ 1] + b[ 9]*a[ 3] + b[10]*a[ 4];
-    c[ 2] = b[ 6]*a[ 6] + b[ 7]*a[ 7] + b[ 9]*a[ 9] + b[10]*a[10];
-    c[ 3] = b[12]*a[ 0] + b[13]*a[ 1] + b[15]*a[ 3] + b[16]*a[ 4];
-    c[ 4] = b[12]*a[ 6] + b[13]*a[ 7] + b[15]*a[ 9] + b[16]*a[10];
-    c[ 5] = b[12]*a[12] + b[13]*a[13] + b[14] + b[15]*a[15] + b[16]*a[16] + b[17]*a[17];
-    c[ 6] = b[18]*a[ 0] + b[19]*a[ 1] + b[21]*a[ 3] + b[22]*a[ 4];
-    c[ 7] = b[18]*a[ 6] + b[19]*a[ 7] + b[21]*a[ 9] + b[22]*a[10];
-    c[ 8] = b[18]*a[12] + b[19]*a[13] + b[20] + b[21]*a[15] + b[22]*a[16] + b[23]*a[17];
-    c[ 9] = b[18]*a[18] + b[19]*a[19] + b[21]*a[21] + b[22]*a[22];
-    c[10] = b[24]*a[ 0] + b[25]*a[ 1] + b[27]*a[ 3] + b[28]*a[ 4];
-    c[11] = b[24]*a[ 6] + b[25]*a[ 7] + b[27]*a[ 9] + b[28]*a[10];
-    c[12] = b[24]*a[12] + b[25]*a[13] + b[26] + b[27]*a[15] + b[28]*a[16] + b[29]*a[17];
-    c[13] = b[24]*a[18] + b[25]*a[19] + b[27]*a[21] + b[28]*a[22];
-    c[14] = b[24]*a[24] + b[25]*a[25] + b[27]*a[27] + b[28]*a[28];
-    c[15] = b[30]*a[ 0] + b[31]*a[ 1] + b[33]*a[ 3] + b[34]*a[ 4];
-    c[16] = b[30]*a[ 6] + b[31]*a[ 7] + b[33]*a[ 9] + b[34]*a[10];
-    c[17] = b[30]*a[12] + b[31]*a[13] + b[32] + b[33]*a[15] + b[34]*a[16] + b[35]*a[17];
-    c[18] = b[30]*a[18] + b[31]*a[19] + b[33]*a[21] + b[34]*a[22];
-    c[19] = b[30]*a[24] + b[31]*a[25] + b[33]*a[27] + b[34]*a[28];
-    c[20] = b[35];
-  }
   return;  
 }
 
@@ -478,23 +475,25 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 template <int N = bSize>
 [[intel::sycl_explicit_simd]] void KalmanUpdate(MP6x6SF_ &trkErr, MP6F_ &inPar, const MP3x3SF_ &hitErr, const MP3F_ &msP){	  
   
+  using FloatN = simd<float, N>;
+  
   MP1F_    rotT00;
   MP1F_    rotT01;
   MP2x2SF_ resErr_loc;
   //MP3x3SF_ resErr_glo;
     
   {   
-    const simd<float, N> msPX = msP[iparX];
-    const simd<float, N> msPY = msP[iparY];
-    const simd<float, N> inParX = inPar[iparX];
-    const simd<float, N> inParY = inPar[iparY];  
+    const FloatN msPX = msP[iparX];
+    const FloatN msPY = msP[iparY];
+    const FloatN inParX = inPar[iparX];
+    const FloatN inParY = inPar[iparY];  
     
-    simd<float, N> tmp1 = msPX*msPX + msPY*msPY; 
-    simd<float, N> tmp2 = esimd::sqrt(tmp1);
+    FloatN tmp1 = msPX*msPX + msPY*msPY; 
+    FloatN tmp2 = esimd::sqrt(tmp1);
     
     tmp1 = esimd::inv(tmp2);       
   
-    const simd<float, N> inv_2r = 0.5*tmp1;
+    const FloatN inv_2r = 0.5*tmp1;
 
     rotT00[0] = -(msPY + inParY) * inv_2r;
     rotT01[0] =  (msPX + inParX) * inv_2r;    
@@ -510,10 +509,10 @@ template <int N = bSize>
   
   {
   
-    const simd<float, N> det = resErr_loc[0] * resErr_loc[2] -
+    const FloatN det = resErr_loc[0] * resErr_loc[2] -
                        resErr_loc[1] * resErr_loc[1];
-    const simd<float, N> s   = esimd::inv( det );
-    const simd<float, N> tmp = s * resErr_loc[2];
+    const FloatN s   = esimd::inv( det );
+    const FloatN tmp = s * resErr_loc[2];
     resErr_loc[1]  = -(s * resErr_loc[1]);
     resErr_loc[2]  =  (s * resErr_loc[0]);
     resErr_loc[0]  = tmp;  
@@ -568,16 +567,16 @@ template <int N = bSize>
      
   MP2F_ res_loc;   
   {
-    const simd<float, N> msPX = msP[iparX];
-    const simd<float, N> msPY = msP[iparY];
-    const simd<float, N> msPZ = msP[iparZ];    
-    const simd<float, N> inParX = inPar[iparX];
-    const simd<float, N> inParY = inPar[iparY];     
-    const simd<float, N> inParZ = inPar[iparZ]; 
+    const FloatN msPX = msP[iparX];
+    const FloatN msPY = msP[iparY];
+    const FloatN msPZ = msP[iparZ];    
+    const FloatN inParX = inPar[iparX];
+    const FloatN inParY = inPar[iparY];     
+    const FloatN inParZ = inPar[iparZ]; 
     
-    const simd<float, N> inParIpt   = inPar[iparIpt];
-    const simd<float, N> inParPhi   = inPar[iparPhi];
-    const simd<float, N> inParTheta = inPar[iparTheta];            
+    const FloatN inParIpt   = inPar[iparIpt];
+    const FloatN inParPhi   = inPar[iparPhi];
+    const FloatN inParTheta = inPar[iparTheta];            
     
     res_loc[0] =  rotT00[0]*(msPX - inParX) + rotT01[0]*(msPY - inParY);
     res_loc[1] =  msPZ - inParZ;
@@ -671,28 +670,30 @@ constexpr int Niter=5;//5
 
 template<int N = bSize>
 [[intel::sycl_explicit_simd]] void propagateToR(const MP6x6SF_ &inErr, const MP6F_ &inPar, const MP1I_ &inChg, 
-                  const MP3F_ &msP, MP6x6SF_ &outErr, MP6F_ &outPar) {                 
+                  const MP3F_ &msP, MP6x6SF_ &outErr, MP6F_ &outPar) { 
+                  
+  using FloatN = simd<float, N>;                
   //aux objects  
   MP6x6F_ errorProp;
   MP6x6F_ temp;
   
-  const simd<float, N> zero(0.f);
+  const FloatN zero = 0.f;
   
   auto PosInMtrx = [] (int i, int j, int nd) constexpr {return (i*nd+j);};
   
-  auto sincos4 = [=] (const simd<float, N> x, simd<float, N>& sin, simd<float, N>& cos) {
-    const simd<float, N> x2 = x*x;
+  auto sincos4 = [=] (const FloatN x, FloatN& sin, FloatN& cos) {
+    const FloatN x2 = x*x;
     //
-    const simd<float, N> c0(+1.0f);
-    const simd<float, N> c1(-0.5f);
-    const simd<float, N> c2(+0.04166667f);
-    const simd<float, N> c3(-0.16666667f);
+    const FloatN c0(+1.0f);
+    const FloatN c1(-0.5f);
+    const FloatN c2(+0.04166667f);
+    const FloatN c3(-0.16666667f);
     // 
     cos  = c0 + c1*x2 + c2*x2*x2;
     sin  = x * (c0 + c3*x2);
   };
   
-  auto hipo = [](const simd<float, N> x, const simd<float, N> y) {return esimd::sqrt(x*x + y*y);};
+  auto hipo = [](const FloatN x, const FloatN y) {return esimd::sqrt(x*x + y*y);};
                   
   { 
     errorProp[PosInMtrx(0,0,6)] = 1.f;
@@ -702,30 +703,30 @@ template<int N = bSize>
     errorProp[PosInMtrx(4,4,6)] = 1.f;
     errorProp[PosInMtrx(5,5,6)] = 1.f;
     //
-    const simd<float, N> xin = inPar[iparX];
-    const simd<float, N> yin = inPar[iparY];     
-    const simd<float, N> zin = inPar[iparZ]; 
+    const FloatN xin = inPar[iparX];
+    const FloatN yin = inPar[iparY];     
+    const FloatN zin = inPar[iparZ]; 
     
-    const simd<float, N> iptin   = inPar[iparIpt];
-    const simd<float, N> phiin   = inPar[iparPhi];
-    const simd<float, N> thetain = inPar[iparTheta]; 
+    const FloatN iptin   = inPar[iparIpt];
+    const FloatN phiin   = inPar[iparPhi];
+    const FloatN thetain = inPar[iparTheta]; 
     //
-    simd<float, N> r0 = hipo(xin, yin);
+    FloatN r0 = hipo(xin, yin);
     
     simd_mask<N> predmsk = r0 > 0.f;
     //do basic regularization:
-    simd<float, N> invr0(1.0f);
+    FloatN invr0(1.0f);
     invr0.merge(zero, predmsk);//replace one's with zero's
     r0 = r0 + invr0;//replaced zero by one. keep the remaining unchanged  
     //
     invr0 = esimd::inv(r0); 
     
-    const simd<float, N> k = inChg[0]*kfact;
+    const FloatN k = inChg[0]*kfact;
     
-    const simd<float, N> xmsP = msP[iparX];
-    const simd<float, N> ymsP = msP[iparY];
+    const FloatN xmsP = msP[iparX];
+    const FloatN ymsP = msP[iparY];
     
-    const simd<float, N> r = hipo(xmsP, ymsP);    
+    const FloatN r = hipo(xmsP, ymsP);    
     
     outPar[iparX] = xin;
     outPar[iparY] = yin;
@@ -735,23 +736,23 @@ template<int N = bSize>
     outPar[iparPhi]   = phiin;
     outPar[iparTheta] = thetain;
 
-    const simd<float, N> kinv  = esimd::inv(k);
-    const simd<float, N> pt    = esimd::inv(iptin);
+    const FloatN kinv  = esimd::inv(k);
+    const FloatN pt    = esimd::inv(iptin);
     
-    simd<float, N> D = 0.f, cosa = 0.f, sina = 0.f, id = 0.f;
+    FloatN D = 0.f, cosa = 0.f, sina = 0.f, id = 0.f;
     //no trig approx here, phi can be large
-    simd<float, N> cosPorT = esimd::cos(phiin);
-    simd<float, N> sinPorT = esimd::sin(phiin);
-    simd<float, N> pxin = cosPorT*pt;
-    simd<float, N> pyin = sinPorT*pt;
+    FloatN cosPorT = esimd::cos(phiin);
+    FloatN sinPorT = esimd::sin(phiin);
+    FloatN pxin = cosPorT*pt;
+    FloatN pyin = sinPorT*pt;
     
     //derivatives initialized to value for first iteration, i.e. distance = r-r0in
-    //simd<float, N> dDdx = r0 > 0.f ? -xin/r0 : 0.f;
-    //simd<float, N> dDdy = r0 > 0.f ? -yin/r0 : 0.f;
-    simd<float, N> dDdx(0.f);
-    simd<float, N> dDdy(0.f);
+    //FloatN dDdx = r0 > 0.f ? -xin/r0 : 0.f;
+    //FloatN dDdy = r0 > 0.f ? -yin/r0 : 0.f;
+    FloatN dDdx(0.f);
+    FloatN dDdy(0.f);
     
-    simd<float, N> scaled_invr0 = -(xin*invr0);
+    FloatN scaled_invr0 = -(xin*invr0);
     
     dDdx.merge(scaled_invr0, predmsk);
     
@@ -759,29 +760,29 @@ template<int N = bSize>
     
     dDdy.merge(scaled_invr0, predmsk);
     //
-    simd<float, N> dDdipt = 0.f;
-    simd<float, N> dDdphi = 0.f; 
+    FloatN dDdipt = 0.f;
+    FloatN dDdphi = 0.f; 
     
-    const simd<float, N> iptinxkinv = iptin*kinv; 
+    const FloatN iptinxkinv = iptin*kinv; 
 
 #pragma unroll  
     for (int i = 0; i < Niter; ++i)
     {
      //compute distance and path for the current iteration
-      const simd<float, N> xout = outPar[iparX];
-      const simd<float, N> yout = outPar[iparY];     
+      const FloatN xout = outPar[iparX];
+      const FloatN yout = outPar[iparY];     
       
       r0 = hipo(xout, yout);
       id = (r-r0);
       D+=id;
       
-      const simd<float, N> idxiptinxkinv = id*iptinxkinv; 
+      const FloatN idxiptinxkinv = id*iptinxkinv; 
       sincos4(idxiptinxkinv, sina, cosa);
 
       //update derivatives on total distance
       if (i+1 != Niter) { 
  
-	//const simd<float, N> oor0 = (r0>0.f && std::abs(r-r0)<0.0001f) ? esimd::inv(r0) : 0.f;//?
+	//const FloatN oor0 = (r0>0.f && std::abs(r-r0)<0.0001f) ? esimd::inv(r0) : 0.f;//?
 	predmsk = (r0 > 0.f);
 	//
         invr0 = 1.0f;
@@ -792,20 +793,20 @@ template<int N = bSize>
 	//
 	predmsk = predmsk && (esimd::abs(id) < 0.0001f); 
 	//
-	simd<float, N> oor0(0.f);
+	FloatN oor0(0.f);
 	oor0.merge(invr0, predmsk);
 
-	const simd<float, N> dadipt = id*kinv;
+	const FloatN dadipt = id*kinv;
 
-	const simd<float, N> dadx = -xout*iptinxkinv*oor0;
-	const simd<float, N> dady = -yout*iptinxkinv*oor0;
+	const FloatN dadx = -xout*iptinxkinv*oor0;
+	const FloatN dady = -yout*iptinxkinv*oor0;
 
-	const simd<float, N> pxca = pxin*cosa;
-	const simd<float, N> pxsa = pxin*sina;
-	const simd<float, N> pyca = pyin*cosa;
-	const simd<float, N> pysa = pyin*sina;
+	const FloatN pxca = pxin*cosa;
+	const FloatN pxsa = pxin*sina;
+	const FloatN pyca = pyin*cosa;
+	const FloatN pysa = pyin*sina;
 
-	simd<float, N> tmp = k*dadx;
+	FloatN tmp = k*dadx;
 	dDdx   -= ( xout*(1.f + tmp*(pxca - pysa)) + yout*tmp*(pyca + pxsa) )*oor0;
 	tmp = k*dady;
 	dDdy   -= ( xout*tmp*(pxca - pysa) + yout*(1.f + tmp*(pyca + pxsa)) )*oor0;
@@ -819,17 +820,17 @@ template<int N = bSize>
       //update parameters
       outPar[iparX] = xout + k*(pxin*sina - pyin*(1.f-cosa));
       outPar[iparY] = yout + k*(pyin*sina + pxin*(1.f-cosa));
-      const simd<float, N> pxinold = pxin;//copy before overwriting
+      const FloatN pxinold = pxin;//copy before overwriting
       pxin = pxin*cosa - pyin*sina;
       pyin = pyin*cosa + pxinold*sina;
   
     }
 
-    const simd<float, N> alpha  = D*iptinxkinv;
-    const simd<float, N> dadx   = dDdx*iptinxkinv;
-    const simd<float, N> dady   = dDdy*iptinxkinv;
-    const simd<float, N> dadipt = (iptin*dDdipt + D)*kinv;
-    const simd<float, N> dadphi = dDdphi*iptinxkinv;
+    const FloatN alpha  = D*iptinxkinv;
+    const FloatN dadx   = dDdx*iptinxkinv;
+    const FloatN dady   = dDdy*iptinxkinv;
+    const FloatN dadipt = (iptin*dDdipt + D)*kinv;
+    const FloatN dadphi = dDdphi*iptinxkinv;
 
     sincos4(alpha, sina, cosa);
 
