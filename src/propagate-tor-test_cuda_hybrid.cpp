@@ -20,9 +20,7 @@
 #include <execution>
 #include <random>
 
-//#ifdef _NVHPC_CUDA
 #include <nv/target>
-//#endif
 
 #ifndef ntrks
 #define ntrks 8192
@@ -48,6 +46,12 @@
 
 #ifndef threadsperblock
 #define threadsperblock 32
+#endif
+
+#ifdef __NVCOMPILER_CUDA__
+#define __kernel__ __global__
+#else
+#define __kernel__
 #endif
 
 namespace impl {
@@ -647,75 +651,72 @@ float z(const MPHIT_* hits, int ev, int tk)    { return Pos(hits, ev, tk, 2); }
 
 inline void MultHelixProp(const MP6x6F_ &a, const MP6x6SF_ &b, MP6x6F_ &c) {//ok
 
-  {
-    c[ 0] = a[ 0]*b[ 0] + a[ 1]*b[ 1] + a[ 3]*b[ 6] + a[ 4]*b[10];
-    c[ 1] = a[ 0]*b[ 1] + a[ 1]*b[ 2] + a[ 3]*b[ 7] + a[ 4]*b[11];
-    c[ 2] = a[ 0]*b[ 3] + a[ 1]*b[ 4] + a[ 3]*b[ 8] + a[ 4]*b[12];
-    c[ 3] = a[ 0]*b[ 6] + a[ 1]*b[ 7] + a[ 3]*b[ 9] + a[ 4]*b[13];
-    c[ 4] = a[ 0]*b[10] + a[ 1]*b[11] + a[ 3]*b[13] + a[ 4]*b[14];
-    c[ 5] = a[ 0]*b[15] + a[ 1]*b[16] + a[ 3]*b[18] + a[ 4]*b[19];
-    c[ 6] = a[ 6]*b[ 0] + a[ 7]*b[ 1] + a[ 9]*b[ 6] + a[10]*b[10];
-    c[ 7] = a[ 6]*b[ 1] + a[ 7]*b[ 2] + a[ 9]*b[ 7] + a[10]*b[11];
-    c[ 8] = a[ 6]*b[ 3] + a[ 7]*b[ 4] + a[ 9]*b[ 8] + a[10]*b[12];
-    c[ 9] = a[ 6]*b[ 6] + a[ 7]*b[ 7] + a[ 9]*b[ 9] + a[10]*b[13];
-    c[10] = a[ 6]*b[10] + a[ 7]*b[11] + a[ 9]*b[13] + a[10]*b[14];
-    c[11] = a[ 6]*b[15] + a[ 7]*b[16] + a[ 9]*b[18] + a[10]*b[19];
+  c[ 0] = a[ 0]*b[ 0] + a[ 1]*b[ 1] + a[ 3]*b[ 6] + a[ 4]*b[10];
+  c[ 1] = a[ 0]*b[ 1] + a[ 1]*b[ 2] + a[ 3]*b[ 7] + a[ 4]*b[11];
+  c[ 2] = a[ 0]*b[ 3] + a[ 1]*b[ 4] + a[ 3]*b[ 8] + a[ 4]*b[12];
+  c[ 3] = a[ 0]*b[ 6] + a[ 1]*b[ 7] + a[ 3]*b[ 9] + a[ 4]*b[13];
+  c[ 4] = a[ 0]*b[10] + a[ 1]*b[11] + a[ 3]*b[13] + a[ 4]*b[14];
+  c[ 5] = a[ 0]*b[15] + a[ 1]*b[16] + a[ 3]*b[18] + a[ 4]*b[19];
+  c[ 6] = a[ 6]*b[ 0] + a[ 7]*b[ 1] + a[ 9]*b[ 6] + a[10]*b[10];
+  c[ 7] = a[ 6]*b[ 1] + a[ 7]*b[ 2] + a[ 9]*b[ 7] + a[10]*b[11];
+  c[ 8] = a[ 6]*b[ 3] + a[ 7]*b[ 4] + a[ 9]*b[ 8] + a[10]*b[12];
+  c[ 9] = a[ 6]*b[ 6] + a[ 7]*b[ 7] + a[ 9]*b[ 9] + a[10]*b[13];
+  c[10] = a[ 6]*b[10] + a[ 7]*b[11] + a[ 9]*b[13] + a[10]*b[14];
+  c[11] = a[ 6]*b[15] + a[ 7]*b[16] + a[ 9]*b[18] + a[10]*b[19];
     
-    c[12] = a[12]*b[ 0] + a[13]*b[ 1] + b[ 3] + a[15]*b[ 6] + a[16]*b[10] + a[17]*b[15];
-    c[13] = a[12]*b[ 1] + a[13]*b[ 2] + b[ 4] + a[15]*b[ 7] + a[16]*b[11] + a[17]*b[16];
-    c[14] = a[12]*b[ 3] + a[13]*b[ 4] + b[ 5] + a[15]*b[ 8] + a[16]*b[12] + a[17]*b[17];
-    c[15] = a[12]*b[ 6] + a[13]*b[ 7] + b[ 8] + a[15]*b[ 9] + a[16]*b[13] + a[17]*b[18];
-    c[16] = a[12]*b[10] + a[13]*b[11] + b[12] + a[15]*b[13] + a[16]*b[14] + a[17]*b[19];
-    c[17] = a[12]*b[15] + a[13]*b[16] + b[17] + a[15]*b[18] + a[16]*b[19] + a[17]*b[20];
+  c[12] = a[12]*b[ 0] + a[13]*b[ 1] + b[ 3] + a[15]*b[ 6] + a[16]*b[10] + a[17]*b[15];
+  c[13] = a[12]*b[ 1] + a[13]*b[ 2] + b[ 4] + a[15]*b[ 7] + a[16]*b[11] + a[17]*b[16];
+  c[14] = a[12]*b[ 3] + a[13]*b[ 4] + b[ 5] + a[15]*b[ 8] + a[16]*b[12] + a[17]*b[17];
+  c[15] = a[12]*b[ 6] + a[13]*b[ 7] + b[ 8] + a[15]*b[ 9] + a[16]*b[13] + a[17]*b[18];
+  c[16] = a[12]*b[10] + a[13]*b[11] + b[12] + a[15]*b[13] + a[16]*b[14] + a[17]*b[19];
+  c[17] = a[12]*b[15] + a[13]*b[16] + b[17] + a[15]*b[18] + a[16]*b[19] + a[17]*b[20];
     
-    c[18] = a[18]*b[ 0] + a[19]*b[ 1] + a[21]*b[ 6] + a[22]*b[10];
-    c[19] = a[18]*b[ 1] + a[19]*b[ 2] + a[21]*b[ 7] + a[22]*b[11];
-    c[20] = a[18]*b[ 3] + a[19]*b[ 4] + a[21]*b[ 8] + a[22]*b[12];
-    c[21] = a[18]*b[ 6] + a[19]*b[ 7] + a[21]*b[ 9] + a[22]*b[13];
-    c[22] = a[18]*b[10] + a[19]*b[11] + a[21]*b[13] + a[22]*b[14];
-    c[23] = a[18]*b[15] + a[19]*b[16] + a[21]*b[18] + a[22]*b[19];
-    c[24] = a[24]*b[ 0] + a[25]*b[ 1] + a[27]*b[ 6] + a[28]*b[10];
-    c[25] = a[24]*b[ 1] + a[25]*b[ 2] + a[27]*b[ 7] + a[28]*b[11];
-    c[26] = a[24]*b[ 3] + a[25]*b[ 4] + a[27]*b[ 8] + a[28]*b[12];
-    c[27] = a[24]*b[ 6] + a[25]*b[ 7] + a[27]*b[ 9] + a[28]*b[13];
-    c[28] = a[24]*b[10] + a[25]*b[11] + a[27]*b[13] + a[28]*b[14];
-    c[29] = a[24]*b[15] + a[25]*b[16] + a[27]*b[18] + a[28]*b[19];
-    c[30] = b[15];
-    c[31] = b[16];
-    c[32] = b[17];
-    c[33] = b[18];
-    c[34] = b[19];
-    c[35] = b[20];    
-  }
+  c[18] = a[18]*b[ 0] + a[19]*b[ 1] + a[21]*b[ 6] + a[22]*b[10];
+  c[19] = a[18]*b[ 1] + a[19]*b[ 2] + a[21]*b[ 7] + a[22]*b[11];
+  c[20] = a[18]*b[ 3] + a[19]*b[ 4] + a[21]*b[ 8] + a[22]*b[12];
+  c[21] = a[18]*b[ 6] + a[19]*b[ 7] + a[21]*b[ 9] + a[22]*b[13];
+  c[22] = a[18]*b[10] + a[19]*b[11] + a[21]*b[13] + a[22]*b[14];
+  c[23] = a[18]*b[15] + a[19]*b[16] + a[21]*b[18] + a[22]*b[19];
+  c[24] = a[24]*b[ 0] + a[25]*b[ 1] + a[27]*b[ 6] + a[28]*b[10];
+  c[25] = a[24]*b[ 1] + a[25]*b[ 2] + a[27]*b[ 7] + a[28]*b[11];
+  c[26] = a[24]*b[ 3] + a[25]*b[ 4] + a[27]*b[ 8] + a[28]*b[12];
+  c[27] = a[24]*b[ 6] + a[25]*b[ 7] + a[27]*b[ 9] + a[28]*b[13];
+  c[28] = a[24]*b[10] + a[25]*b[11] + a[27]*b[13] + a[28]*b[14];
+  c[29] = a[24]*b[15] + a[25]*b[16] + a[27]*b[18] + a[28]*b[19];
+  c[30] = b[15];
+  c[31] = b[16];
+  c[32] = b[17];
+  c[33] = b[18];
+  c[34] = b[19];
+  c[35] = b[20];    
+  
   return;
 }
 
 inline void MultHelixPropTransp(const MP6x6F_ &a, const MP6x6F_ &b, MP6x6SF_ &c) {//
 
-  {
-    
-    c[ 0] = b[ 0]*a[ 0] + b[ 1]*a[ 1] + b[ 3]*a[ 3] + b[ 4]*a[ 4];
-    c[ 1] = b[ 6]*a[ 0] + b[ 7]*a[ 1] + b[ 9]*a[ 3] + b[10]*a[ 4];
-    c[ 2] = b[ 6]*a[ 6] + b[ 7]*a[ 7] + b[ 9]*a[ 9] + b[10]*a[10];
-    c[ 3] = b[12]*a[ 0] + b[13]*a[ 1] + b[15]*a[ 3] + b[16]*a[ 4];
-    c[ 4] = b[12]*a[ 6] + b[13]*a[ 7] + b[15]*a[ 9] + b[16]*a[10];
-    c[ 5] = b[12]*a[12] + b[13]*a[13] + b[14] + b[15]*a[15] + b[16]*a[16] + b[17]*a[17];
-    c[ 6] = b[18]*a[ 0] + b[19]*a[ 1] + b[21]*a[ 3] + b[22]*a[ 4];
-    c[ 7] = b[18]*a[ 6] + b[19]*a[ 7] + b[21]*a[ 9] + b[22]*a[10];
-    c[ 8] = b[18]*a[12] + b[19]*a[13] + b[20] + b[21]*a[15] + b[22]*a[16] + b[23]*a[17];
-    c[ 9] = b[18]*a[18] + b[19]*a[19] + b[21]*a[21] + b[22]*a[22];
-    c[10] = b[24]*a[ 0] + b[25]*a[ 1] + b[27]*a[ 3] + b[28]*a[ 4];
-    c[11] = b[24]*a[ 6] + b[25]*a[ 7] + b[27]*a[ 9] + b[28]*a[10];
-    c[12] = b[24]*a[12] + b[25]*a[13] + b[26] + b[27]*a[15] + b[28]*a[16] + b[29]*a[17];
-    c[13] = b[24]*a[18] + b[25]*a[19] + b[27]*a[21] + b[28]*a[22];
-    c[14] = b[24]*a[24] + b[25]*a[25] + b[27]*a[27] + b[28]*a[28];
-    c[15] = b[30]*a[ 0] + b[31]*a[ 1] + b[33]*a[ 3] + b[34]*a[ 4];
-    c[16] = b[30]*a[ 6] + b[31]*a[ 7] + b[33]*a[ 9] + b[34]*a[10];
-    c[17] = b[30]*a[12] + b[31]*a[13] + b[32] + b[33]*a[15] + b[34]*a[16] + b[35]*a[17];
-    c[18] = b[30]*a[18] + b[31]*a[19] + b[33]*a[21] + b[34]*a[22];
-    c[19] = b[30]*a[24] + b[31]*a[25] + b[33]*a[27] + b[34]*a[28];
-    c[20] = b[35];
-  }
+  c[ 0] = b[ 0]*a[ 0] + b[ 1]*a[ 1] + b[ 3]*a[ 3] + b[ 4]*a[ 4];
+  c[ 1] = b[ 6]*a[ 0] + b[ 7]*a[ 1] + b[ 9]*a[ 3] + b[10]*a[ 4];
+  c[ 2] = b[ 6]*a[ 6] + b[ 7]*a[ 7] + b[ 9]*a[ 9] + b[10]*a[10];
+  c[ 3] = b[12]*a[ 0] + b[13]*a[ 1] + b[15]*a[ 3] + b[16]*a[ 4];
+  c[ 4] = b[12]*a[ 6] + b[13]*a[ 7] + b[15]*a[ 9] + b[16]*a[10];
+  c[ 5] = b[12]*a[12] + b[13]*a[13] + b[14] + b[15]*a[15] + b[16]*a[16] + b[17]*a[17];
+  c[ 6] = b[18]*a[ 0] + b[19]*a[ 1] + b[21]*a[ 3] + b[22]*a[ 4];
+  c[ 7] = b[18]*a[ 6] + b[19]*a[ 7] + b[21]*a[ 9] + b[22]*a[10];
+  c[ 8] = b[18]*a[12] + b[19]*a[13] + b[20] + b[21]*a[15] + b[22]*a[16] + b[23]*a[17];
+  c[ 9] = b[18]*a[18] + b[19]*a[19] + b[21]*a[21] + b[22]*a[22];
+  c[10] = b[24]*a[ 0] + b[25]*a[ 1] + b[27]*a[ 3] + b[28]*a[ 4];
+  c[11] = b[24]*a[ 6] + b[25]*a[ 7] + b[27]*a[ 9] + b[28]*a[10];
+  c[12] = b[24]*a[12] + b[25]*a[13] + b[26] + b[27]*a[15] + b[28]*a[16] + b[29]*a[17];
+  c[13] = b[24]*a[18] + b[25]*a[19] + b[27]*a[21] + b[28]*a[22];
+  c[14] = b[24]*a[24] + b[25]*a[25] + b[27]*a[27] + b[28]*a[28];
+  c[15] = b[30]*a[ 0] + b[31]*a[ 1] + b[33]*a[ 3] + b[34]*a[ 4];
+  c[16] = b[30]*a[ 6] + b[31]*a[ 7] + b[33]*a[ 9] + b[34]*a[10];
+  c[17] = b[30]*a[12] + b[31]*a[13] + b[32] + b[33]*a[15] + b[34]*a[16] + b[35]*a[17];
+  c[18] = b[30]*a[18] + b[31]*a[19] + b[33]*a[21] + b[34]*a[22];
+  c[19] = b[30]*a[24] + b[31]*a[25] + b[33]*a[27] + b[34]*a[28];
+  c[20] = b[35];
+  
   return;  
 }
 
@@ -1088,32 +1089,25 @@ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I
   return;
 }
 
-template <FieldOrder order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER, bool grid_stride = true>
-__global__ void launch_p2r_kernels(MPTRKAccessor<order> &obtracksAcc, MPTRKAccessor<order> &btracksAcc, MPHITAccessor<order> &bhitsAcc, const int length){
-   auto i = threadIdx.x + blockIdx.x * blockDim.x;
+template <typename lambda_tp, bool grid_stride = true>
+__kernel__ void launch_p2r_kernels(const lambda_tp p2r_kernel, const int length){
+   
+  if target (nv::target::is_device) {	
+    auto i = threadIdx.x + blockIdx.x * blockDim.x;
+   
+    while (i < length) {
+      p2r_kernel(i);	   
 
-   MPTRK_ btracks;
-   MPTRK_ obtracks;
-   MPHIT_ bhits;
-
-   while (i < length) {
-     //
-     btracksAcc.load(btracks, i);
-     for(int layer=0; layer<nlayer; ++layer) {  
-       //
-       bhitsAcc.load(bhits, i, layer);
-       //
-       propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-       KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
-       //
-     }
-     //
-     obtracksAcc.save(obtracks, i);
-     
-     if (grid_stride)
-       i += gridDim.x * blockDim.x;
-     else
-       break;
+      if (grid_stride)  i += gridDim.x * blockDim.x; 
+      else  break;
+    }
+  } else {
+    auto policy = std::execution::par_unseq; 
+    //    
+    std::for_each(policy,
+                  impl::counting_iterator(0),
+                  impl::counting_iterator(length),
+                  p2r_kernel);
   }
   return;
 }
@@ -1173,12 +1167,32 @@ int main (int argc, char* argv[]) {
    prepareHits<hostmphit_allocator>(hits, inputhits);
    //
    std::vector<MPTRK_, hostmptrk_allocator> outtrcks(nevts*ntrks);
-   
+
+   auto p2r_kernel = [=,&btracksAccessor    = *trcksAccPtr,
+                        &bhitsAccessor      = *hitsAccPtr,
+                        &outtracksAccessor  = *outtrcksAccPtr] (const auto i) {
+                        //  
+                        MPTRK_ btracks;
+                        MPTRK_ obtracks;
+                        MPHIT_ bhits;   
+                        //
+		        btracksAccessor.load(btracks, i);
+		        //
+                        for(int layer=0; layer<nlayer; ++layer) {  
+                          //
+                          bhitsAccessor.load(bhits, i, layer);
+                          //
+                          propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                          KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+                          //
+                        }
+		        //
+		        outtracksAccessor.save(obtracks, i);
+                      };
+
    convertHits<order, hostmphit_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(hits,     hitsPtr.get());
    convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(trcks,    trcksPtr.get());
    convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
-
-   cudaDeviceSynchronize();
 
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
@@ -1193,17 +1207,21 @@ int main (int argc, char* argv[]) {
    const int outer_loop_range = phys_length;
    //
    auto wall_start = std::chrono::high_resolution_clock::now();
-
+#ifdef __NVCOMPILER_CUDA__
    dim3 blocks(threadsperblock, 1, 1);
    dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
+#endif
 
    for(int itr=0; itr<NITER; itr++) {
-
-     launch_p2r_kernels<<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
-
+#ifdef __NVCOMPILER_CUDA__
+     launch_p2r_kernels<<<grid, blocks>>>(p2r_kernel, phys_length);
+#else
+     launch_p2r_kernels(p2r_kernel, phys_length);
+#endif
    } //end of itr loop
-
+#ifdef __NVCOMPILER_CUDA__
    cudaDeviceSynchronize();
+#endif
 
    auto wall_stop = std::chrono::high_resolution_clock::now();
 
