@@ -32,7 +32,7 @@ see README.txt for instructions
 #define nb    (ntrks/bsize)
 
 #ifndef nevts
-#define nevts 100
+#define nevts 10
 #endif
 #define smear 0.00001 
 
@@ -48,15 +48,15 @@ see README.txt for instructions
 #endif
 
 #ifndef num_streams
-#define num_streams 1 
+#define num_streams 1
 #endif
 
 #ifndef elementsperthread 
-#define elementsperthread 1
+#define elementsperthread 32
 #endif
 
 #ifndef threadsperblockx
-#define threadsperblockx 32
+#define threadsperblockx 1
 #endif
 #ifndef blockspergrid
 #define blockspergrid (nevts*nb)
@@ -327,11 +327,11 @@ ALPAKA_FN_INLINE ALPAKA_FN_ACC void MultHelixProp(const MP6x6F* A, const MP6x6SF
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  for(size_t iele=0 ;iele<ElemExtent;iele+=1){
-    for(int ithrd=threadIdx;ithrd <blockDim ;ithrd+=blockDim)
+  const size_t N = blockDim*ElemExtent;
+  for(int ithrd=threadIdx;ithrd <blockDim ;ithrd+=blockDim)
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
     {
       size_t n = iele + ElemExtent * ithrd;
-      size_t N = blockDim;
       c[ 0*N+n] = a[ 0*N+n]*b[ 0*N+n] + a[ 1*N+n]*b[ 1*N+n] + a[ 3*N+n]*b[ 6*N+n] + a[ 4*N+n]*b[10*N+n];
       c[ 1*N+n] = a[ 0*N+n]*b[ 1*N+n] + a[ 1*N+n]*b[ 2*N+n] + a[ 3*N+n]*b[ 7*N+n] + a[ 4*N+n]*b[11*N+n];
       c[ 2*N+n] = a[ 0*N+n]*b[ 3*N+n] + a[ 1*N+n]*b[ 4*N+n] + a[ 3*N+n]*b[ 8*N+n] + a[ 4*N+n]*b[12*N+n];
@@ -376,12 +376,12 @@ ALPAKA_FN_INLINE ALPAKA_FN_ACC void MultHelixPropTransp(const MP6x6F* A, const M
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
+  const size_t N = blockDim*ElemExtent;
 //parallel_for(0,N,[&](int n){
-  for(size_t iele=0 ;iele<ElemExtent;iele+=1){
-    for(int ithrd=threadIdx;ithrd <blockDim ;ithrd+=blockDim)
+  for(int ithrd=threadIdx;ithrd <blockDim ;ithrd+=blockDim)
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
     {
        size_t n = iele + ElemExtent * ithrd;
-       size_t N = blockDim;
       c[ 0*N+n] = b[ 0*N+n]*a[ 0*N+n] + b[ 1*N+n]*a[ 1*N+n] + b[ 3*N+n]*a[ 3*N+n] + b[ 4*N+n]*a[ 4*N+n];
       c[ 1*N+n] = b[ 6*N+n]*a[ 0*N+n] + b[ 7*N+n]*a[ 1*N+n] + b[ 9*N+n]*a[ 3*N+n] + b[10*N+n]*a[ 4*N+n];
       c[ 2*N+n] = b[ 6*N+n]*a[ 6*N+n] + b[ 7*N+n]*a[ 7*N+n] + b[ 9*N+n]*a[ 9*N+n] + b[10*N+n]*a[10*N+n];
@@ -473,8 +473,8 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
   //MP2F res_loc;
   //MP3x6 kGain;
   //MP6x6SF newErr;
-  for(size_t iele=0 ;iele<ElemExtent;iele+=1){
-    for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+  for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
  
     size_t it = iele + ElemExtent * ithrd;
     const float r = hipo(x(msP,it), y(msP,it));
@@ -490,8 +490,8 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
     resErr_loc->data[ 2*bsize+it] = (trkErr->data[5*bsize+it] + hitErr->data[5*bsize+it]);
   }}
 
-  for(size_t iele=0 ;iele<ElemExtent;iele+=1){
-    for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+  for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
     size_t it = iele + ElemExtent * ithrd;
     const double det = (double)resErr_loc->data[0*bsize+it] * resErr_loc->data[2*bsize+it] -
                        (double)resErr_loc->data[1*bsize+it] * resErr_loc->data[1*bsize+it];
@@ -502,8 +502,8 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
     resErr_loc->data[0*bsize+it]  = tmp;
   }}
 
-  for(size_t iele=0 ;iele<ElemExtent;iele+=1){
-    for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+  for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
     size_t it = iele + ElemExtent * ithrd;
       kGain->data[ 0*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00->data[it]*resErr_loc->data[ 0*bsize+it]) +
 	                        trkErr->data[ 1*bsize+it]*(rotT01->data[it]*resErr_loc->data[ 0*bsize+it]) +
@@ -548,8 +548,8 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
 	                        trkErr->data[17*bsize+it]*resErr_loc->data[ 2*bsize+it];
       kGain->data[17*bsize+it] = 0;
    }}
-   for(size_t iele=0 ;iele<ElemExtent;iele+=1){
-     for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+   for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
         size_t it = iele + ElemExtent * ithrd;
         res_loc->data[0*bsize+it] =  rotT00->data[it]*(x(msP,it) - x(inPar,it)) + rotT01->data[it]*(y(msP,it) - y(inPar,it));
         res_loc->data[1*bsize+it] =  z(msP,it) - z(inPar,it);
@@ -561,8 +561,8 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
         setphi(inPar, it, phi(inPar, it) + kGain->data[12*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[13*bsize+it] * res_loc->data[ 1*bsize+it]);
         settheta(inPar, it, theta(inPar, it) + kGain->data[15*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[16*bsize+it] * res_loc->data[ 1*bsize+it]);
    }}
-   for(size_t iele=0 ;iele<ElemExtent;iele+=1){
-     for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+   for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
      size_t   it = iele + ElemExtent * ithrd;
 
      newErr->data[ 0*bsize+it] = kGain->data[ 0*bsize+it]*rotT00->data[it]*trkErr->data[ 0*bsize+it] +
@@ -701,8 +701,8 @@ ALPAKA_FN_ACC void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const M
   // 
   // provided that  "ElemExtent * blockDim == bsize"
   //////////////////////////////////////////////////////////////////////////
-  for(size_t iele=0 ;iele<ElemExtent;iele+=1){
-    for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+  for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
      size_t   it = iele + ElemExtent * ithrd;
 
     //initialize erroProp to identity matrix
