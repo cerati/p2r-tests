@@ -21,6 +21,7 @@
 #include <random>
 
 #include <nv/target>
+//#include <ranges>
 
 #ifndef ntrks
 #define ntrks 8192
@@ -50,69 +51,15 @@
 
 #ifdef __NVCOMPILER_CUDA__
 #define __kernel__ __global__
+constexpr bool gpu_offload = true;
 #else
-#define __kernel__
+#define __kernel__ 
+constexpr bool gpu_offload = false;
 #endif
+
 
 namespace impl {
 
-  /**
-     Simple array object which mimics std::array
-  */
-  template <typename T, int n> struct array {
-    using value_type = T;
-    T data[n];
-
-    constexpr T &operator[](int i) { return data[i]; }
-    constexpr const T &operator[](int i) const { return data[i]; }
-    constexpr int size() const { return n; }
-
-    array() = default;
-    array(const array<T, n> &) = default;
-    array(array<T, n> &&) = default;
-
-    array<T, n> &operator=(const array<T, n> &) = default;
-    array<T, n> &operator=(array<T, n> &&) = default;
-  };
-  
-  template<typename Tp>
-  struct UVMAllocator {
-    public:
-
-      typedef Tp value_type;
-
-      UVMAllocator () {};
-
-      UVMAllocator(const UVMAllocator&) { }
-       
-      template<typename Tp1> constexpr UVMAllocator(const UVMAllocator<Tp1>&) { }
-
-      ~UVMAllocator() { }
-
-      Tp* address(Tp& x) const { return &x; }
-
-      std::size_t  max_size() const throw() { return size_t(-1) / sizeof(Tp); }
-
-      [[nodiscard]] Tp* allocate(std::size_t n){
-
-        Tp* ptr = nullptr;
-
-        auto err = cudaMallocManaged((void **)&ptr,n*sizeof(Tp));
-
-        if( err != cudaSuccess ) {
-          ptr = (Tp *) NULL;
-          std::cerr << " cudaMallocManaged failed for " << n*sizeof(Tp) << " bytes " <<cudaGetErrorString(err)<< std::endl;
-          assert(0);
-        }
-
-        return ptr;
-      }
-      void deallocate( Tp* p, std::size_t n) noexcept {
-        cudaFree((void *)p);
-        return;
-      }
-    };
-    
    template <typename IntType>
    class counting_iterator {
        static_assert(std::numeric_limits<IntType>::is_integer, "Cannot instantiate counting_iterator with a non-integer type");
@@ -190,7 +137,7 @@ constexpr int iparTheta = 5;
 
 template <typename T, int N>
 struct MPNX_ {
-   impl::array<T,N> data;
+   std::array<T,N> data;
    //basic accessors
    inline const T& operator[](const int idx) const {return data[idx];}
    inline T& operator[](const int idx) {return data[idx];}
@@ -221,10 +168,10 @@ struct MPHIT_ {
   MP3x3SF_ cov;
 };
 
-using IntAllocator   = impl::UVMAllocator<int>;
-using FloatAllocator = impl::UVMAllocator<float>;
-using MPTRKAllocator = impl::UVMAllocator<MPTRK_>;
-using MPHITAllocator = impl::UVMAllocator<MPHIT_>;
+using IntAllocator   = std::allocator<int>;
+using FloatAllocator = std::allocator<float>;
+using MPTRKAllocator = std::allocator<MPTRK_>;
+using MPHITAllocator = std::allocator<MPHIT_>;
 
 template <typename T, typename Allocator, int n>
 struct MPNX {
@@ -416,6 +363,8 @@ void convertTracks(std::vector<MPTRK_, MPTRKAllocator> &external_order_data, MPT
   std::unique_ptr<MPTRKAccessor<order>> ind(new MPTRKAccessor<order>(*internal_order_data));
   // store in element order for bunches of bsize matrices (a la matriplex)
   const int outer_loop_range = nevts*ntrks;
+  //
+  //auto rr = std::ranges::views::iota(0, nevts*ntrks);
   //
   auto policy = std::execution::par_unseq;
   //
@@ -1092,7 +1041,8 @@ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I
 template <typename lambda_tp, bool grid_stride = true>
 __kernel__ void launch_p2r_kernels(const lambda_tp p2r_kernel, const int length){
    
-  if target (nv::target::is_device) {	
+  if target (nv::target::is_device) {
+#ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection	  
     auto i = threadIdx.x + blockIdx.x * blockDim.x;
    
     while (i < length) {
@@ -1101,6 +1051,7 @@ __kernel__ void launch_p2r_kernels(const lambda_tp p2r_kernel, const int length)
       if (grid_stride)  i += gridDim.x * blockDim.x; 
       else  break;
     }
+#endif
   } else {
     auto policy = std::execution::par_unseq; 
     //    
@@ -1109,9 +1060,29 @@ __kernel__ void launch_p2r_kernels(const lambda_tp p2r_kernel, const int length)
                   impl::counting_iterator(length),
                   p2r_kernel);
   }
+
   return;
 }
 
+template <bool device_compute = true>
+void dispatch_p2r_kernels(auto&& p2r_kernels, const int ntrks_, const int nevnts_){
+  const int phys_length      = nevts*ntrks;
+  const int outer_loop_range = phys_length;
+
+  if constexpr (device_compute) {
+#ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection
+    dim3 blocks(threadsperblock, 1, 1);
+    dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
+    //
+    launch_p2r_kernels<<<grid, blocks>>>(p2r_kernels, phys_length);
+#endif
+  } else {
+    //	  
+    launch_p2r_kernels(p2r_kernels, phys_length);
+  }
+  	
+  return;	
+}
 
 int main (int argc, char* argv[]) {
 
@@ -1142,31 +1113,31 @@ int main (int argc, char* argv[]) {
    using MPTRKAccessorTp = MPTRKAccessor<order>;
    using MPHITAccessorTp = MPHITAccessor<order>;
 
-   impl::UVMAllocator<MPTRKAccessorTp> mptrk_uvm_alloc;
-   impl::UVMAllocator<MPHITAccessorTp> mphit_uvm_alloc;
+   std::allocator<MPTRKAccessorTp> mptrk_acc_alloc;
+   std::allocator<MPHITAccessorTp> mphit_acc_alloc;
 
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
    std::unique_ptr<MPTRK> trcksPtr(new MPTRK(ntrks, nevts));
-   auto trcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_uvm_alloc, *trcksPtr);
+   auto trcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_acc_alloc, *trcksPtr);
    //
    std::unique_ptr<MPHIT> hitsPtr(new MPHIT(ntrks, nevts, nlayer));
-   auto hitsAccPtr = std::allocate_shared<MPHITAccessorTp>(mphit_uvm_alloc, *hitsPtr);
+   auto hitsAccPtr = std::allocate_shared<MPHITAccessorTp>(mphit_acc_alloc, *hitsPtr);
    //
    std::unique_ptr<MPTRK> outtrcksPtr(new MPTRK(ntrks, nevts));
-   auto outtrcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_uvm_alloc, *outtrcksPtr);
+   auto outtrcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_acc_alloc, *outtrcksPtr);
    //
-   using hostmptrk_allocator = std::allocator<MPTRK_>;
-   using hostmphit_allocator = std::allocator<MPHIT_>;
+   using mptrk_allocator = std::allocator<MPTRK_>;
+   using mphit_allocator = std::allocator<MPHIT_>;
 
-   std::vector<MPTRK_, hostmptrk_allocator > trcks(nevts*ntrks); 
-   prepareTracks<hostmptrk_allocator>(trcks, inputtrk);
+   std::vector<MPTRK_, mptrk_allocator > trcks(nevts*ntrks); 
+   prepareTracks<mptrk_allocator>(trcks, inputtrk);
    //
-   std::vector<MPHIT_, hostmphit_allocator> hits(nlayer*nevts*ntrks);
-   prepareHits<hostmphit_allocator>(hits, inputhits);
+   std::vector<MPHIT_, mphit_allocator> hits(nlayer*nevts*ntrks);
+   prepareHits<mphit_allocator>(hits, inputhits);
    //
-   std::vector<MPTRK_, hostmptrk_allocator> outtrcks(nevts*ntrks);
+   std::vector<MPTRK_, mptrk_allocator> outtrcks(nevts*ntrks);
 
    auto p2r_kernel = [=,&btracksAccessor    = *trcksAccPtr,
                         &bhitsAccessor      = *hitsAccPtr,
@@ -1190,9 +1161,9 @@ int main (int argc, char* argv[]) {
 		        outtracksAccessor.save(obtracks, i);
                       };
 
-   convertHits<order, hostmphit_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(hits,     hitsPtr.get());
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(trcks,    trcksPtr.get());
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
+   convertHits<order, mphit_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(hits,     hitsPtr.get());
+   convertTracks<order, mptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(trcks,    trcksPtr.get());
+   convertTracks<order, mptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
 
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
@@ -1207,18 +1178,11 @@ int main (int argc, char* argv[]) {
    const int outer_loop_range = phys_length;
    //
    auto wall_start = std::chrono::high_resolution_clock::now();
-#ifdef __NVCOMPILER_CUDA__
-   dim3 blocks(threadsperblock, 1, 1);
-   dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
-#endif
 
    for(int itr=0; itr<NITER; itr++) {
-#ifdef __NVCOMPILER_CUDA__
-     launch_p2r_kernels<<<grid, blocks>>>(p2r_kernel, phys_length);
-#else
-     launch_p2r_kernels(p2r_kernel, phys_length);
-#endif
+     dispatch_p2r_kernels<gpu_offload>(p2r_kernel, ntrks, nevts);	   
    } //end of itr loop
+
 #ifdef __NVCOMPILER_CUDA__
    cudaDeviceSynchronize();
 #endif
@@ -1232,7 +1196,7 @@ int main (int argc, char* argv[]) {
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, 1, ntrks, wall_time, (setup_stop-setup_start)*0.001, -1);
 
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
+   convertTracks<order, mptrk_allocator, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
    auto outtrk = outtrcks.data();
 
    int nnans = 0, nfail = 0;
