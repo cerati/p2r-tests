@@ -1,5 +1,11 @@
 /*
- nvc++ -cuda -O2 -std=c++20 -stdpar=gpu -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./"propagate_nvcpp_cuda"
+nvc++ -cuda -O2 -std=c++20 -stdpar=gpu -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
+
+nvc++ -cuda -O2 -std=c++20 -stdpar=multicore -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
+
+nvc++ -O2 -std=c++20 -stdpar=multicore ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
+
+g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
 */
 
 #include <stdio.h>
@@ -11,8 +17,6 @@
 #include <iomanip>
 #include <sys/time.h>
 
-#include <cassert>
-
 #include <algorithm>
 #include <vector>
 #include <memory>
@@ -20,14 +24,24 @@
 #include <execution>
 #include <random>
 
+#ifdef __NVCOMPILER_CUDA__
 #include <nv/target>
-//#include <ranges>
+//#include <ranges> //?
+#endif
+
+#ifndef bsize
+#if defined(__NVCOMPILER_CUDA__)
+#define bsize 1
+#else
+#define bsize 128
+#endif//__NVCOMPILER_CUDA__
+#endif
 
 #ifndef ntrks
 #define ntrks 8192
 #endif
 
-//#define ntrks    (ntrks/bsize)
+#define nb    (ntrks/bsize)
 
 #ifndef nevts
 #define nevts 100
@@ -56,7 +70,6 @@ constexpr bool gpu_offload = true;
 #define __kernel__ 
 constexpr bool gpu_offload = false;
 #endif
-
 
 namespace impl {
 
@@ -109,13 +122,13 @@ namespace impl {
 
 } //impl
 
-
 enum class FieldOrder{P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER,
-                      P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER};
+                      P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER,
+                      P2R_MATIDX_LAYER_TRACKBLK_EVENT_ORDER};
                       
 enum class ConversionType{P2R_CONVERT_TO_INTERNAL_ORDER, P2R_CONVERT_FROM_INTERNAL_ORDER};   
 
-const std::array<int, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
+const std::array<size_t, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
 
 struct ATRK {
   std::array<float,6> par;
@@ -135,25 +148,27 @@ constexpr int iparIpt   = 3;
 constexpr int iparPhi   = 4;
 constexpr int iparTheta = 5;
 
-template <typename T, int N>
+template <typename T, int N, int bSize>
 struct MPNX_ {
-   std::array<T,N> data;
+   std::array<T,N*bSize> data;
    //basic accessors
-   inline const T& operator[](const int idx) const {return data[idx];}
-   inline T& operator[](const int idx) {return data[idx];}
+   const T& operator[](const int idx) const {return data[idx];}
+   T& operator[](const int idx) {return data[idx];}
+   const T& operator()(const int m, const int b) const {return data[m*bSize+b];}
+   T& operator()(const int m, const int b) {return data[m*bSize+b];}
 };
 
-using MP1I_    = MPNX_<int,   1 >;
-using MP1F_    = MPNX_<float, 1 >;
-using MP2F_    = MPNX_<float, 3 >;
-using MP3F_    = MPNX_<float, 3 >;
-using MP6F_    = MPNX_<float, 6 >;
-using MP2x2SF_ = MPNX_<float, 3 >;
-using MP3x3SF_ = MPNX_<float, 6 >;
-using MP6x6SF_ = MPNX_<float, 21>;
-using MP6x6F_  = MPNX_<float, 36>;
-using MP3x3_   = MPNX_<float, 9 >;
-using MP3x6_   = MPNX_<float, 18>;
+using MP1I_    = MPNX_<int,   1 , bsize>;
+using MP1F_    = MPNX_<float, 1 , bsize>;
+using MP2F_    = MPNX_<float, 3 , bsize>;
+using MP3F_    = MPNX_<float, 3 , bsize>;
+using MP6F_    = MPNX_<float, 6 , bsize>;
+using MP2x2SF_ = MPNX_<float, 3 , bsize>;
+using MP3x3SF_ = MPNX_<float, 6 , bsize>;
+using MP6x6SF_ = MPNX_<float, 21, bsize>;
+using MP6x6F_  = MPNX_<float, 36, bsize>;
+using MP3x3_   = MPNX_<float, 9 , bsize>;
+using MP3x6_   = MPNX_<float, 18, bsize>;
 
 struct MPTRK_ {
   MP6F_    par;
@@ -173,11 +188,12 @@ using FloatAllocator = std::allocator<float>;
 using MPTRKAllocator = std::allocator<MPTRK_>;
 using MPHITAllocator = std::allocator<MPHIT_>;
 
-template <typename T, typename Allocator, int n>
+template <typename T, typename Allocator, int n, int bSize>
 struct MPNX {
    using DataType = T;
 
    static constexpr int N    = n;
+   static constexpr int BS   = bSize;
 
    const int nTrks;//note that bSize is a tuning parameter!
    const int nEvts;
@@ -185,7 +201,7 @@ struct MPNX {
 
    std::vector<T, Allocator> data;
 
-   MPNX() : nTrks(0), nEvts(0), nLayers(0), data(n){}
+   MPNX() : nTrks(bSize), nEvts(0), nLayers(0), data(n*bSize){}
 
    MPNX(const int ntrks_, const int nevts_, const int nlayers_ = 1) :
       nTrks(ntrks_),
@@ -203,79 +219,92 @@ struct MPNX {
    }
 };
 
-using MP1I    = MPNX<int,  IntAllocator,   1 >;
-using MP1F    = MPNX<float,FloatAllocator, 1 >;
-using MP2F    = MPNX<float,FloatAllocator, 2 >;
-using MP3F    = MPNX<float,FloatAllocator, 3 >;
-using MP6F    = MPNX<float,FloatAllocator, 6 >;
-using MP3x3   = MPNX<float,FloatAllocator, 9 >;
-using MP3x6   = MPNX<float,FloatAllocator, 18>;
-using MP2x2SF = MPNX<float,FloatAllocator, 3 >;
-using MP3x3SF = MPNX<float,FloatAllocator, 6 >;
-using MP6x6SF = MPNX<float,FloatAllocator, 21>;
-using MP6x6F  = MPNX<float,FloatAllocator, 36>;
+using MP1I    = MPNX<int,  IntAllocator,   1 , bsize>;
+using MP1F    = MPNX<float,FloatAllocator, 1 , bsize>;
+using MP2F    = MPNX<float,FloatAllocator, 2 , bsize>;
+using MP3F    = MPNX<float,FloatAllocator, 3 , bsize>;
+using MP6F    = MPNX<float,FloatAllocator, 6 , bsize>;
+using MP3x3   = MPNX<float,FloatAllocator, 9 , bsize>;
+using MP3x6   = MPNX<float,FloatAllocator, 18, bsize>;
+using MP2x2SF = MPNX<float,FloatAllocator, 3 , bsize>;
+using MP3x3SF = MPNX<float,FloatAllocator, 6 , bsize>;
+using MP6x6SF = MPNX<float,FloatAllocator, 21, bsize>;
+using MP6x6F  = MPNX<float,FloatAllocator, 36, bsize>;
 
 
-template <typename MPNTp, FieldOrder Order>
+template <typename MPNTp, FieldOrder Order = FieldOrder::P2R_MATIDX_LAYER_TRACKBLK_EVENT_ORDER>
 struct MPNXAccessor {
    typedef typename MPNTp::DataType T;
 
+   static constexpr int bsz = MPNTp::BS;
    static constexpr int n   = MPNTp::N;//matrix linear dim (total number of els)
 
-   int nTrks;
-   int nEvts;
-   int nLayers;
+   const int nTrkB;
+   const int nEvts;
+   const int nLayers;
 
-   int NevtsNtrks;
+   const int NevtsNtbBsz;
 
-   int stride;
+   const int stride;
    
-   int thread_stride;
+   const int thread_stride;
 
    T* data_; //accessor field only for the data access, not allocated here
 
-   MPNXAccessor() = default;
-
+   MPNXAccessor() : nTrkB(0), nEvts(0), nLayers(0), NevtsNtbBsz(0), stride(0), thread_stride(0), data_(nullptr){}
    MPNXAccessor(const MPNTp &v) :
-        nTrks(v.nTrks),
+        nTrkB(v.nTrks / bsz),
         nEvts(v.nEvts),
         nLayers(v.nLayers),
-        NevtsNtrks(nEvts*nTrks),
-        stride(Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER ? nTrks*nEvts*nLayers  : nTrks*nEvts*n),
-        thread_stride(Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER ? stride  : NevtsNtrks),              
-        data_(const_cast<T*>(v.data.data())){ }
+        NevtsNtbBsz(nEvts*nTrkB*bsz),
+        stride(Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER ? bsz*nTrkB*nEvts*nLayers  :
+              (Order == FieldOrder::P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER ? bsz*nTrkB*nEvts*n : n*bsz*nLayers)),
+        thread_stride(Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER ? stride  :
+              (Order == FieldOrder::P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER ? NevtsNtbBsz : bsz)),              
+        data_(const_cast<T*>(v.data.data())){
+	 }
 
-   inline T& operator[](const int idx) const {return data_[idx];}
+   T& operator[](const int idx) const {return data_[idx];}
 
-   inline T& operator()(const int mat_idx, const int trkev_idx, const int layer_idx) const {
+   T& operator()(const int mat_idx, const int trkev_idx, const int b_idx, const int layer_idx) const {
      if      constexpr (Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER)
-       return data_[mat_idx*stride + layer_idx*NevtsNtrks + trkev_idx];//using defualt order batch id (the fastest) > track id > event id > layer id (the slowest)
-     else //(Order == FieldOrder::P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER)
-       return data_[layer_idx*stride + mat_idx*NevtsNtrks + trkev_idx];
+       return data_[mat_idx*stride + layer_idx*NevtsNtbBsz + trkev_idx*bsz + b_idx];//using defualt order batch id (the fastest) > track id > event id > layer id (the slowest)
+     else if constexpr (Order == FieldOrder::P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER)
+       return data_[layer_idx*stride + mat_idx*NevtsNtbBsz + trkev_idx*bsz + b_idx];
+     else //(Order == FieldOrder::P2Z_MATIDX_LAYER_TRACKBLK_EVENT_ORDER)
+       return data_[trkev_idx*stride+layer_idx*n*bsz+mat_idx*bsz+b_idx];
    }//i is the internal dof index
 
-   inline T& operator()(const int thrd_idx, const int blk_offset) const { return data_[thrd_idx*thread_stride + blk_offset];}//
+   T& operator()(const int thrd_idx, const int blk_offset) const { return data_[thrd_idx*thread_stride + blk_offset];}//
 
-   inline int GetThreadOffset(const int thrd_idx, const int layer_idx = 0) const {
+   int GetThreadOffset(const int thrd_idx, const int layer_idx = 0) const {
      if      constexpr (Order == FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER)
-       return (layer_idx*NevtsNtrks + thrd_idx);//using defualt order batch id (the fastest) > track id > event id > layer id (the slowest)
-     else //(Order == FieldOrder::P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER)
-       return (layer_idx*stride + thrd_idx);
+       return (layer_idx*NevtsNtbBsz + thrd_idx*bsz);//using defualt order batch id (the fastest) > track id > event id > layer id (the slowest)
+     else if constexpr (Order == FieldOrder::P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER)
+       return (layer_idx*stride + thrd_idx*bsz);
+     else //(Order == FieldOrder::P2Z_MATIDX_LAYER_TRACKBLK_EVENT_ORDER)
+       return (thrd_idx*stride+layer_idx*n*bsz);
    }
    
-   inline void load(MPNX_<T, n>& dest, const int tid, const int layer = 0) const {
+   void load(MPNX_<T, n, bsz>& dest, const int tid, const int layer = 0) const {
       auto tid_offset = GetThreadOffset(tid, layer);
+#pragma unroll 
+      for(int it = 0; it < bsz; it++){
 #pragma unroll
-      for(int id = 0; id < n; id++){
-          dest[id] = this->operator()(id, tid_offset);
+        for(int id = 0; id < n; id++){
+          dest(id, it) = this->operator()(id, tid_offset+it);
+        }
       }
       return;
    }
-   inline void save(const MPNX_<T, n>& src, const int tid, const int layer = 0){
+   void save(const MPNX_<T, n, bsz>& src, const int tid, const int layer = 0){
       auto tid_offset = GetThreadOffset(tid, layer); 
 #pragma unroll
-      for(int id = 0; id < n; id++){
-        this->operator()(id, tid_offset) = src[id];
+      for(int it = 0; it < bsz; it++){
+#pragma unroll
+        for(int id = 0; id < n; id++){
+           this->operator()(id, tid_offset+it) = src(id, it);
+        }
       }
       return;
    }  
@@ -305,7 +334,7 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  inline void load(MPTRK_ &dst, const int tid, const int layer = 0) const {
+  void load(MPTRK_ &dst, const int tid, const int layer = 0) const {
     this->par.load(dst.par, tid, layer);
     this->cov.load(dst.cov, tid, layer);
     this->q.load(dst.q, tid, layer);
@@ -313,7 +342,7 @@ struct MPTRKAccessor {
     return;
   }
   
-  inline void save(MPTRK_ &src, const int tid, const int layer = 0) {
+  void save(MPTRK_ &src, const int tid, const int layer = 0) {
     this->par.save(src.par, tid, layer);
     this->cov.save(src.cov, tid, layer);
     this->q.save(src.q, tid, layer);
@@ -321,6 +350,7 @@ struct MPTRKAccessor {
     return;
   }
 };
+
 
 struct MPHIT {
   MP3F    pos;
@@ -357,78 +387,71 @@ struct MPHITAccessor {
 };
 
 
-template<FieldOrder order, typename MPTRKAllocator, ConversionType convers_tp>
-void convertTracks(std::vector<MPTRK_, MPTRKAllocator> &external_order_data, MPTRK* internal_order_data) {
+template<typename policy_tp, FieldOrder order, typename MPTRKAllocator, ConversionType convers_tp>
+void convertTracks(policy_tp &policy, std::vector<MPTRK_, MPTRKAllocator> &external_order_data, MPTRK* internal_order_data) {
   //create an accessor field:
   std::unique_ptr<MPTRKAccessor<order>> ind(new MPTRKAccessor<order>(*internal_order_data));
   // store in element order for bunches of bsize matrices (a la matriplex)
-  const int outer_loop_range = nevts*ntrks;
+  const int outer_loop_range = nevts*nb;
   //
-  //auto rr = std::ranges::views::iota(0, nevts*ntrks);
-  //
-  auto policy = std::execution::par_unseq;
-  //
-  std::for_each(policy, 
-		impl::counting_iterator(0),
+  std::for_each(policy,
+                impl::counting_iterator(0),
                 impl::counting_iterator(outer_loop_range),
                 [=, exd_ = external_order_data.data(), &ind_ = *ind] (const auto tid) {
-                  {
-                  //const int l = it+ib*bsize+ie*ntrks*bsize;
+                  for (size_t it=0;it<bsize;++it) {
+                  //const int l = it+ib*bsize+ie*nb*bsize;
                     //par
-    	            for (int ip=0;ip<6;++ip) {
+    	            for (size_t ip=0;ip<6;++ip) {
     	              if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-    	                exd_[tid].par.data[ip] = ind_.par(ip, tid, 0);
+    	                exd_[tid].par.data[it + ip*bsize] = ind_.par(ip, tid, it, 0);
     	              else
-    	                ind_.par(ip, tid, 0) = exd_[tid].par.data[ip];  
+    	                ind_.par(ip, tid, it, 0) = exd_[tid].par.data[it + ip*bsize];  
     	            }
     	            //cov
-    	            for (int ip=0;ip<21;++ip) {
+    	            for (size_t ip=0;ip<21;++ip) {
     	              if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-    	                exd_[tid].cov.data[ip] = ind_.cov(ip, tid, 0);
+    	                exd_[tid].cov.data[it + ip*bsize] = ind_.cov(ip, tid, it, 0);
     	              else
-    	                ind_.cov(ip, tid, 0) = exd_[tid].cov.data[ip];
+    	                ind_.cov(ip, tid, it, 0) = exd_[tid].cov.data[it + ip*bsize];
     	            }
     	            //q
     	            if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-    	              exd_[tid].q.data[0] = ind_.q(0, tid, 0);//fixme check
+    	              exd_[tid].q.data[it] = ind_.q(0, tid, it, 0);//fixme check
     	            else
-    	              ind_.q(0, tid, 0) = exd_[tid].q.data[0];
+    	              ind_.q(0, tid, it, 0) = exd_[tid].q.data[it];
                   }
                 });
-   //
    return;
 }
 
 
-template<FieldOrder order, typename MPHITAllocator, ConversionType convers_tp>
-void convertHits(std::vector<MPHIT_, MPHITAllocator> &external_order_data, MPHIT* internal_oder_data) {
+template<typename policy_tp, FieldOrder order, typename MPHITAllocator, ConversionType convers_tp>
+void convertHits(policy_tp &policy, std::vector<MPHIT_, MPHITAllocator> &external_order_data, MPHIT* internal_oder_data) {
   //create an accessor field:
   std::unique_ptr<MPHITAccessor<order>> ind(new MPHITAccessor<order>(*internal_oder_data));
   // store in element order for bunches of bsize matrices (a la matriplex)
-  const int outer_loop_range = nevts*ntrks;
-  //
-  auto policy = std::execution::par_unseq;
-  //
+  const int outer_loop_range = nevts*nb;
+  
   std::for_each(policy,
-		impl::counting_iterator(0),
+                impl::counting_iterator(0),
                 impl::counting_iterator(outer_loop_range),
                 [=, exd_ = external_order_data.data(), &ind_ = *ind] (const auto tid) {
                    //  
                    for(int layer=0; layer<nlayer; ++layer) {  
-                     {
+                     for (size_t it=0;it<bsize;++it) {
                        //pos
-                       for (int ip=0;ip<3;++ip) {
+                       for (size_t ip=0;ip<3;++ip) {
                          if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-                           exd_[layer+nlayer*tid].pos.data[ip] = ind_.pos(ip, tid, layer);
+                           exd_[layer+nlayer*tid].pos.data[it + ip*bsize] = ind_.pos(ip, tid, it, layer);
                          else
-                           ind_.pos(ip, tid, layer) = exd_[layer+nlayer*tid].pos.data[ip];
+                           ind_.pos(ip, tid, it, layer) = exd_[layer+nlayer*tid].pos.data[it + ip*bsize];
                        }
                        //cov
-                       for (int ip=0;ip<6;++ip) {
+                       for (size_t ip=0;ip<6;++ip) {
                          if constexpr (convers_tp == ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER)
-                           exd_[layer+nlayer*tid].cov.data[ip] = ind_.cov(ip, tid, layer);
+                           exd_[layer+nlayer*tid].cov.data[it + ip*bsize] = ind_.cov(ip, tid, it, layer);
                          else
-                           ind_.cov(ip, tid, layer) = exd_[layer+nlayer*tid].cov.data[ip];
+                           ind_.cov(ip, tid, it, layer) = exd_[layer+nlayer*tid].cov.data[it + ip*bsize];
                        }
                      } 
                   }
@@ -464,19 +487,19 @@ float randn(float mu, float sigma) {
 template<typename MPTRKAllocator>
 void prepareTracks(std::vector<MPTRK_, MPTRKAllocator> &trcks, ATRK &inputtrk) {
   //
-  for (int ie=0;ie<nevts;++ie) {
-    for (int ib=0;ib<ntrks;++ib) {
-      {
+  for (size_t ie=0;ie<nevts;++ie) {
+    for (size_t ib=0;ib<nb;++ib) {
+      for (size_t it=0;it<bsize;++it) {
 	      //par
-	      for (int ip=0;ip<6;++ip) {
-	        trcks[ib + ntrks*ie].par.data[ip] = (1+smear*randn(0,1))*inputtrk.par[ip];
+	      for (size_t ip=0;ip<6;++ip) {
+	        trcks[ib + nb*ie].par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
 	      }
 	      //cov, scale by factor 100
-	      for (int ip=0;ip<21;++ip) {
-	        trcks[ib + ntrks*ie].cov.data[ip] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
+	      for (size_t ip=0;ip<21;++ip) {
+	        trcks[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
 	      }
 	      //q
-	      trcks[ib + ntrks*ie].q.data[0] = inputtrk.q;//can't really smear this or fit will be wrong
+	      trcks[ib + nb*ie].q.data[it] = inputtrk.q;//can't really smear this or fit will be wrong
       }
     }
   }
@@ -487,25 +510,25 @@ void prepareTracks(std::vector<MPTRK_, MPTRKAllocator> &trcks, ATRK &inputtrk) {
 template<typename MPHITAllocator>
 void prepareHits(std::vector<MPHIT_, MPHITAllocator> &hits, std::vector<AHIT>& inputhits) {
   // store in element order for bunches of bsize matrices (a la matriplex)
-  for (int lay=0;lay<nlayer;++lay) {
+  for (size_t lay=0;lay<nlayer;++lay) {
 
-    int mylay = lay;
+    size_t mylay = lay;
     if (lay>=inputhits.size()) {
       // int wraplay = inputhits.size()/lay;
       exit(1);
     }
     AHIT& inputhit = inputhits[mylay];
 
-    for (int ie=0;ie<nevts;++ie) {
-      for (int ib=0;ib<ntrks;++ib) {
-        {
+    for (size_t ie=0;ie<nevts;++ie) {
+      for (size_t ib=0;ib<nb;++ib) {
+        for (size_t it=0;it<bsize;++it) {
         	//pos
-        	for (int ip=0;ip<3;++ip) {
-        	  hits[lay+nlayer*(ib + ntrks*ie)].pos.data[ip] = (1+smear*randn(0,1))*inputhit.pos[ip];
+        	for (size_t ip=0;ip<3;++ip) {
+        	  hits[lay+nlayer*(ib + nb*ie)].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
         	}
         	//cov
-        	for (int ip=0;ip<6;++ip) {
-        	  hits[lay+nlayer*(ib + ntrks*ie)].cov.data[ip] = (1+smear*randn(0,1))*inputhit.cov[ip];
+        	for (size_t ip=0;ip<6;++ip) {
+        	  hits[lay+nlayer*(ib + nb*ie)].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
         	}
         }
       }
@@ -517,393 +540,402 @@ void prepareHits(std::vector<MPHIT_, MPHITAllocator> &hits, std::vector<AHIT>& i
 
 //////////////////////////////////////////////////////////////////////////////////////
 // Aux utils 
-MPTRK_* bTk(MPTRK_* tracks, int ev, int ib) {
-  return &(tracks[ib + ntrks*ev]);
+MPTRK_* bTk(MPTRK_* tracks, size_t ev, size_t ib) {
+  return &(tracks[ib + nb*ev]);
 }
 
-const MPTRK_* bTk(const MPTRK_* tracks, int ev, int ib) {
-  return &(tracks[ib + ntrks*ev]);
+const MPTRK_* bTk(const MPTRK_* tracks, size_t ev, size_t ib) {
+  return &(tracks[ib + nb*ev]);
 }
 
-float q(const MP1I_* bq, int it){
-  return (*bq).data[0];
+float q(const MP1I_* bq, size_t it){
+  return (*bq).data[it];
 }
 //
-float par(const MP6F_* bpars, int it, int ipar){
-  return (*bpars).data[it + ipar];
+float par(const MP6F_* bpars, size_t it, size_t ipar){
+  return (*bpars).data[it + ipar*bsize];
 }
-float x    (const MP6F_* bpars, int it){ return par(bpars, it, 0); }
-float y    (const MP6F_* bpars, int it){ return par(bpars, it, 1); }
-float z    (const MP6F_* bpars, int it){ return par(bpars, it, 2); }
-float ipt  (const MP6F_* bpars, int it){ return par(bpars, it, 3); }
-float phi  (const MP6F_* bpars, int it){ return par(bpars, it, 4); }
-float theta(const MP6F_* bpars, int it){ return par(bpars, it, 5); }
+float x    (const MP6F_* bpars, size_t it){ return par(bpars, it, 0); }
+float y    (const MP6F_* bpars, size_t it){ return par(bpars, it, 1); }
+float z    (const MP6F_* bpars, size_t it){ return par(bpars, it, 2); }
+float ipt  (const MP6F_* bpars, size_t it){ return par(bpars, it, 3); }
+float phi  (const MP6F_* bpars, size_t it){ return par(bpars, it, 4); }
+float theta(const MP6F_* bpars, size_t it){ return par(bpars, it, 5); }
 //
-float par(const MPTRK_* btracks, int it, int ipar){
+float par(const MPTRK_* btracks, size_t it, size_t ipar){
   return par(&(*btracks).par,it,ipar);
 }
-float x    (const MPTRK_* btracks, int it){ return par(btracks, it, 0); }
-float y    (const MPTRK_* btracks, int it){ return par(btracks, it, 1); }
-float z    (const MPTRK_* btracks, int it){ return par(btracks, it, 2); }
-float ipt  (const MPTRK_* btracks, int it){ return par(btracks, it, 3); }
-float phi  (const MPTRK_* btracks, int it){ return par(btracks, it, 4); }
-float theta(const MPTRK_* btracks, int it){ return par(btracks, it, 5); }
+float x    (const MPTRK_* btracks, size_t it){ return par(btracks, it, 0); }
+float y    (const MPTRK_* btracks, size_t it){ return par(btracks, it, 1); }
+float z    (const MPTRK_* btracks, size_t it){ return par(btracks, it, 2); }
+float ipt  (const MPTRK_* btracks, size_t it){ return par(btracks, it, 3); }
+float phi  (const MPTRK_* btracks, size_t it){ return par(btracks, it, 4); }
+float theta(const MPTRK_* btracks, size_t it){ return par(btracks, it, 5); }
 //
-float par(const MPTRK_* tracks, int ev, int tk, int ipar){
-  int ib = tk;
+float par(const MPTRK_* tracks, size_t ev, size_t tk, size_t ipar){
+  size_t ib = tk/bsize;
   const MPTRK_* btracks = bTk(tracks, ev, ib);
-  int it = 0;
+  size_t it = tk % bsize;
   return par(btracks, it, ipar);
 }
-float x    (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 0); }
-float y    (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 1); }
-float z    (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 2); }
-float ipt  (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 3); }
-float phi  (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 4); }
-float theta(const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 5); }
+float x    (const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 0); }
+float y    (const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 1); }
+float z    (const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 2); }
+float ipt  (const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 3); }
+float phi  (const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 4); }
+float theta(const MPTRK_* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 5); }
 //
 
-const MPHIT_* bHit(const MPHIT_* hits, int ev, int ib) {
-  return &(hits[ib + ntrks*ev]);
+const MPHIT_* bHit(const MPHIT_* hits, size_t ev, size_t ib) {
+  return &(hits[ib + nb*ev]);
 }
-const MPHIT_* bHit(const MPHIT_* hits, int ev, int ib,int lay) {
-return &(hits[lay + (ib*nlayer) +(ev*nlayer*ntrks)]);
+const MPHIT_* bHit(const MPHIT_* hits, size_t ev, size_t ib,size_t lay) {
+return &(hits[lay + (ib*nlayer) +(ev*nlayer*nb)]);
 }
 //
-float Pos(const MP3F_* hpos, int it, int ipar){
-  return (*hpos).data[it + ipar];
+float Pos(const MP3F_* hpos, size_t it, size_t ipar){
+  return (*hpos).data[it + ipar*bsize];
 }
-float x(const MP3F_* hpos, int it)    { return Pos(hpos, it, 0); }
-float y(const MP3F_* hpos, int it)    { return Pos(hpos, it, 1); }
-float z(const MP3F_* hpos, int it)    { return Pos(hpos, it, 2); }
+float x(const MP3F_* hpos, size_t it)    { return Pos(hpos, it, 0); }
+float y(const MP3F_* hpos, size_t it)    { return Pos(hpos, it, 1); }
+float z(const MP3F_* hpos, size_t it)    { return Pos(hpos, it, 2); }
 //
-float Pos(const MPHIT_* hits, int it, int ipar){
+float Pos(const MPHIT_* hits, size_t it, size_t ipar){
   return Pos(&(*hits).pos,it,ipar);
 }
-float x(const MPHIT_* hits, int it)    { return Pos(hits, it, 0); }
-float y(const MPHIT_* hits, int it)    { return Pos(hits, it, 1); }
-float z(const MPHIT_* hits, int it)    { return Pos(hits, it, 2); }
+float x(const MPHIT_* hits, size_t it)    { return Pos(hits, it, 0); }
+float y(const MPHIT_* hits, size_t it)    { return Pos(hits, it, 1); }
+float z(const MPHIT_* hits, size_t it)    { return Pos(hits, it, 2); }
 //
-float Pos(const MPHIT_* hits, int ev, int tk, int ipar){
-  int ib = tk;
+float Pos(const MPHIT_* hits, size_t ev, size_t tk, size_t ipar){
+  size_t ib = tk/bsize;
   const MPHIT_* bhits = bHit(hits, ev, ib);
-  int it = 0;
+  size_t it = tk % bsize;
   return Pos(bhits,it,ipar);
 }
-float x(const MPHIT_* hits, int ev, int tk)    { return Pos(hits, ev, tk, 0); }
-float y(const MPHIT_* hits, int ev, int tk)    { return Pos(hits, ev, tk, 1); }
-float z(const MPHIT_* hits, int ev, int tk)    { return Pos(hits, ev, tk, 2); }
+float x(const MPHIT_* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 0); }
+float y(const MPHIT_* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 1); }
+float z(const MPHIT_* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2); }
 
 
 ////////////////////////////////////////////////////////////////////////
 ///MAIN compute kernels
 
+template<size_t N = 1>
 inline void MultHelixProp(const MP6x6F_ &a, const MP6x6SF_ &b, MP6x6F_ &c) {//ok
-
-  c[ 0] = a[ 0]*b[ 0] + a[ 1]*b[ 1] + a[ 3]*b[ 6] + a[ 4]*b[10];
-  c[ 1] = a[ 0]*b[ 1] + a[ 1]*b[ 2] + a[ 3]*b[ 7] + a[ 4]*b[11];
-  c[ 2] = a[ 0]*b[ 3] + a[ 1]*b[ 4] + a[ 3]*b[ 8] + a[ 4]*b[12];
-  c[ 3] = a[ 0]*b[ 6] + a[ 1]*b[ 7] + a[ 3]*b[ 9] + a[ 4]*b[13];
-  c[ 4] = a[ 0]*b[10] + a[ 1]*b[11] + a[ 3]*b[13] + a[ 4]*b[14];
-  c[ 5] = a[ 0]*b[15] + a[ 1]*b[16] + a[ 3]*b[18] + a[ 4]*b[19];
-  c[ 6] = a[ 6]*b[ 0] + a[ 7]*b[ 1] + a[ 9]*b[ 6] + a[10]*b[10];
-  c[ 7] = a[ 6]*b[ 1] + a[ 7]*b[ 2] + a[ 9]*b[ 7] + a[10]*b[11];
-  c[ 8] = a[ 6]*b[ 3] + a[ 7]*b[ 4] + a[ 9]*b[ 8] + a[10]*b[12];
-  c[ 9] = a[ 6]*b[ 6] + a[ 7]*b[ 7] + a[ 9]*b[ 9] + a[10]*b[13];
-  c[10] = a[ 6]*b[10] + a[ 7]*b[11] + a[ 9]*b[13] + a[10]*b[14];
-  c[11] = a[ 6]*b[15] + a[ 7]*b[16] + a[ 9]*b[18] + a[10]*b[19];
+#pragma unroll
+  for (int it = 0;it < N; it++) {
+    c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
+    c[ 1*N+it] = a[ 0*N+it]*b[ 1*N+it] + a[ 1*N+it]*b[ 2*N+it] + a[ 3*N+it]*b[ 7*N+it] + a[ 4*N+it]*b[11*N+it];
+    c[ 2*N+it] = a[ 0*N+it]*b[ 3*N+it] + a[ 1*N+it]*b[ 4*N+it] + a[ 3*N+it]*b[ 8*N+it] + a[ 4*N+it]*b[12*N+it];
+    c[ 3*N+it] = a[ 0*N+it]*b[ 6*N+it] + a[ 1*N+it]*b[ 7*N+it] + a[ 3*N+it]*b[ 9*N+it] + a[ 4*N+it]*b[13*N+it];
+    c[ 4*N+it] = a[ 0*N+it]*b[10*N+it] + a[ 1*N+it]*b[11*N+it] + a[ 3*N+it]*b[13*N+it] + a[ 4*N+it]*b[14*N+it];
+    c[ 5*N+it] = a[ 0*N+it]*b[15*N+it] + a[ 1*N+it]*b[16*N+it] + a[ 3*N+it]*b[18*N+it] + a[ 4*N+it]*b[19*N+it];
+    c[ 6*N+it] = a[ 6*N+it]*b[ 0*N+it] + a[ 7*N+it]*b[ 1*N+it] + a[ 9*N+it]*b[ 6*N+it] + a[10*N+it]*b[10*N+it];
+    c[ 7*N+it] = a[ 6*N+it]*b[ 1*N+it] + a[ 7*N+it]*b[ 2*N+it] + a[ 9*N+it]*b[ 7*N+it] + a[10*N+it]*b[11*N+it];
+    c[ 8*N+it] = a[ 6*N+it]*b[ 3*N+it] + a[ 7*N+it]*b[ 4*N+it] + a[ 9*N+it]*b[ 8*N+it] + a[10*N+it]*b[12*N+it];
+    c[ 9*N+it] = a[ 6*N+it]*b[ 6*N+it] + a[ 7*N+it]*b[ 7*N+it] + a[ 9*N+it]*b[ 9*N+it] + a[10*N+it]*b[13*N+it];
+    c[10*N+it] = a[ 6*N+it]*b[10*N+it] + a[ 7*N+it]*b[11*N+it] + a[ 9*N+it]*b[13*N+it] + a[10*N+it]*b[14*N+it];
+    c[11*N+it] = a[ 6*N+it]*b[15*N+it] + a[ 7*N+it]*b[16*N+it] + a[ 9*N+it]*b[18*N+it] + a[10*N+it]*b[19*N+it];
     
-  c[12] = a[12]*b[ 0] + a[13]*b[ 1] + b[ 3] + a[15]*b[ 6] + a[16]*b[10] + a[17]*b[15];
-  c[13] = a[12]*b[ 1] + a[13]*b[ 2] + b[ 4] + a[15]*b[ 7] + a[16]*b[11] + a[17]*b[16];
-  c[14] = a[12]*b[ 3] + a[13]*b[ 4] + b[ 5] + a[15]*b[ 8] + a[16]*b[12] + a[17]*b[17];
-  c[15] = a[12]*b[ 6] + a[13]*b[ 7] + b[ 8] + a[15]*b[ 9] + a[16]*b[13] + a[17]*b[18];
-  c[16] = a[12]*b[10] + a[13]*b[11] + b[12] + a[15]*b[13] + a[16]*b[14] + a[17]*b[19];
-  c[17] = a[12]*b[15] + a[13]*b[16] + b[17] + a[15]*b[18] + a[16]*b[19] + a[17]*b[20];
+    c[12*N+it] = a[12*N+it]*b[ 0*N+it] + a[13*N+it]*b[ 1*N+it] + b[ 3*N+it] + a[15*N+it]*b[ 6*N+it] + a[16*N+it]*b[10*N+it] + a[17*N+it]*b[15*N+it];
+    c[13*N+it] = a[12*N+it]*b[ 1*N+it] + a[13*N+it]*b[ 2*N+it] + b[ 4*N+it] + a[15*N+it]*b[ 7*N+it] + a[16*N+it]*b[11*N+it] + a[17*N+it]*b[16*N+it];
+    c[14*N+it] = a[12*N+it]*b[ 3*N+it] + a[13*N+it]*b[ 4*N+it] + b[ 5*N+it] + a[15*N+it]*b[ 8*N+it] + a[16*N+it]*b[12*N+it] + a[17*N+it]*b[17*N+it];
+    c[15*N+it] = a[12*N+it]*b[ 6*N+it] + a[13*N+it]*b[ 7*N+it] + b[ 8*N+it] + a[15*N+it]*b[ 9*N+it] + a[16*N+it]*b[13*N+it] + a[17*N+it]*b[18*N+it];
+    c[16*N+it] = a[12*N+it]*b[10*N+it] + a[13*N+it]*b[11*N+it] + b[12*N+it] + a[15*N+it]*b[13*N+it] + a[16*N+it]*b[14*N+it] + a[17*N+it]*b[19*N+it];
+    c[17*N+it] = a[12*N+it]*b[15*N+it] + a[13*N+it]*b[16*N+it] + b[17*N+it] + a[15*N+it]*b[18*N+it] + a[16*N+it]*b[19*N+it] + a[17*N+it]*b[20*N+it];
     
-  c[18] = a[18]*b[ 0] + a[19]*b[ 1] + a[21]*b[ 6] + a[22]*b[10];
-  c[19] = a[18]*b[ 1] + a[19]*b[ 2] + a[21]*b[ 7] + a[22]*b[11];
-  c[20] = a[18]*b[ 3] + a[19]*b[ 4] + a[21]*b[ 8] + a[22]*b[12];
-  c[21] = a[18]*b[ 6] + a[19]*b[ 7] + a[21]*b[ 9] + a[22]*b[13];
-  c[22] = a[18]*b[10] + a[19]*b[11] + a[21]*b[13] + a[22]*b[14];
-  c[23] = a[18]*b[15] + a[19]*b[16] + a[21]*b[18] + a[22]*b[19];
-  c[24] = a[24]*b[ 0] + a[25]*b[ 1] + a[27]*b[ 6] + a[28]*b[10];
-  c[25] = a[24]*b[ 1] + a[25]*b[ 2] + a[27]*b[ 7] + a[28]*b[11];
-  c[26] = a[24]*b[ 3] + a[25]*b[ 4] + a[27]*b[ 8] + a[28]*b[12];
-  c[27] = a[24]*b[ 6] + a[25]*b[ 7] + a[27]*b[ 9] + a[28]*b[13];
-  c[28] = a[24]*b[10] + a[25]*b[11] + a[27]*b[13] + a[28]*b[14];
-  c[29] = a[24]*b[15] + a[25]*b[16] + a[27]*b[18] + a[28]*b[19];
-  c[30] = b[15];
-  c[31] = b[16];
-  c[32] = b[17];
-  c[33] = b[18];
-  c[34] = b[19];
-  c[35] = b[20];    
-  
+    c[18*N+it] = a[18*N+it]*b[ 0*N+it] + a[19*N+it]*b[ 1*N+it] + a[21*N+it]*b[ 6*N+it] + a[22*N+it]*b[10*N+it];
+    c[19*N+it] = a[18*N+it]*b[ 1*N+it] + a[19*N+it]*b[ 2*N+it] + a[21*N+it]*b[ 7*N+it] + a[22*N+it]*b[11*N+it];
+    c[20*N+it] = a[18*N+it]*b[ 3*N+it] + a[19*N+it]*b[ 4*N+it] + a[21*N+it]*b[ 8*N+it] + a[22*N+it]*b[12*N+it];
+    c[21*N+it] = a[18*N+it]*b[ 6*N+it] + a[19*N+it]*b[ 7*N+it] + a[21*N+it]*b[ 9*N+it] + a[22*N+it]*b[13*N+it];
+    c[22*N+it] = a[18*N+it]*b[10*N+it] + a[19*N+it]*b[11*N+it] + a[21*N+it]*b[13*N+it] + a[22*N+it]*b[14*N+it];
+    c[23*N+it] = a[18*N+it]*b[15*N+it] + a[19*N+it]*b[16*N+it] + a[21*N+it]*b[18*N+it] + a[22*N+it]*b[19*N+it];
+    c[24*N+it] = a[24*N+it]*b[ 0*N+it] + a[25*N+it]*b[ 1*N+it] + a[27*N+it]*b[ 6*N+it] + a[28*N+it]*b[10*N+it];
+    c[25*N+it] = a[24*N+it]*b[ 1*N+it] + a[25*N+it]*b[ 2*N+it] + a[27*N+it]*b[ 7*N+it] + a[28*N+it]*b[11*N+it];
+    c[26*N+it] = a[24*N+it]*b[ 3*N+it] + a[25*N+it]*b[ 4*N+it] + a[27*N+it]*b[ 8*N+it] + a[28*N+it]*b[12*N+it];
+    c[27*N+it] = a[24*N+it]*b[ 6*N+it] + a[25*N+it]*b[ 7*N+it] + a[27*N+it]*b[ 9*N+it] + a[28*N+it]*b[13*N+it];
+    c[28*N+it] = a[24*N+it]*b[10*N+it] + a[25*N+it]*b[11*N+it] + a[27*N+it]*b[13*N+it] + a[28*N+it]*b[14*N+it];
+    c[29*N+it] = a[24*N+it]*b[15*N+it] + a[25*N+it]*b[16*N+it] + a[27*N+it]*b[18*N+it] + a[28*N+it]*b[19*N+it];
+    c[30*N+it] = b[15*N+it];
+    c[31*N+it] = b[16*N+it];
+    c[32*N+it] = b[17*N+it];
+    c[33*N+it] = b[18*N+it];
+    c[34*N+it] = b[19*N+it];
+    c[35*N+it] = b[20*N+it];    
+  }
   return;
 }
 
+template<size_t N = 1>
 inline void MultHelixPropTransp(const MP6x6F_ &a, const MP6x6F_ &b, MP6x6SF_ &c) {//
 
-  c[ 0] = b[ 0]*a[ 0] + b[ 1]*a[ 1] + b[ 3]*a[ 3] + b[ 4]*a[ 4];
-  c[ 1] = b[ 6]*a[ 0] + b[ 7]*a[ 1] + b[ 9]*a[ 3] + b[10]*a[ 4];
-  c[ 2] = b[ 6]*a[ 6] + b[ 7]*a[ 7] + b[ 9]*a[ 9] + b[10]*a[10];
-  c[ 3] = b[12]*a[ 0] + b[13]*a[ 1] + b[15]*a[ 3] + b[16]*a[ 4];
-  c[ 4] = b[12]*a[ 6] + b[13]*a[ 7] + b[15]*a[ 9] + b[16]*a[10];
-  c[ 5] = b[12]*a[12] + b[13]*a[13] + b[14] + b[15]*a[15] + b[16]*a[16] + b[17]*a[17];
-  c[ 6] = b[18]*a[ 0] + b[19]*a[ 1] + b[21]*a[ 3] + b[22]*a[ 4];
-  c[ 7] = b[18]*a[ 6] + b[19]*a[ 7] + b[21]*a[ 9] + b[22]*a[10];
-  c[ 8] = b[18]*a[12] + b[19]*a[13] + b[20] + b[21]*a[15] + b[22]*a[16] + b[23]*a[17];
-  c[ 9] = b[18]*a[18] + b[19]*a[19] + b[21]*a[21] + b[22]*a[22];
-  c[10] = b[24]*a[ 0] + b[25]*a[ 1] + b[27]*a[ 3] + b[28]*a[ 4];
-  c[11] = b[24]*a[ 6] + b[25]*a[ 7] + b[27]*a[ 9] + b[28]*a[10];
-  c[12] = b[24]*a[12] + b[25]*a[13] + b[26] + b[27]*a[15] + b[28]*a[16] + b[29]*a[17];
-  c[13] = b[24]*a[18] + b[25]*a[19] + b[27]*a[21] + b[28]*a[22];
-  c[14] = b[24]*a[24] + b[25]*a[25] + b[27]*a[27] + b[28]*a[28];
-  c[15] = b[30]*a[ 0] + b[31]*a[ 1] + b[33]*a[ 3] + b[34]*a[ 4];
-  c[16] = b[30]*a[ 6] + b[31]*a[ 7] + b[33]*a[ 9] + b[34]*a[10];
-  c[17] = b[30]*a[12] + b[31]*a[13] + b[32] + b[33]*a[15] + b[34]*a[16] + b[35]*a[17];
-  c[18] = b[30]*a[18] + b[31]*a[19] + b[33]*a[21] + b[34]*a[22];
-  c[19] = b[30]*a[24] + b[31]*a[25] + b[33]*a[27] + b[34]*a[28];
-  c[20] = b[35];
-  
+  for (int it = 0;it < N; it++) {
+    
+    c[ 0*N+it] = b[ 0*N+it]*a[ 0*N+it] + b[ 1*N+it]*a[ 1*N+it] + b[ 3*N+it]*a[ 3*N+it] + b[ 4*N+it]*a[ 4*N+it];
+    c[ 1*N+it] = b[ 6*N+it]*a[ 0*N+it] + b[ 7*N+it]*a[ 1*N+it] + b[ 9*N+it]*a[ 3*N+it] + b[10*N+it]*a[ 4*N+it];
+    c[ 2*N+it] = b[ 6*N+it]*a[ 6*N+it] + b[ 7*N+it]*a[ 7*N+it] + b[ 9*N+it]*a[ 9*N+it] + b[10*N+it]*a[10*N+it];
+    c[ 3*N+it] = b[12*N+it]*a[ 0*N+it] + b[13*N+it]*a[ 1*N+it] + b[15*N+it]*a[ 3*N+it] + b[16*N+it]*a[ 4*N+it];
+    c[ 4*N+it] = b[12*N+it]*a[ 6*N+it] + b[13*N+it]*a[ 7*N+it] + b[15*N+it]*a[ 9*N+it] + b[16*N+it]*a[10*N+it];
+    c[ 5*N+it] = b[12*N+it]*a[12*N+it] + b[13*N+it]*a[13*N+it] + b[14*N+it] + b[15*N+it]*a[15*N+it] + b[16*N+it]*a[16*N+it] + b[17*N+it]*a[17*N+it];
+    c[ 6*N+it] = b[18*N+it]*a[ 0*N+it] + b[19*N+it]*a[ 1*N+it] + b[21*N+it]*a[ 3*N+it] + b[22*N+it]*a[ 4*N+it];
+    c[ 7*N+it] = b[18*N+it]*a[ 6*N+it] + b[19*N+it]*a[ 7*N+it] + b[21*N+it]*a[ 9*N+it] + b[22*N+it]*a[10*N+it];
+    c[ 8*N+it] = b[18*N+it]*a[12*N+it] + b[19*N+it]*a[13*N+it] + b[20*N+it] + b[21*N+it]*a[15*N+it] + b[22*N+it]*a[16*N+it] + b[23*N+it]*a[17*N+it];
+    c[ 9*N+it] = b[18*N+it]*a[18*N+it] + b[19*N+it]*a[19*N+it] + b[21*N+it]*a[21*N+it] + b[22*N+it]*a[22*N+it];
+    c[10*N+it] = b[24*N+it]*a[ 0*N+it] + b[25*N+it]*a[ 1*N+it] + b[27*N+it]*a[ 3*N+it] + b[28*N+it]*a[ 4*N+it];
+    c[11*N+it] = b[24*N+it]*a[ 6*N+it] + b[25*N+it]*a[ 7*N+it] + b[27*N+it]*a[ 9*N+it] + b[28*N+it]*a[10*N+it];
+    c[12*N+it] = b[24*N+it]*a[12*N+it] + b[25*N+it]*a[13*N+it] + b[26*N+it] + b[27*N+it]*a[15*N+it] + b[28*N+it]*a[16*N+it] + b[29*N+it]*a[17*N+it];
+    c[13*N+it] = b[24*N+it]*a[18*N+it] + b[25*N+it]*a[19*N+it] + b[27*N+it]*a[21*N+it] + b[28*N+it]*a[22*N+it];
+    c[14*N+it] = b[24*N+it]*a[24*N+it] + b[25*N+it]*a[25*N+it] + b[27*N+it]*a[27*N+it] + b[28*N+it]*a[28*N+it];
+    c[15*N+it] = b[30*N+it]*a[ 0*N+it] + b[31*N+it]*a[ 1*N+it] + b[33*N+it]*a[ 3*N+it] + b[34*N+it]*a[ 4*N+it];
+    c[16*N+it] = b[30*N+it]*a[ 6*N+it] + b[31*N+it]*a[ 7*N+it] + b[33*N+it]*a[ 9*N+it] + b[34*N+it]*a[10*N+it];
+    c[17*N+it] = b[30*N+it]*a[12*N+it] + b[31*N+it]*a[13*N+it] + b[32*N+it] + b[33*N+it]*a[15*N+it] + b[34*N+it]*a[16*N+it] + b[35*N+it]*a[17*N+it];
+    c[18*N+it] = b[30*N+it]*a[18*N+it] + b[31*N+it]*a[19*N+it] + b[33*N+it]*a[21*N+it] + b[34*N+it]*a[22*N+it];
+    c[19*N+it] = b[30*N+it]*a[24*N+it] + b[31*N+it]*a[25*N+it] + b[33*N+it]*a[27*N+it] + b[34*N+it]*a[28*N+it];
+    c[20*N+it] = b[35*N+it];
+  }
   return;  
 }
 
-inline float hipo(const float x, const float y) {return std::sqrt(x*x + y*y);}
+auto hipo = [](const float x, const float y) {return std::sqrt(x*x + y*y);};
 
-inline void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x3SF_ &hitErr_, const MP3F_ &msP_){	  
+template <size_t N = 1>
+void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x3SF_ &hitErr_, const MP3F_ &msP_){	  
   
   MP1F_    rotT00;
   MP1F_    rotT01;
   MP2x2SF_ resErr_loc;
   //MP3x3SF_ resErr_glo;
-  {   
-    const auto msPX = msP_[iparX];
-    const auto msPY = msP_[iparY];
-    const auto inParX = inPar_[iparX];
-    const auto inParY = inPar_[iparY];          
+    
+  for (size_t it = 0;it < N; ++it) {   
+    const auto msPX = msP_(iparX, it);
+    const auto msPY = msP_(iparY, it);
+    const auto inParX = inPar_(iparX, it);
+    const auto inParY = inPar_(iparY, it);          
   
     const auto r = hipo(msPX, msPY);
-    rotT00[0] = -(msPY + inParY) / (2*r);
-    rotT01[0] =  (msPX + inParX) / (2*r);    
+    rotT00[it] = -(msPY + inParY) / (2*r);
+    rotT01[it] =  (msPX + inParX) / (2*r);    
     
-    resErr_loc[ 0] = (rotT00[0]*(trkErr_[0] + hitErr_[0]) +
-                                    rotT01[0]*(trkErr_[1] + hitErr_[1]))*rotT00[0] +
-                                   (rotT00[0]*(trkErr_[1] + hitErr_[1]) +
-                                    rotT01[0]*(trkErr_[2] + hitErr_[2]))*rotT01[0];
-    resErr_loc[ 1] = (trkErr_[3] + hitErr_[3])*rotT00[0] +
-                                   (trkErr_[4] + hitErr_[4])*rotT01[0];
-    resErr_loc[ 2] = (trkErr_[5] + hitErr_[5]);
+    resErr_loc[ 0*N+it] = (rotT00[it]*(trkErr_[0*N+it] + hitErr_[0*N+it]) +
+                                    rotT01[it]*(trkErr_[1*N+it] + hitErr_[1*N+it]))*rotT00[it] +
+                                   (rotT00[it]*(trkErr_[1*N+it] + hitErr_[1*N+it]) +
+                                    rotT01[it]*(trkErr_[2*N+it] + hitErr_[2*N+it]))*rotT01[it];
+    resErr_loc[ 1*N+it] = (trkErr_[3*N+it] + hitErr_[3*N+it])*rotT00[it] +
+                                   (trkErr_[4*N+it] + hitErr_[4*N+it])*rotT01[it];
+    resErr_loc[ 2*N+it] = (trkErr_[5*N+it] + hitErr_[5*N+it]);
   } 
   
-  {
+  for (size_t it=0;it<N;++it) {
   
-    const double det = (double)resErr_loc[0] * resErr_loc[2] -
-                       (double)resErr_loc[1] * resErr_loc[1];
+    const double det = (double)resErr_loc[0*N+it] * resErr_loc[2*N+it] -
+                       (double)resErr_loc[1*N+it] * resErr_loc[1*N+it];
     const float s   = 1.f / det;
-    const float tmp = s * resErr_loc[2];
-    resErr_loc[1] *= -s;
-    resErr_loc[2]  = s * resErr_loc[0];
-    resErr_loc[0]  = tmp;  
+    const float tmp = s * resErr_loc[2*N+it];
+    resErr_loc[1*N+it] *= -s;
+    resErr_loc[2*N+it]  = s * resErr_loc[0*N+it];
+    resErr_loc[0*N+it]  = tmp;  
   }     
   
   MP3x6_ kGain;
   
-  {
-    kGain[ 0] = trkErr_[ 0]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 1]*(rotT01[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 3]*resErr_loc[ 1];
-    kGain[ 1] = trkErr_[ 0]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 1]*(rotT01[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 3]*resErr_loc[ 2];
-    kGain[ 2] = 0;
-    kGain[ 3] = trkErr_[ 1]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 2]*(rotT01[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 4]*resErr_loc[ 1];
-    kGain[ 4] = trkErr_[ 1]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 2]*(rotT01[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 4]*resErr_loc[ 2];
-    kGain[ 5] = 0;
-    kGain[ 6] = trkErr_[ 3]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 4]*(rotT01[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 5]*resErr_loc[ 1];
-    kGain[ 7] = trkErr_[ 3]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 4]*(rotT01[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 5]*resErr_loc[ 2];
-    kGain[ 8] = 0;
-    kGain[ 9] = trkErr_[ 6]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 7]*(rotT01[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 8]*resErr_loc[ 1];
-    kGain[10] = trkErr_[ 6]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 7]*(rotT01[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 8]*resErr_loc[ 2];
-    kGain[11] = 0;
-    kGain[12] = trkErr_[10]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[11]*(rotT01[0]*resErr_loc[ 0]) +
-	                        trkErr_[12]*resErr_loc[ 1];
-    kGain[13] = trkErr_[10]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[11]*(rotT01[0]*resErr_loc[ 1]) +
-	                        trkErr_[12]*resErr_loc[ 2];
-    kGain[14] = 0;
-    kGain[15] = trkErr_[15]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[16]*(rotT01[0]*resErr_loc[ 0]) +
-	                        trkErr_[17]*resErr_loc[ 1];
-    kGain[16] = trkErr_[15]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[16]*(rotT01[0]*resErr_loc[ 1]) +
-	                        trkErr_[17]*resErr_loc[ 2];
-    kGain[17] = 0;  
+#pragma omp simd
+  for (size_t it=0; it<N; ++it) {
+    kGain[ 0*N+it] = trkErr_[ 0*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[ 1*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[ 3*N+it]*resErr_loc[ 1*N+it];
+    kGain[ 1*N+it] = trkErr_[ 0*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[ 1*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[ 3*N+it]*resErr_loc[ 2*N+it];
+    kGain[ 2*N+it] = 0;
+    kGain[ 3*N+it] = trkErr_[ 1*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[ 2*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[ 4*N+it]*resErr_loc[ 1*N+it];
+    kGain[ 4*N+it] = trkErr_[ 1*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[ 2*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[ 4*N+it]*resErr_loc[ 2*N+it];
+    kGain[ 5*N+it] = 0;
+    kGain[ 6*N+it] = trkErr_[ 3*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[ 4*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[ 5*N+it]*resErr_loc[ 1*N+it];
+    kGain[ 7*N+it] = trkErr_[ 3*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[ 4*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[ 5*N+it]*resErr_loc[ 2*N+it];
+    kGain[ 8*N+it] = 0;
+    kGain[ 9*N+it] = trkErr_[ 6*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[ 7*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[ 8*N+it]*resErr_loc[ 1*N+it];
+    kGain[10*N+it] = trkErr_[ 6*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[ 7*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[ 8*N+it]*resErr_loc[ 2*N+it];
+    kGain[11*N+it] = 0;
+    kGain[12*N+it] = trkErr_[10*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[11*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[12*N+it]*resErr_loc[ 1*N+it];
+    kGain[13*N+it] = trkErr_[10*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[11*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[12*N+it]*resErr_loc[ 2*N+it];
+    kGain[14*N+it] = 0;
+    kGain[15*N+it] = trkErr_[15*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[16*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+	                        trkErr_[17*N+it]*resErr_loc[ 1*N+it];
+    kGain[16*N+it] = trkErr_[15*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[16*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+	                        trkErr_[17*N+it]*resErr_loc[ 2*N+it];
+    kGain[17*N+it] = 0;  
   }  
      
   MP2F_ res_loc;   
-  {
-    const auto msPX = msP_[iparX];
-    const auto msPY = msP_[iparY];
-    const auto msPZ = msP_[iparZ];    
-    const auto inParX = inPar_[iparX];
-    const auto inParY = inPar_[iparY];     
-    const auto inParZ = inPar_[iparZ]; 
+  for (size_t it = 0; it < N; ++it) {
+    const auto msPX = msP_(iparX, it);
+    const auto msPY = msP_(iparY, it);
+    const auto msPZ = msP_(iparZ, it);    
+    const auto inParX = inPar_(iparX, it);
+    const auto inParY = inPar_(iparY, it);     
+    const auto inParZ = inPar_(iparZ, it); 
     
-    const auto inParIpt   = inPar_[iparIpt];
-    const auto inParPhi   = inPar_[iparPhi];
-    const auto inParTheta = inPar_[iparTheta];            
+    const auto inParIpt   = inPar_(iparIpt, it);
+    const auto inParPhi   = inPar_(iparPhi, it);
+    const auto inParTheta = inPar_(iparTheta, it);            
     
-    res_loc[0] =  rotT00[0]*(msPX - inParX) + rotT01[0]*(msPY - inParY);
-    res_loc[1] =  msPZ - inParZ;
+    res_loc[0*N+it] =  rotT00[it]*(msPX - inParX) + rotT01[it]*(msPY - inParY);
+    res_loc[1*N+it] =  msPZ - inParZ;
 
-    inPar_[iparX]     = inParX + kGain[ 0] * res_loc[ 0] + kGain[ 1] * res_loc[ 1];
-    inPar_[iparY]     = inParY + kGain[ 3] * res_loc[ 0] + kGain[ 4] * res_loc[ 1];
-    inPar_[iparZ]     = inParZ + kGain[ 6] * res_loc[ 0] + kGain[ 7] * res_loc[ 1];
-    inPar_[iparIpt]   = inParIpt + kGain[ 9] * res_loc[ 0] + kGain[10] * res_loc[ 1];
-    inPar_[iparPhi]   = inParPhi + kGain[12] * res_loc[ 0] + kGain[13] * res_loc[ 1];
-    inPar_[iparTheta] = inParTheta + kGain[15] * res_loc[ 0] + kGain[16] * res_loc[ 1];     
+    inPar_(iparX,it)     = inParX + kGain[ 0*N+it] * res_loc[ 0*N+it] + kGain[ 1*N+it] * res_loc[ 1*N+it];
+    inPar_(iparY,it)     = inParY + kGain[ 3*N+it] * res_loc[ 0*N+it] + kGain[ 4*N+it] * res_loc[ 1*N+it];
+    inPar_(iparZ,it)     = inParZ + kGain[ 6*N+it] * res_loc[ 0*N+it] + kGain[ 7*N+it] * res_loc[ 1*N+it];
+    inPar_(iparIpt,it)   = inParIpt + kGain[ 9*N+it] * res_loc[ 0*N+it] + kGain[10*N+it] * res_loc[ 1*N+it];
+    inPar_(iparPhi,it)   = inParPhi + kGain[12*N+it] * res_loc[ 0*N+it] + kGain[13*N+it] * res_loc[ 1*N+it];
+    inPar_(iparTheta,it) = inParTheta + kGain[15*N+it] * res_loc[ 0*N+it] + kGain[16*N+it] * res_loc[ 1*N+it];     
   }
 
-  MP6x6SF_ newErr;
-  {
+   MP6x6SF_ newErr;
+   for (size_t it=0;it<bsize;++it)   {
 
-     newErr[ 0] = kGain[ 0]*rotT00[0]*trkErr_[ 0] +
-                         kGain[ 0]*rotT01[0]*trkErr_[ 1] +
-                         kGain[ 1]*trkErr_[ 3];
-     newErr[ 1] = kGain[ 3]*rotT00[0]*trkErr_[ 0] +
-                         kGain[ 3]*rotT01[0]*trkErr_[ 1] +
-                         kGain[ 4]*trkErr_[ 3];
-     newErr[ 2] = kGain[ 3]*rotT00[0]*trkErr_[ 1] +
-                         kGain[ 3]*rotT01[0]*trkErr_[ 2] +
-                         kGain[ 4]*trkErr_[ 4];
-     newErr[ 3] = kGain[ 6]*rotT00[0]*trkErr_[ 0] +
-                         kGain[ 6]*rotT01[0]*trkErr_[ 1] +
-                         kGain[ 7]*trkErr_[ 3];
-     newErr[ 4] = kGain[ 6]*rotT00[0]*trkErr_[ 1] +
-                         kGain[ 6]*rotT01[0]*trkErr_[ 2] +
-                         kGain[ 7]*trkErr_[ 4];
-     newErr[ 5] = kGain[ 6]*rotT00[0]*trkErr_[ 3] +
-                         kGain[ 6]*rotT01[0]*trkErr_[ 4] +
-                         kGain[ 7]*trkErr_[ 5];
-     newErr[ 6] = kGain[ 9]*rotT00[0]*trkErr_[ 0] +
-                         kGain[ 9]*rotT01[0]*trkErr_[ 1] +
-                         kGain[10]*trkErr_[ 3];
-     newErr[ 7] = kGain[ 9]*rotT00[0]*trkErr_[ 1] +
-                         kGain[ 9]*rotT01[0]*trkErr_[ 2] +
-                         kGain[10]*trkErr_[ 4];
-     newErr[ 8] = kGain[ 9]*rotT00[0]*trkErr_[ 3] +
-                         kGain[ 9]*rotT01[0]*trkErr_[ 4] +
-                         kGain[10]*trkErr_[ 5];
-     newErr[ 9] = kGain[ 9]*rotT00[0]*trkErr_[ 6] +
-                         kGain[ 9]*rotT01[0]*trkErr_[ 7] +
-                         kGain[10]*trkErr_[ 8];
-     newErr[10] = kGain[12]*rotT00[0]*trkErr_[ 0] +
-                         kGain[12]*rotT01[0]*trkErr_[ 1] +
-                         kGain[13]*trkErr_[ 3];
-     newErr[11] = kGain[12]*rotT00[0]*trkErr_[ 1] +
-                         kGain[12]*rotT01[0]*trkErr_[ 2] +
-                         kGain[13]*trkErr_[ 4];
-     newErr[12] = kGain[12]*rotT00[0]*trkErr_[ 3] +
-                         kGain[12]*rotT01[0]*trkErr_[ 4] +
-                         kGain[13]*trkErr_[ 5];
-     newErr[13] = kGain[12]*rotT00[0]*trkErr_[ 6] +
-                         kGain[12]*rotT01[0]*trkErr_[ 7] +
-                         kGain[13]*trkErr_[ 8];
-     newErr[14] = kGain[12]*rotT00[0]*trkErr_[10] +
-                         kGain[12]*rotT01[0]*trkErr_[11] +
-                         kGain[13]*trkErr_[12];
-     newErr[15] = kGain[15]*rotT00[0]*trkErr_[ 0] +
-                         kGain[15]*rotT01[0]*trkErr_[ 1] +
-                         kGain[16]*trkErr_[ 3];
-     newErr[16] = kGain[15]*rotT00[0]*trkErr_[ 1] +
-                         kGain[15]*rotT01[0]*trkErr_[ 2] +
-                         kGain[16]*trkErr_[ 4];
-     newErr[17] = kGain[15]*rotT00[0]*trkErr_[ 3] +
-                         kGain[15]*rotT01[0]*trkErr_[ 4] +
-                         kGain[16]*trkErr_[ 5];
-     newErr[18] = kGain[15]*rotT00[0]*trkErr_[ 6] +
-                         kGain[15]*rotT01[0]*trkErr_[ 7] +
-                         kGain[16]*trkErr_[ 8];
-     newErr[19] = kGain[15]*rotT00[0]*trkErr_[10] +
-                         kGain[15]*rotT01[0]*trkErr_[11] +
-                         kGain[16]*trkErr_[12];
-     newErr[20] = kGain[15]*rotT00[0]*trkErr_[15] +
-                         kGain[15]*rotT01[0]*trkErr_[16] +
-                         kGain[16]*trkErr_[17];     
+     newErr[ 0*N+it] = kGain[ 0*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
+                         kGain[ 0*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
+                         kGain[ 1*N+it]*trkErr_[ 3*N+it];
+     newErr[ 1*N+it] = kGain[ 3*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
+                         kGain[ 3*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
+                         kGain[ 4*N+it]*trkErr_[ 3*N+it];
+     newErr[ 2*N+it] = kGain[ 3*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
+                         kGain[ 3*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
+                         kGain[ 4*N+it]*trkErr_[ 4*N+it];
+     newErr[ 3*N+it] = kGain[ 6*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
+                         kGain[ 6*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
+                         kGain[ 7*N+it]*trkErr_[ 3*N+it];
+     newErr[ 4*N+it] = kGain[ 6*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
+                         kGain[ 6*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
+                         kGain[ 7*N+it]*trkErr_[ 4*N+it];
+     newErr[ 5*N+it] = kGain[ 6*N+it]*rotT00[it]*trkErr_[ 3*N+it] +
+                         kGain[ 6*N+it]*rotT01[it]*trkErr_[ 4*N+it] +
+                         kGain[ 7*N+it]*trkErr_[ 5*N+it];
+     newErr[ 6*N+it] = kGain[ 9*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
+                         kGain[ 9*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
+                         kGain[10*N+it]*trkErr_[ 3*N+it];
+     newErr[ 7*N+it] = kGain[ 9*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
+                         kGain[ 9*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
+                         kGain[10*N+it]*trkErr_[ 4*N+it];
+     newErr[ 8*N+it] = kGain[ 9*N+it]*rotT00[it]*trkErr_[ 3*N+it] +
+                         kGain[ 9*N+it]*rotT01[it]*trkErr_[ 4*N+it] +
+                         kGain[10*N+it]*trkErr_[ 5*N+it];
+     newErr[ 9*N+it] = kGain[ 9*N+it]*rotT00[it]*trkErr_[ 6*N+it] +
+                         kGain[ 9*N+it]*rotT01[it]*trkErr_[ 7*N+it] +
+                         kGain[10*N+it]*trkErr_[ 8*N+it];
+     newErr[10*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
+                         kGain[12*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
+                         kGain[13*N+it]*trkErr_[ 3*N+it];
+     newErr[11*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
+                         kGain[12*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
+                         kGain[13*N+it]*trkErr_[ 4*N+it];
+     newErr[12*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[ 3*N+it] +
+                         kGain[12*N+it]*rotT01[it]*trkErr_[ 4*N+it] +
+                         kGain[13*N+it]*trkErr_[ 5*N+it];
+     newErr[13*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[ 6*N+it] +
+                         kGain[12*N+it]*rotT01[it]*trkErr_[ 7*N+it] +
+                         kGain[13*N+it]*trkErr_[ 8*N+it];
+     newErr[14*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[10*N+it] +
+                         kGain[12*N+it]*rotT01[it]*trkErr_[11*N+it] +
+                         kGain[13*N+it]*trkErr_[12*N+it];
+     newErr[15*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
+                         kGain[15*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
+                         kGain[16*N+it]*trkErr_[ 3*N+it];
+     newErr[16*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
+                         kGain[15*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
+                         kGain[16*N+it]*trkErr_[ 4*N+it];
+     newErr[17*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[ 3*N+it] +
+                         kGain[15*N+it]*rotT01[it]*trkErr_[ 4*N+it] +
+                         kGain[16*N+it]*trkErr_[ 5*N+it];
+     newErr[18*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[ 6*N+it] +
+                         kGain[15*N+it]*rotT01[it]*trkErr_[ 7*N+it] +
+                         kGain[16*N+it]*trkErr_[ 8*N+it];
+     newErr[19*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[10*N+it] +
+                         kGain[15*N+it]*rotT01[it]*trkErr_[11*N+it] +
+                         kGain[16*N+it]*trkErr_[12*N+it];
+     newErr[20*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[15*N+it] +
+                         kGain[15*N+it]*rotT01[it]*trkErr_[16*N+it] +
+                         kGain[16*N+it]*trkErr_[17*N+it];     
  #pragma unroll
      for (int i = 0; i < 21; i++){
-       trkErr_[ i] = trkErr_[ i] - newErr[ i];
+       trkErr_[ i*N+it] = trkErr_[ i*N+it] - newErr[ i*N+it];
      }
    }
    //
    return;                 
 }
                   
-
 constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 
-inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I_ &inChg_, 
+template <size_t N = 1>
+void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I_ &inChg_, 
                   const MP3F_ &msP_, MP6x6SF_ &outErr_, MP6F_ &outPar_) {
   //aux objects  
   MP6x6F_ errorProp;
   MP6x6F_ temp;
   
-  auto PosInMtrx = [=] (int i, int j, int D) constexpr {return (i*D+j);};
+  auto PosInMtrx = [=] (int i, int j, int D, int block_size = 1) constexpr {return block_size*(i*D+j);};
   
   auto sincos4 = [] (const float x, float& sin, float& cos) {
     const float x2 = x*x;
     cos  = 1.f - 0.5f*x2 + 0.04166667f*x2*x2;
     sin  = x - 0.16666667f*x*x2;
   };
+
   
-  {
+  for (size_t it = 0; it < N; ++it) {
     //initialize erroProp to identity matrix
-    //for (int i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f; 
-    errorProp[PosInMtrx(0,0,6)] = 1.0f;
-    errorProp[PosInMtrx(1,1,6)] = 1.0f;
-    errorProp[PosInMtrx(2,2,6)] = 1.0f;
-    errorProp[PosInMtrx(3,3,6)] = 1.0f;
-    errorProp[PosInMtrx(4,4,6)] = 1.0f;
-    errorProp[PosInMtrx(5,5,6)] = 1.0f;
+    //for (size_t i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f; 
+    errorProp[PosInMtrx(0,0,6, N) + it] = 1.0f;
+    errorProp[PosInMtrx(1,1,6, N) + it] = 1.0f;
+    errorProp[PosInMtrx(2,2,6, N) + it] = 1.0f;
+    errorProp[PosInMtrx(3,3,6, N) + it] = 1.0f;
+    errorProp[PosInMtrx(4,4,6, N) + it] = 1.0f;
+    errorProp[PosInMtrx(5,5,6, N) + it] = 1.0f;
     //
-    const auto xin = inPar_[iparX];
-    const auto yin = inPar_[iparY];     
-    const auto zin = inPar_[iparZ]; 
+    const auto xin = inPar_(iparX, it);
+    const auto yin = inPar_(iparY, it);     
+    const auto zin = inPar_(iparZ, it); 
     
-    const auto iptin   = inPar_[iparIpt];
-    const auto phiin   = inPar_[iparPhi];
-    const auto thetain = inPar_[iparTheta]; 
+    const auto iptin   = inPar_(iparIpt,   it);
+    const auto phiin   = inPar_(iparPhi,   it);
+    const auto thetain = inPar_(iparTheta, it); 
     //
     auto r0 = hipo(xin, yin);
-    const auto k = inChg_[0]*kfact;//?
+    const auto k = inChg_[it]*kfact;//?
     
-    const auto xmsP = msP_[iparX];//?
-    const auto ymsP = msP_[iparY];//?
+    const auto xmsP = msP_(iparX, it);//?
+    const auto ymsP = msP_(iparY, it);//?
     
     const auto r = hipo(xmsP, ymsP);    
     
-    outPar_[iparX] = xin;
-    outPar_[iparY] = yin;
-    outPar_[iparZ] = zin;
+    outPar_(iparX,it) = xin;
+    outPar_(iparY,it) = yin;
+    outPar_(iparZ,it) = zin;
 
-    outPar_[iparIpt]   = iptin;
-    outPar_[iparPhi]   = phiin;
-    outPar_[iparTheta] = thetain;
+    outPar_(iparIpt,it)   = iptin;
+    outPar_(iparPhi,it)   = phiin;
+    outPar_(iparTheta,it) = thetain;
  
     const auto kinv  = 1.f/k;
     const auto pt = 1.f/iptin;
@@ -923,8 +955,8 @@ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I
     for (int i = 0; i < Niter; ++i)
     {
      //compute distance and path for the current iteration
-      const auto xout = outPar_[iparX];
-      const auto yout = outPar_[iparY];     
+      const auto xout = outPar_(iparX, it);
+      const auto yout = outPar_(iparY, it);     
       
       r0 = hipo(xout, yout);
       id = (r-r0);
@@ -958,8 +990,8 @@ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I
       } 
       
       //update parameters
-      outPar_[iparX] = xout + k*(pxin*sina - pyin*(1.f-cosa));
-      outPar_[iparY] = yout + k*(pyin*sina + pxin*(1.f-cosa));
+      outPar_(iparX,it) = xout + k*(pxin*sina - pyin*(1.f-cosa));
+      outPar_(iparY,it) = yout + k*(pyin*sina + pxin*(1.f-cosa));
       const float pxinold = pxin;//copy before overwriting
       pxin = pxin*cosa - pyin*sina;
       pyin = pyin*cosa + pxinold*sina;
@@ -974,19 +1006,19 @@ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I
 
     sincos4(alpha, sina, cosa);
  
-    errorProp[PosInMtrx(0,0,6)] = 1.f+k*dadx*(cosPorT*cosa-sinPorT*sina)*pt;
-    errorProp[PosInMtrx(0,1,6)] =     k*dady*(cosPorT*cosa-sinPorT*sina)*pt;
-    errorProp[PosInMtrx(0,2,6)] = 0.f;
-    errorProp[PosInMtrx(0,3,6)] = k*(cosPorT*(iptin*dadipt*cosa-sina)+sinPorT*((1.f-cosa)-iptin*dadipt*sina))*pt*pt;
-    errorProp[PosInMtrx(0,4,6)] = k*(cosPorT*dadphi*cosa - sinPorT*dadphi*sina - sinPorT*sina + cosPorT*cosa - cosPorT)*pt;
-    errorProp[PosInMtrx(0,5,6)] = 0.f;
+    errorProp[PosInMtrx(0,0,6, N) + it] = 1.f+k*dadx*(cosPorT*cosa-sinPorT*sina)*pt;
+    errorProp[PosInMtrx(0,1,6, N) + it] =     k*dady*(cosPorT*cosa-sinPorT*sina)*pt;
+    errorProp[PosInMtrx(0,2,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(0,3,6, N) + it] = k*(cosPorT*(iptin*dadipt*cosa-sina)+sinPorT*((1.f-cosa)-iptin*dadipt*sina))*pt*pt;
+    errorProp[PosInMtrx(0,4,6, N) + it] = k*(cosPorT*dadphi*cosa - sinPorT*dadphi*sina - sinPorT*sina + cosPorT*cosa - cosPorT)*pt;
+    errorProp[PosInMtrx(0,5,6, N) + it] = 0.f;
 
-    errorProp[PosInMtrx(1,0,6)] =     k*dadx*(sinPorT*cosa+cosPorT*sina)*pt;
-    errorProp[PosInMtrx(1,1,6)] = 1.f+k*dady*(sinPorT*cosa+cosPorT*sina)*pt;
-    errorProp[PosInMtrx(1,2,6)] = 0.f;
-    errorProp[PosInMtrx(1,3,6)] = k*(sinPorT*(iptin*dadipt*cosa-sina)+cosPorT*(iptin*dadipt*sina-(1.f-cosa)))*pt*pt;
-    errorProp[PosInMtrx(1,4,6)] = k*(sinPorT*dadphi*cosa + cosPorT*dadphi*sina + sinPorT*cosa + cosPorT*sina - sinPorT)*pt;
-    errorProp[PosInMtrx(1,5,6)] = 0.f;
+    errorProp[PosInMtrx(1,0,6, N) + it] =     k*dadx*(sinPorT*cosa+cosPorT*sina)*pt;
+    errorProp[PosInMtrx(1,1,6, N) + it] = 1.f+k*dady*(sinPorT*cosa+cosPorT*sina)*pt;
+    errorProp[PosInMtrx(1,2,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(1,3,6, N) + it] = k*(sinPorT*(iptin*dadipt*cosa-sina)+cosPorT*(iptin*dadipt*sina-(1.f-cosa)))*pt*pt;
+    errorProp[PosInMtrx(1,4,6, N) + it] = k*(sinPorT*dadphi*cosa + cosPorT*dadphi*sina + sinPorT*cosa + cosPorT*sina - sinPorT)*pt;
+    errorProp[PosInMtrx(1,5,6, N) + it] = 0.f;
 
     //no trig approx here, theta can be large
     cosPorT=std::cos(thetain);
@@ -994,55 +1026,55 @@ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I
     //redefine sinPorT as 1./sinPorT to reduce the number of temporaries
     sinPorT = 1.f/sinPorT;
 
-    outPar_[iparZ] = zin + k*alpha*cosPorT*pt*sinPorT;    
+    outPar_(iparZ,it) = zin + k*alpha*cosPorT*pt*sinPorT;    
 
-    errorProp[PosInMtrx(2,0,6)] = k*cosPorT*dadx*pt*sinPorT;
-    errorProp[PosInMtrx(2,1,6)] = k*cosPorT*dady*pt*sinPorT;
-    errorProp[PosInMtrx(2,2,6)] = 1.f;
-    errorProp[PosInMtrx(2,3,6)] = k*cosPorT*(iptin*dadipt-alpha)*pt*pt*sinPorT;
-    errorProp[PosInMtrx(2,4,6)] = k*dadphi*cosPorT*pt*sinPorT;
-    errorProp[PosInMtrx(2,5,6)] =-k*alpha*pt*sinPorT*sinPorT;   
+    errorProp[PosInMtrx(2,0,6, N) + it] = k*cosPorT*dadx*pt*sinPorT;
+    errorProp[PosInMtrx(2,1,6, N) + it] = k*cosPorT*dady*pt*sinPorT;
+    errorProp[PosInMtrx(2,2,6, N) + it] = 1.f;
+    errorProp[PosInMtrx(2,3,6, N) + it] = k*cosPorT*(iptin*dadipt-alpha)*pt*pt*sinPorT;
+    errorProp[PosInMtrx(2,4,6, N) + it] = k*dadphi*cosPorT*pt*sinPorT;
+    errorProp[PosInMtrx(2,5,6, N) + it] =-k*alpha*pt*sinPorT*sinPorT;   
     //
-    outPar_[iparIpt] = iptin;
+    outPar_(iparIpt,it) = iptin;
  
-    errorProp[PosInMtrx(3,0,6)] = 0.f;
-    errorProp[PosInMtrx(3,1,6)] = 0.f;
-    errorProp[PosInMtrx(3,2,6)] = 0.f;
-    errorProp[PosInMtrx(3,3,6)] = 1.f;
-    errorProp[PosInMtrx(3,4,6)] = 0.f;
-    errorProp[PosInMtrx(3,5,6)] = 0.f; 
+    errorProp[PosInMtrx(3,0,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(3,1,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(3,2,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(3,3,6, N) + it] = 1.f;
+    errorProp[PosInMtrx(3,4,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(3,5,6, N) + it] = 0.f; 
     
-    outPar_[iparPhi] = phiin+alpha;
+    outPar_(iparPhi,it) = phiin+alpha;
    
-    errorProp[PosInMtrx(4,0,6)] = dadx;
-    errorProp[PosInMtrx(4,1,6)] = dady;
-    errorProp[PosInMtrx(4,2,6)] = 0.f;
-    errorProp[PosInMtrx(4,3,6)] = dadipt;
-    errorProp[PosInMtrx(4,4,6)] = 1.f+dadphi;
-    errorProp[PosInMtrx(4,5,6)] = 0.f; 
+    errorProp[PosInMtrx(4,0,6, N) + it] = dadx;
+    errorProp[PosInMtrx(4,1,6, N) + it] = dady;
+    errorProp[PosInMtrx(4,2,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(4,3,6, N) + it] = dadipt;
+    errorProp[PosInMtrx(4,4,6, N) + it] = 1.f+dadphi;
+    errorProp[PosInMtrx(4,5,6, N) + it] = 0.f; 
   
-    outPar_[iparTheta] = thetain;        
+    outPar_(iparTheta,it) = thetain;        
 
-    errorProp[PosInMtrx(5,0,6)] = 0.f;
-    errorProp[PosInMtrx(5,1,6)] = 0.f;
-    errorProp[PosInMtrx(5,2,6)] = 0.f;
-    errorProp[PosInMtrx(5,3,6)] = 0.f;
-    errorProp[PosInMtrx(5,4,6)] = 0.f;
-    errorProp[PosInMtrx(5,5,6)] = 1.f; 
+    errorProp[PosInMtrx(5,0,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(5,1,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(5,2,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(5,3,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(5,4,6, N) + it] = 0.f;
+    errorProp[PosInMtrx(5,5,6, N) + it] = 1.f; 
                                  
   }
   
-  MultHelixProp(errorProp, inErr_, temp);
-  MultHelixPropTransp(errorProp, temp, outErr_);  
+  MultHelixProp<N>(errorProp, inErr_, temp);
+  MultHelixPropTransp<N>(errorProp, temp, outErr_);  
   
   return;
 }
 
 template <typename lambda_tp, bool grid_stride = true>
 __kernel__ void launch_p2r_kernels(const lambda_tp p2r_kernel, const int length){
-   
+
+#ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection      	
   if target (nv::target::is_device) {
-#ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection	  
     auto i = threadIdx.x + blockIdx.x * blockDim.x;
    
     while (i < length) {
@@ -1051,38 +1083,39 @@ __kernel__ void launch_p2r_kernels(const lambda_tp p2r_kernel, const int length)
       if (grid_stride)  i += gridDim.x * blockDim.x; 
       else  break;
     }
-#endif
   } else {
-    auto policy = std::execution::par_unseq; 
-    //    
-    std::for_each(policy,
-                  impl::counting_iterator(0),
-                  impl::counting_iterator(length),
-                  p2r_kernel);
+    printf("Not implemented.\n");	  
   }
+#endif //__NVCOMPILER_CUDA__
 
   return;
 }
 
-template <bool device_compute = true>
+template <bool device_compute>
 void dispatch_p2r_kernels(auto&& p2r_kernels, const int ntrks_, const int nevnts_){
-  const int phys_length      = nevts*ntrks;
-  const int outer_loop_range = phys_length;
+  const int outer_loop_range = nevnts_*ntrks_;
 
   if constexpr (device_compute) {
 #ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection
     dim3 blocks(threadsperblock, 1, 1);
     dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
     //
-    launch_p2r_kernels<<<grid, blocks>>>(p2r_kernels, phys_length);
+    launch_p2r_kernels<<<grid, blocks>>>(p2r_kernels, outer_loop_range);
 #endif
   } else {
-    //	  
-    launch_p2r_kernels(p2r_kernels, phys_length);
+    //
+    auto policy = std::execution::par_unseq;
+    //
+    std::for_each(policy,
+                  impl::counting_iterator(0),
+                  impl::counting_iterator(outer_loop_range),
+                  p2r_kernels);
   }
   	
   return;	
 }
+
+
 
 int main (int argc, char* argv[]) {
 
@@ -1098,7 +1131,7 @@ int main (int argc, char* argv[]) {
    printf("track in cov: xx=%.2e, yy=%.2e, zz=%.2e \n", inputtrk.cov[SymOffsets66[0]],
 	                                       inputtrk.cov[SymOffsets66[(1*6+1)]],
 	                                       inputtrk.cov[SymOffsets66[(2*6+2)]]);
-   for (int lay=0; lay<nlayer; lay++){
+   for (size_t lay=0; lay<nlayer; lay++){
      printf("hit in layer=%lu, pos: x=%f, y=%f, z=%f, r=%f \n", lay, inputhits[lay].pos[0], inputhits[lay].pos[1], inputhits[lay].pos[2], sqrtf(inputhits[lay].pos[0]*inputhits[lay].pos[0] + inputhits[lay].pos[1]*inputhits[lay].pos[1]));
    }
    
@@ -1107,39 +1140,39 @@ int main (int argc, char* argv[]) {
 
    long setup_start, setup_stop;
    struct timeval timecheck;
-
+#if defined(__NVCOMPILER_CUDA__)
    constexpr auto order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER;
-
+#else
+   constexpr auto order = FieldOrder::P2R_MATIDX_LAYER_TRACKBLK_EVENT_ORDER;
+#endif
    using MPTRKAccessorTp = MPTRKAccessor<order>;
    using MPHITAccessorTp = MPHITAccessor<order>;
 
-   std::allocator<MPTRKAccessorTp> mptrk_acc_alloc;
-   std::allocator<MPHITAccessorTp> mphit_acc_alloc;
+   auto mptrk_allocator = std::allocator<MPTRKAccessorTp>();
+   auto mphit_allocator = std::allocator<MPHITAccessorTp>();
 
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
    std::unique_ptr<MPTRK> trcksPtr(new MPTRK(ntrks, nevts));
-   auto trcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_acc_alloc, *trcksPtr);
+   auto trcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_allocator, *trcksPtr);
    //
    std::unique_ptr<MPHIT> hitsPtr(new MPHIT(ntrks, nevts, nlayer));
-   auto hitsAccPtr = std::allocate_shared<MPHITAccessorTp>(mphit_acc_alloc, *hitsPtr);
+   auto hitsAccPtr = std::allocate_shared<MPHITAccessorTp>(mphit_allocator, *hitsPtr);
    //
    std::unique_ptr<MPTRK> outtrcksPtr(new MPTRK(ntrks, nevts));
-   auto outtrcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_acc_alloc, *outtrcksPtr);
+   auto outtrcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_allocator, *outtrcksPtr);
    //
-   using mptrk_allocator = std::allocator<MPTRK_>;
-   using mphit_allocator = std::allocator<MPHIT_>;
-
-   std::vector<MPTRK_, mptrk_allocator > trcks(nevts*ntrks); 
-   prepareTracks<mptrk_allocator>(trcks, inputtrk);
    //
-   std::vector<MPHIT_, mphit_allocator> hits(nlayer*nevts*ntrks);
-   prepareHits<mphit_allocator>(hits, inputhits);
+   std::vector<MPTRK_, MPTRKAllocator> trcks(nevts*nb); 
+   prepareTracks<MPTRKAllocator>(trcks, inputtrk);
    //
-   std::vector<MPTRK_, mptrk_allocator> outtrcks(nevts*ntrks);
-
-   auto p2r_kernel = [=,&btracksAccessor    = *trcksAccPtr,
+   std::vector<MPHIT_, MPHITAllocator> hits(nlayer*nevts*nb);
+   prepareHits<MPHITAllocator>(hits, inputhits);
+   //
+   std::vector<MPTRK_, MPTRKAllocator> outtrcks(nevts*nb);
+   
+   auto p2r_kernels= [=,&btracksAccessor    = *trcksAccPtr,
                         &bhitsAccessor      = *hitsAccPtr,
                         &outtracksAccessor  = *outtrcksAccPtr] (const auto i) {
                         //  
@@ -1150,37 +1183,38 @@ int main (int argc, char* argv[]) {
 		        btracksAccessor.load(btracks, i);
 		        //
                         for(int layer=0; layer<nlayer; ++layer) {  
-                          //
+                        //
                           bhitsAccessor.load(bhits, i, layer);
                           //
-                          propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-                          KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+                          propagateToR<bsize>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                          KalmanUpdate<bsize>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                           //
                         }
 		        //
 		        outtracksAccessor.save(obtracks, i);
-                      };
-
-   convertHits<order, mphit_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(hits,     hitsPtr.get());
-   convertTracks<order, mptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(trcks,    trcksPtr.get());
-   convertTracks<order, mptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
+  
+                      };  
+   
+   auto policy = std::execution::par_unseq;
+   //auto policy = std::execution::seq;
+   
+   convertHits<decltype(policy)  , order, MPHITAllocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(policy, hits,     hitsPtr.get());
+   convertTracks<decltype(policy), order, MPTRKAllocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(policy, trcks,    trcksPtr.get());
+   convertTracks<decltype(policy), order, MPTRKAllocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(policy, outtrcks, outtrcksPtr.get());
 
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
    printf("done preparing!\n");
 
-   printf("Size of struct MPTRK trk[] = %ld\n", nevts*ntrks*sizeof(MPTRK));
-   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*ntrks*sizeof(MPTRK));
-   printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*ntrks*sizeof(MPHIT));
+   printf("Size of struct MPTRK trk[] = %ld\n", nevts*nb*sizeof(MPTRK));
+   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
+   printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   const int phys_length      = nevts*ntrks;
-   const int outer_loop_range = phys_length;
-   //
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(int itr=0; itr<NITER; itr++) {
-     dispatch_p2r_kernels<gpu_offload>(p2r_kernel, ntrks, nevts);	   
+     dispatch_p2r_kernels<gpu_offload>(p2r_kernels, nb, nevts);
    } //end of itr loop
 
 #ifdef __NVCOMPILER_CUDA__
@@ -1194,9 +1228,9 @@ int main (int argc, char* argv[]) {
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
-   printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, 1, ntrks, wall_time, (setup_stop-setup_start)*0.001, -1);
+   printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, -1);
 
-   convertTracks<order, mptrk_allocator, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
+   convertTracks<decltype(policy), order, MPTRKAllocator, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(policy, outtrcks, outtrcksPtr.get());
    auto outtrk = outtrcks.data();
 
    int nnans = 0, nfail = 0;
@@ -1204,8 +1238,8 @@ int main (int argc, char* argv[]) {
    float avgpt = 0, avgphi = 0, avgtheta = 0;
    float avgdx = 0, avgdy = 0, avgdz = 0, avgdr = 0;
 
-   for (int ie=0;ie<nevts;++ie) {
-     for (int it=0;it<ntrks;++it) {
+   for (size_t ie=0;ie<nevts;++ie) {
+     for (size_t it=0;it<ntrks;++it) {
        float x_ = x(outtrk,ie,it);
        float y_ = y(outtrk,ie,it);
        float z_ = z(outtrk,ie,it);
@@ -1217,7 +1251,6 @@ int main (int argc, char* argv[]) {
        float hy_ = inputhits[nlayer-1].pos[1];
        float hz_ = inputhits[nlayer-1].pos[2];
        float hr_ = sqrtf(hx_*hx_ + hy_*hy_);
- 
        if (std::isfinite(x_)==false ||
           std::isfinite(y_)==false ||
           std::isfinite(z_)==false ||
@@ -1234,7 +1267,6 @@ int main (int argc, char* argv[]) {
 	 nfail++;
 	 continue;
        }
-
        avgpt += pt_;
        avgphi += phi_;
        avgtheta += theta_;
@@ -1246,7 +1278,7 @@ int main (int argc, char* argv[]) {
        avgdy += (y_-hy_)/y_;
        avgdz += (z_-hz_)/z_;
        avgdr += (r_-hr_)/r_;
-       //if((it+ie*ntrks) < 64) printf("iTrk = %i,  track (x,y,z,r)=(%.6f,%.6f,%.6f,%.6f) \n", it+ie*ntrks, x_,y_,z_,r_);
+       //if((it+ie*ntrks)%100000==0) printf("iTrk = %i,  track (x,y,z,r)=(%.6f,%.6f,%.6f,%.6f) \n", it+ie*ntrks, x_,y_,z_,r_);
      }
    }
 
@@ -1264,8 +1296,8 @@ int main (int argc, char* argv[]) {
 
    float stdx = 0, stdy = 0, stdz = 0, stdr = 0;
    float stddx = 0, stddy = 0, stddz = 0, stddr = 0;
-   for (int ie=0;ie<nevts;++ie) {
-     for (int it=0;it<ntrks;++it) {
+   for (size_t ie=0;ie<nevts;++ie) {
+     for (size_t it=0;it<ntrks;++it) {
        float x_ = x(outtrk,ie,it);
        float y_ = y(outtrk,ie,it);
        float z_ = z(outtrk,ie,it);
@@ -1305,17 +1337,17 @@ int main (int argc, char* argv[]) {
    stddz = sqrtf(stddz/float(nevts*ntrks));
    stddr = sqrtf(stddr/float(nevts*ntrks));
 
-   printf("track x avg=%.7f std/avg=%.7f\n", avgx, fabs(stdx/avgx));
-   printf("track y avg=%.7f std/avg=%.7f\n", avgy, fabs(stdy/avgy));
-   printf("track z avg=%.7f std/avg=%.7f\n", avgz, fabs(stdz/avgz));
-   printf("track r avg=%.7f std/avg=%.7f\n", avgr, fabs(stdr/avgz));
-   printf("track dx/x avg=%.7f std=%.7f\n", avgdx, stddx);
-   printf("track dy/y avg=%.7f std=%.7f\n", avgdy, stddy);
-   printf("track dz/z avg=%.7f std=%.7f\n", avgdz, stddz);
-   printf("track dr/r avg=%.7f std=%.7f\n", avgdr, stddr);
-   printf("track pt avg=%.7f\n", avgpt);
-   printf("track phi avg=%.7f\n", avgphi);
-   printf("track theta avg=%.7f\n", avgtheta);
+   printf("track x avg=%f std/avg=%f\n", avgx, fabs(stdx/avgx));
+   printf("track y avg=%f std/avg=%f\n", avgy, fabs(stdy/avgy));
+   printf("track z avg=%f std/avg=%f\n", avgz, fabs(stdz/avgz));
+   printf("track r avg=%f std/avg=%f\n", avgr, fabs(stdr/avgz));
+   printf("track dx/x avg=%f std=%f\n", avgdx, stddx);
+   printf("track dy/y avg=%f std=%f\n", avgdy, stddy);
+   printf("track dz/z avg=%f std=%f\n", avgdz, stddz);
+   printf("track dr/r avg=%f std=%f\n", avgdr, stddr);
+   printf("track pt avg=%f\n", avgpt);
+   printf("track phi avg=%f\n", avgphi);
+   printf("track theta avg=%f\n", avgtheta);
    printf("number of tracks with nans=%i\n", nnans);
    printf("number of tracks failed=%i\n", nfail);
 
