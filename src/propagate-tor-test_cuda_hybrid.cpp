@@ -742,48 +742,41 @@ void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x3SF_ &hitErr_, con
   
 #pragma omp simd
   for (size_t it=0; it<N; ++it) {
-    kGain[ 0*N+it] = trkErr_[ 0*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
-	                        trkErr_[ 1*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+    const auto t00 = rotT00[it]*resErr_loc[ 0*N+it];
+    const auto t01 = rotT01[it]*resErr_loc[ 0*N+it];
+    const auto t10 = rotT00[it]*resErr_loc[ 1*N+it];
+    const auto t11 = rotT01[it]*resErr_loc[ 1*N+it];
+
+    kGain[ 0*N+it] = trkErr_[ 0*N+it]*t00 + trkErr_[ 1*N+it]*t01 +
 	                        trkErr_[ 3*N+it]*resErr_loc[ 1*N+it];
-    kGain[ 1*N+it] = trkErr_[ 0*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
-	                        trkErr_[ 1*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+    kGain[ 1*N+it] = trkErr_[ 0*N+it]*t10 + trkErr_[ 1*N+it]*t11 +
 	                        trkErr_[ 3*N+it]*resErr_loc[ 2*N+it];
-    kGain[ 2*N+it] = 0;
-    kGain[ 3*N+it] = trkErr_[ 1*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
-	                        trkErr_[ 2*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+    kGain[ 2*N+it] = 0.f;
+    kGain[ 3*N+it] = trkErr_[ 1*N+it]*t00 + trkErr_[ 2*N+it]*t01 +
 	                        trkErr_[ 4*N+it]*resErr_loc[ 1*N+it];
-    kGain[ 4*N+it] = trkErr_[ 1*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
-	                        trkErr_[ 2*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+    kGain[ 4*N+it] = trkErr_[ 1*N+it]*t10 + trkErr_[ 2*N+it]*t11 +
 	                        trkErr_[ 4*N+it]*resErr_loc[ 2*N+it];
-    kGain[ 5*N+it] = 0;
-    kGain[ 6*N+it] = trkErr_[ 3*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
-	                        trkErr_[ 4*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+    kGain[ 5*N+it] = 0.f;
+    kGain[ 6*N+it] = trkErr_[ 3*N+it]*t00 + trkErr_[ 4*N+it]*t01 +
 	                        trkErr_[ 5*N+it]*resErr_loc[ 1*N+it];
-    kGain[ 7*N+it] = trkErr_[ 3*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
-	                        trkErr_[ 4*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+    kGain[ 7*N+it] = trkErr_[ 3*N+it]*t10 + trkErr_[ 4*N+it]*t11 +
 	                        trkErr_[ 5*N+it]*resErr_loc[ 2*N+it];
-    kGain[ 8*N+it] = 0;
-    kGain[ 9*N+it] = trkErr_[ 6*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
-	                        trkErr_[ 7*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+    kGain[ 8*N+it] = 0.f;
+    kGain[ 9*N+it] = trkErr_[ 6*N+it]*t00 + trkErr_[ 7*N+it]*t01 +
 	                        trkErr_[ 8*N+it]*resErr_loc[ 1*N+it];
-    kGain[10*N+it] = trkErr_[ 6*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
-	                        trkErr_[ 7*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+    kGain[10*N+it] = trkErr_[ 6*N+it]*t10 + trkErr_[ 7*N+it]*t11 +
 	                        trkErr_[ 8*N+it]*resErr_loc[ 2*N+it];
-    kGain[11*N+it] = 0;
-    kGain[12*N+it] = trkErr_[10*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
-	                        trkErr_[11*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+    kGain[11*N+it] = 0.f;
+    kGain[12*N+it] = trkErr_[10*N+it]*t00 + trkErr_[11*N+it]*t01 +
 	                        trkErr_[12*N+it]*resErr_loc[ 1*N+it];
-    kGain[13*N+it] = trkErr_[10*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
-	                        trkErr_[11*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+    kGain[13*N+it] = trkErr_[10*N+it]*t10 + trkErr_[11*N+it]*t11 +
 	                        trkErr_[12*N+it]*resErr_loc[ 2*N+it];
-    kGain[14*N+it] = 0;
-    kGain[15*N+it] = trkErr_[15*N+it]*(rotT00[it]*resErr_loc[ 0*N+it]) +
-	                        trkErr_[16*N+it]*(rotT01[it]*resErr_loc[ 0*N+it]) +
+    kGain[14*N+it] = 0.f;
+    kGain[15*N+it] = trkErr_[15*N+it]*t00 + trkErr_[16*N+it]*t01 +
 	                        trkErr_[17*N+it]*resErr_loc[ 1*N+it];
-    kGain[16*N+it] = trkErr_[15*N+it]*(rotT00[it]*resErr_loc[ 1*N+it]) +
-	                        trkErr_[16*N+it]*(rotT01[it]*resErr_loc[ 1*N+it]) +
+    kGain[16*N+it] = trkErr_[15*N+it]*t10 + trkErr_[16*N+it]*t11 +
 	                        trkErr_[17*N+it]*resErr_loc[ 2*N+it];
-    kGain[17*N+it] = 0;  
+    kGain[17*N+it] = 0.f;  
   }  
      
   MP2F_ res_loc;   
@@ -813,69 +806,35 @@ void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x3SF_ &hitErr_, con
    MP6x6SF_ newErr;
    for (size_t it=0;it<bsize;++it)   {
 
-     newErr[ 0*N+it] = kGain[ 0*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
-                         kGain[ 0*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
-                         kGain[ 1*N+it]*trkErr_[ 3*N+it];
-     newErr[ 1*N+it] = kGain[ 3*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
-                         kGain[ 3*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
-                         kGain[ 4*N+it]*trkErr_[ 3*N+it];
-     newErr[ 2*N+it] = kGain[ 3*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
-                         kGain[ 3*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
-                         kGain[ 4*N+it]*trkErr_[ 4*N+it];
-     newErr[ 3*N+it] = kGain[ 6*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
-                         kGain[ 6*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
-                         kGain[ 7*N+it]*trkErr_[ 3*N+it];
-     newErr[ 4*N+it] = kGain[ 6*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
-                         kGain[ 6*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
-                         kGain[ 7*N+it]*trkErr_[ 4*N+it];
-     newErr[ 5*N+it] = kGain[ 6*N+it]*rotT00[it]*trkErr_[ 3*N+it] +
-                         kGain[ 6*N+it]*rotT01[it]*trkErr_[ 4*N+it] +
-                         kGain[ 7*N+it]*trkErr_[ 5*N+it];
-     newErr[ 6*N+it] = kGain[ 9*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
-                         kGain[ 9*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
-                         kGain[10*N+it]*trkErr_[ 3*N+it];
-     newErr[ 7*N+it] = kGain[ 9*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
-                         kGain[ 9*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
-                         kGain[10*N+it]*trkErr_[ 4*N+it];
-     newErr[ 8*N+it] = kGain[ 9*N+it]*rotT00[it]*trkErr_[ 3*N+it] +
-                         kGain[ 9*N+it]*rotT01[it]*trkErr_[ 4*N+it] +
-                         kGain[10*N+it]*trkErr_[ 5*N+it];
-     newErr[ 9*N+it] = kGain[ 9*N+it]*rotT00[it]*trkErr_[ 6*N+it] +
-                         kGain[ 9*N+it]*rotT01[it]*trkErr_[ 7*N+it] +
-                         kGain[10*N+it]*trkErr_[ 8*N+it];
-     newErr[10*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
-                         kGain[12*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
-                         kGain[13*N+it]*trkErr_[ 3*N+it];
-     newErr[11*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
-                         kGain[12*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
-                         kGain[13*N+it]*trkErr_[ 4*N+it];
-     newErr[12*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[ 3*N+it] +
-                         kGain[12*N+it]*rotT01[it]*trkErr_[ 4*N+it] +
-                         kGain[13*N+it]*trkErr_[ 5*N+it];
-     newErr[13*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[ 6*N+it] +
-                         kGain[12*N+it]*rotT01[it]*trkErr_[ 7*N+it] +
-                         kGain[13*N+it]*trkErr_[ 8*N+it];
-     newErr[14*N+it] = kGain[12*N+it]*rotT00[it]*trkErr_[10*N+it] +
-                         kGain[12*N+it]*rotT01[it]*trkErr_[11*N+it] +
-                         kGain[13*N+it]*trkErr_[12*N+it];
-     newErr[15*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[ 0*N+it] +
-                         kGain[15*N+it]*rotT01[it]*trkErr_[ 1*N+it] +
-                         kGain[16*N+it]*trkErr_[ 3*N+it];
-     newErr[16*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[ 1*N+it] +
-                         kGain[15*N+it]*rotT01[it]*trkErr_[ 2*N+it] +
-                         kGain[16*N+it]*trkErr_[ 4*N+it];
-     newErr[17*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[ 3*N+it] +
-                         kGain[15*N+it]*rotT01[it]*trkErr_[ 4*N+it] +
-                         kGain[16*N+it]*trkErr_[ 5*N+it];
-     newErr[18*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[ 6*N+it] +
-                         kGain[15*N+it]*rotT01[it]*trkErr_[ 7*N+it] +
-                         kGain[16*N+it]*trkErr_[ 8*N+it];
-     newErr[19*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[10*N+it] +
-                         kGain[15*N+it]*rotT01[it]*trkErr_[11*N+it] +
-                         kGain[16*N+it]*trkErr_[12*N+it];
-     newErr[20*N+it] = kGain[15*N+it]*rotT00[it]*trkErr_[15*N+it] +
-                         kGain[15*N+it]*rotT01[it]*trkErr_[16*N+it] +
+     const auto t0 = rotT00[it]*trkErr_[ 0*N+it] + rotT01[it]*trkErr_[ 1*N+it];
+     const auto t1 = rotT00[it]*trkErr_[ 1*N+it] + rotT01[it]*trkErr_[ 2*N+it];
+     const auto t2 = rotT00[it]*trkErr_[ 3*N+it] + rotT01[it]*trkErr_[ 4*N+it];
+     const auto t3 = rotT00[it]*trkErr_[ 6*N+it] + rotT01[it]*trkErr_[ 7*N+it];
+     const auto t4 = rotT00[it]*trkErr_[10*N+it] + rotT01[it]*trkErr_[11*N+it];
+
+     newErr[ 0*N+it] = kGain[ 0*N+it]*t0 + kGain[ 1*N+it]*trkErr_[ 3*N+it];
+     newErr[ 1*N+it] = kGain[ 3*N+it]*t0 + kGain[ 4*N+it]*trkErr_[ 3*N+it];
+     newErr[ 2*N+it] = kGain[ 3*N+it]*t1 + kGain[ 4*N+it]*trkErr_[ 4*N+it];
+     newErr[ 3*N+it] = kGain[ 6*N+it]*t0 + kGain[ 7*N+it]*trkErr_[ 3*N+it];
+     newErr[ 4*N+it] = kGain[ 6*N+it]*t1 + kGain[ 7*N+it]*trkErr_[ 4*N+it];
+     newErr[ 5*N+it] = kGain[ 6*N+it]*t2 + kGain[ 7*N+it]*trkErr_[ 5*N+it];
+     newErr[ 6*N+it] = kGain[ 9*N+it]*t0 + kGain[10*N+it]*trkErr_[ 3*N+it];
+     newErr[ 7*N+it] = kGain[ 9*N+it]*t1 + kGain[10*N+it]*trkErr_[ 4*N+it];
+     newErr[ 8*N+it] = kGain[ 9*N+it]*t2 + kGain[10*N+it]*trkErr_[ 5*N+it];
+     newErr[ 9*N+it] = kGain[ 9*N+it]*t3 + kGain[10*N+it]*trkErr_[ 8*N+it];
+     newErr[10*N+it] = kGain[12*N+it]*t0 + kGain[13*N+it]*trkErr_[ 3*N+it];
+     newErr[11*N+it] = kGain[12*N+it]*t1 + kGain[13*N+it]*trkErr_[ 4*N+it];
+     newErr[12*N+it] = kGain[12*N+it]*t2 + kGain[13*N+it]*trkErr_[ 5*N+it];
+     newErr[13*N+it] = kGain[12*N+it]*t3 + kGain[13*N+it]*trkErr_[ 8*N+it];
+     newErr[14*N+it] = kGain[12*N+it]*t4 + kGain[13*N+it]*trkErr_[12*N+it];
+     newErr[15*N+it] = kGain[15*N+it]*t0 + kGain[16*N+it]*trkErr_[ 3*N+it];
+     newErr[16*N+it] = kGain[15*N+it]*t1 + kGain[16*N+it]*trkErr_[ 4*N+it];
+     newErr[17*N+it] = kGain[15*N+it]*t2 + kGain[16*N+it]*trkErr_[ 5*N+it];
+     newErr[18*N+it] = kGain[15*N+it]*t3 + kGain[16*N+it]*trkErr_[ 8*N+it];
+     newErr[19*N+it] = kGain[15*N+it]*t4 + kGain[16*N+it]*trkErr_[12*N+it];
+     newErr[20*N+it] = kGain[15*N+it]*(rotT00[it]*trkErr_[15*N+it] + rotT01[it]*trkErr_[16*N+it]) +
                          kGain[16*N+it]*trkErr_[17*N+it];     
+
  #pragma unroll
      for (int i = 0; i < 21; i++){
        trkErr_[ i*N+it] = trkErr_[ i*N+it] - newErr[ i*N+it];
@@ -1006,19 +965,28 @@ void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I_ &inCh
     const auto dadphi = dDdphi*iptin*kinv;
 
     sincos4(alpha, sina, cosa);
+    
+    const auto kcosPorTpt = k*cosPorT*pt;
+    const auto ksinPorTpt = k*sinPorT*pt;
+    
+    const auto t1 = (kcosPorTpt*cosa-ksinPorTpt*sina);
+    const auto t2 = (ksinPorTpt*cosa+kcosPorTpt*sina);
+    //
+    const auto t3 = (iptin*dadipt*cosa-sina)*pt;
+    const auto t4 = (iptin*dadipt*sina-(1.f-cosa))*pt;
  
-    errorProp[PosInMtrx(0,0,6, N) + it] = 1.f+k*dadx*(cosPorT*cosa-sinPorT*sina)*pt;
-    errorProp[PosInMtrx(0,1,6, N) + it] =     k*dady*(cosPorT*cosa-sinPorT*sina)*pt;
+    errorProp[PosInMtrx(0,0,6, N) + it] = 1.f+dadx*t1;
+    errorProp[PosInMtrx(0,1,6, N) + it] =     dady*t1;
     errorProp[PosInMtrx(0,2,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(0,3,6, N) + it] = k*(cosPorT*(iptin*dadipt*cosa-sina)+sinPorT*((1.f-cosa)-iptin*dadipt*sina))*pt*pt;
-    errorProp[PosInMtrx(0,4,6, N) + it] = k*(cosPorT*dadphi*cosa - sinPorT*dadphi*sina - sinPorT*sina + cosPorT*cosa - cosPorT)*pt;
+    errorProp[PosInMtrx(0,3,6, N) + it] = (kcosPorTpt*t3-ksinPorTpt*t4);
+    errorProp[PosInMtrx(0,4,6, N) + it] = (kcosPorTpt*dadphi*cosa - ksinPorTpt*dadphi*sina - ksinPorTpt*sina + kcosPorTpt*cosa - kcosPorTpt);
     errorProp[PosInMtrx(0,5,6, N) + it] = 0.f;
 
-    errorProp[PosInMtrx(1,0,6, N) + it] =     k*dadx*(sinPorT*cosa+cosPorT*sina)*pt;
-    errorProp[PosInMtrx(1,1,6, N) + it] = 1.f+k*dady*(sinPorT*cosa+cosPorT*sina)*pt;
+    errorProp[PosInMtrx(1,0,6, N) + it] =     dadx*t2;
+    errorProp[PosInMtrx(1,1,6, N) + it] = 1.f+dady*t2;
     errorProp[PosInMtrx(1,2,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(1,3,6, N) + it] = k*(sinPorT*(iptin*dadipt*cosa-sina)+cosPorT*(iptin*dadipt*sina-(1.f-cosa)))*pt*pt;
-    errorProp[PosInMtrx(1,4,6, N) + it] = k*(sinPorT*dadphi*cosa + cosPorT*dadphi*sina + sinPorT*cosa + cosPorT*sina - sinPorT)*pt;
+    errorProp[PosInMtrx(1,3,6, N) + it] = (ksinPorTpt*t3+kcosPorTpt*t4);
+    errorProp[PosInMtrx(1,4,6, N) + it] = (ksinPorTpt*dadphi*cosa + kcosPorTpt*dadphi*sina + ksinPorTpt*cosa + kcosPorTpt*sina - ksinPorTpt);
     errorProp[PosInMtrx(1,5,6, N) + it] = 0.f;
 
     //no trig approx here, theta can be large
@@ -1027,13 +995,15 @@ void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I_ &inCh
     //redefine sinPorT as 1./sinPorT to reduce the number of temporaries
     sinPorT = 1.f/sinPorT;
 
-    outPar_(iparZ,it) = zin + k*alpha*cosPorT*pt*sinPorT;    
+    const auto t5 = k*cosPorT*pt*sinPorT;
 
-    errorProp[PosInMtrx(2,0,6, N) + it] = k*cosPorT*dadx*pt*sinPorT;
-    errorProp[PosInMtrx(2,1,6, N) + it] = k*cosPorT*dady*pt*sinPorT;
+    outPar_(iparZ,it) = zin + alpha*t5;
+
+    errorProp[PosInMtrx(2,0,6, N) + it] = dadx*t5;
+    errorProp[PosInMtrx(2,1,6, N) + it] = dady*t5;
     errorProp[PosInMtrx(2,2,6, N) + it] = 1.f;
-    errorProp[PosInMtrx(2,3,6, N) + it] = k*cosPorT*(iptin*dadipt-alpha)*pt*pt*sinPorT;
-    errorProp[PosInMtrx(2,4,6, N) + it] = k*dadphi*cosPorT*pt*sinPorT;
+    errorProp[PosInMtrx(2,3,6, N) + it] = t5*(iptin*dadipt-alpha)*pt;
+    errorProp[PosInMtrx(2,4,6, N) + it] = dadphi*t5;
     errorProp[PosInMtrx(2,5,6, N) + it] =-k*alpha*pt*sinPorT*sinPorT;   
     //
     outPar_(iparIpt,it) = iptin;

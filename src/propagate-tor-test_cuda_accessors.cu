@@ -753,48 +753,42 @@ __device__ inline void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x
   MP3x6_ kGain;
   
   {
-    kGain[ 0] = trkErr_[ 0]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 1]*(rotT01[0]*resErr_loc[ 0]) +
+    const auto t00 = rotT00[0]*resErr_loc[ 0];
+    const auto t01 = rotT01[0]*resErr_loc[ 0];
+    const auto t10 = rotT00[0]*resErr_loc[ 1];
+    const auto t11 = rotT01[0]*resErr_loc[ 1];
+
+    kGain[ 0] = trkErr_[ 0]*t00 + trkErr_[ 1]*t01 +
 	                        trkErr_[ 3]*resErr_loc[ 1];
-    kGain[ 1] = trkErr_[ 0]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 1]*(rotT01[0]*resErr_loc[ 1]) +
+    kGain[ 1] = trkErr_[ 0]*t10 + trkErr_[ 1]*t11 +
 	                        trkErr_[ 3]*resErr_loc[ 2];
-    kGain[ 2] = 0;
-    kGain[ 3] = trkErr_[ 1]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 2]*(rotT01[0]*resErr_loc[ 0]) +
+    kGain[ 2] = 0.f;
+    kGain[ 3] = trkErr_[ 1]*t00 + trkErr_[ 2]*t01 +
 	                        trkErr_[ 4]*resErr_loc[ 1];
-    kGain[ 4] = trkErr_[ 1]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 2]*(rotT01[0]*resErr_loc[ 1]) +
+    kGain[ 4] = trkErr_[ 1]*t10 + trkErr_[ 2]*t11 +
 	                        trkErr_[ 4]*resErr_loc[ 2];
-    kGain[ 5] = 0;
-    kGain[ 6] = trkErr_[ 3]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 4]*(rotT01[0]*resErr_loc[ 0]) +
+    kGain[ 5] = 0.f;
+    kGain[ 6] = trkErr_[ 3]*t00 + trkErr_[ 4]*t01 +
 	                        trkErr_[ 5]*resErr_loc[ 1];
-    kGain[ 7] = trkErr_[ 3]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 4]*(rotT01[0]*resErr_loc[ 1]) +
+    kGain[ 7] = trkErr_[ 3]*t10 + trkErr_[ 4]*t11 +
 	                        trkErr_[ 5]*resErr_loc[ 2];
-    kGain[ 8] = 0;
-    kGain[ 9] = trkErr_[ 6]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[ 7]*(rotT01[0]*resErr_loc[ 0]) +
+    kGain[ 8] = 0.f;
+    kGain[ 9] = trkErr_[ 6]*t00 + trkErr_[ 7]*t01 +
 	                        trkErr_[ 8]*resErr_loc[ 1];
-    kGain[10] = trkErr_[ 6]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[ 7]*(rotT01[0]*resErr_loc[ 1]) +
+    kGain[10] = trkErr_[ 6]*t10 + trkErr_[ 7]*t11 +
 	                        trkErr_[ 8]*resErr_loc[ 2];
-    kGain[11] = 0;
-    kGain[12] = trkErr_[10]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[11]*(rotT01[0]*resErr_loc[ 0]) +
+    kGain[11] = 0.f;
+    kGain[12] = trkErr_[10]*t00 + trkErr_[11]*t01 +
 	                        trkErr_[12]*resErr_loc[ 1];
-    kGain[13] = trkErr_[10]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[11]*(rotT01[0]*resErr_loc[ 1]) +
+    kGain[13] = trkErr_[10]*t10 + trkErr_[11]*t11 +
 	                        trkErr_[12]*resErr_loc[ 2];
-    kGain[14] = 0;
-    kGain[15] = trkErr_[15]*(rotT00[0]*resErr_loc[ 0]) +
-	                        trkErr_[16]*(rotT01[0]*resErr_loc[ 0]) +
+    kGain[14] = 0.f;
+    kGain[15] = trkErr_[15]*t00 + trkErr_[16]*t01 +
 	                        trkErr_[17]*resErr_loc[ 1];
-    kGain[16] = trkErr_[15]*(rotT00[0]*resErr_loc[ 1]) +
-	                        trkErr_[16]*(rotT01[0]*resErr_loc[ 1]) +
+    kGain[16] = trkErr_[15]*t10 + trkErr_[16]*t11 +
 	                        trkErr_[17]*resErr_loc[ 2];
-    kGain[17] = 0;  
+    kGain[17] = 0.f;  
+
   }  
      
   MP2F_ res_loc;   
@@ -823,70 +817,36 @@ __device__ inline void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x
 
   MP6x6SF_ newErr;
   {
+     const auto t0 = rotT00[0]*trkErr_[ 0] + rotT01[it]*trkErr_[ 1];
+     const auto t1 = rotT00[0]*trkErr_[ 1] + rotT01[it]*trkErr_[ 2];
+     const auto t2 = rotT00[0]*trkErr_[ 3] + rotT01[it]*trkErr_[ 4];
+     const auto t3 = rotT00[0]*trkErr_[ 6] + rotT01[it]*trkErr_[ 7];
+     const auto t4 = rotT00[0]*trkErr_[10] + rotT01[it]*trkErr_[11];
 
-     newErr[ 0] = kGain[ 0]*rotT00[0]*trkErr_[ 0] +
-                         kGain[ 0]*rotT01[0]*trkErr_[ 1] +
-                         kGain[ 1]*trkErr_[ 3];
-     newErr[ 1] = kGain[ 3]*rotT00[0]*trkErr_[ 0] +
-                         kGain[ 3]*rotT01[0]*trkErr_[ 1] +
-                         kGain[ 4]*trkErr_[ 3];
-     newErr[ 2] = kGain[ 3]*rotT00[0]*trkErr_[ 1] +
-                         kGain[ 3]*rotT01[0]*trkErr_[ 2] +
-                         kGain[ 4]*trkErr_[ 4];
-     newErr[ 3] = kGain[ 6]*rotT00[0]*trkErr_[ 0] +
-                         kGain[ 6]*rotT01[0]*trkErr_[ 1] +
-                         kGain[ 7]*trkErr_[ 3];
-     newErr[ 4] = kGain[ 6]*rotT00[0]*trkErr_[ 1] +
-                         kGain[ 6]*rotT01[0]*trkErr_[ 2] +
-                         kGain[ 7]*trkErr_[ 4];
-     newErr[ 5] = kGain[ 6]*rotT00[0]*trkErr_[ 3] +
-                         kGain[ 6]*rotT01[0]*trkErr_[ 4] +
-                         kGain[ 7]*trkErr_[ 5];
-     newErr[ 6] = kGain[ 9]*rotT00[0]*trkErr_[ 0] +
-                         kGain[ 9]*rotT01[0]*trkErr_[ 1] +
-                         kGain[10]*trkErr_[ 3];
-     newErr[ 7] = kGain[ 9]*rotT00[0]*trkErr_[ 1] +
-                         kGain[ 9]*rotT01[0]*trkErr_[ 2] +
-                         kGain[10]*trkErr_[ 4];
-     newErr[ 8] = kGain[ 9]*rotT00[0]*trkErr_[ 3] +
-                         kGain[ 9]*rotT01[0]*trkErr_[ 4] +
-                         kGain[10]*trkErr_[ 5];
-     newErr[ 9] = kGain[ 9]*rotT00[0]*trkErr_[ 6] +
-                         kGain[ 9]*rotT01[0]*trkErr_[ 7] +
-                         kGain[10]*trkErr_[ 8];
-     newErr[10] = kGain[12]*rotT00[0]*trkErr_[ 0] +
-                         kGain[12]*rotT01[0]*trkErr_[ 1] +
-                         kGain[13]*trkErr_[ 3];
-     newErr[11] = kGain[12]*rotT00[0]*trkErr_[ 1] +
-                         kGain[12]*rotT01[0]*trkErr_[ 2] +
-                         kGain[13]*trkErr_[ 4];
-     newErr[12] = kGain[12]*rotT00[0]*trkErr_[ 3] +
-                         kGain[12]*rotT01[0]*trkErr_[ 4] +
-                         kGain[13]*trkErr_[ 5];
-     newErr[13] = kGain[12]*rotT00[0]*trkErr_[ 6] +
-                         kGain[12]*rotT01[0]*trkErr_[ 7] +
-                         kGain[13]*trkErr_[ 8];
-     newErr[14] = kGain[12]*rotT00[0]*trkErr_[10] +
-                         kGain[12]*rotT01[0]*trkErr_[11] +
-                         kGain[13]*trkErr_[12];
-     newErr[15] = kGain[15]*rotT00[0]*trkErr_[ 0] +
-                         kGain[15]*rotT01[0]*trkErr_[ 1] +
-                         kGain[16]*trkErr_[ 3];
-     newErr[16] = kGain[15]*rotT00[0]*trkErr_[ 1] +
-                         kGain[15]*rotT01[0]*trkErr_[ 2] +
-                         kGain[16]*trkErr_[ 4];
-     newErr[17] = kGain[15]*rotT00[0]*trkErr_[ 3] +
-                         kGain[15]*rotT01[0]*trkErr_[ 4] +
-                         kGain[16]*trkErr_[ 5];
-     newErr[18] = kGain[15]*rotT00[0]*trkErr_[ 6] +
-                         kGain[15]*rotT01[0]*trkErr_[ 7] +
-                         kGain[16]*trkErr_[ 8];
-     newErr[19] = kGain[15]*rotT00[0]*trkErr_[10] +
-                         kGain[15]*rotT01[0]*trkErr_[11] +
-                         kGain[16]*trkErr_[12];
-     newErr[20] = kGain[15]*rotT00[0]*trkErr_[15] +
-                         kGain[15]*rotT01[0]*trkErr_[16] +
+     newErr[ 0] = kGain[ 0]*t0 + kGain[ 1]*trkErr_[ 3];
+     newErr[ 1] = kGain[ 3]*t0 + kGain[ 4]*trkErr_[ 3];
+     newErr[ 2] = kGain[ 3]*t1 + kGain[ 4]*trkErr_[ 4];
+     newErr[ 3] = kGain[ 6]*t0 + kGain[ 7]*trkErr_[ 3];
+     newErr[ 4] = kGain[ 6]*t1 + kGain[ 7]*trkErr_[ 4];
+     newErr[ 5] = kGain[ 6]*t2 + kGain[ 7]*trkErr_[ 5];
+     newErr[ 6] = kGain[ 9]*t0 + kGain[10]*trkErr_[ 3];
+     newErr[ 7] = kGain[ 9]*t1 + kGain[10]*trkErr_[ 4];
+     newErr[ 8] = kGain[ 9]*t2 + kGain[10]*trkErr_[ 5];
+     newErr[ 9] = kGain[ 9]*t3 + kGain[10]*trkErr_[ 8];
+     newErr[10] = kGain[12]*t0 + kGain[13]*trkErr_[ 3];
+     newErr[11] = kGain[12]*t1 + kGain[13]*trkErr_[ 4];
+     newErr[12] = kGain[12]*t2 + kGain[13]*trkErr_[ 5];
+     newErr[13] = kGain[12]*t3 + kGain[13]*trkErr_[ 8];
+     newErr[14] = kGain[12]*t4 + kGain[13]*trkErr_[12];
+     newErr[15] = kGain[15]*t0 + kGain[16]*trkErr_[ 3];
+     newErr[16] = kGain[15]*t1 + kGain[16]*trkErr_[ 4];
+     newErr[17] = kGain[15]*t2 + kGain[16]*trkErr_[ 5];
+     newErr[18] = kGain[15]*t3 + kGain[16]*trkErr_[ 8];
+     newErr[19] = kGain[15]*t4 + kGain[16]*trkErr_[12];
+     newErr[20] = kGain[15]*(rotT00[it]*trkErr_[15] + rotT01[it]*trkErr_[16]) +
                          kGain[16]*trkErr_[17];     
+
+
  #pragma unroll
      for (int i = 0; i < 21; i++){
        trkErr_[ i] = trkErr_[ i] - newErr[ i];
@@ -1016,19 +976,28 @@ __device__ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_,
     const auto dadphi = dDdphi*iptin*kinv;
 
     sincos4(alpha, sina, cosa);
+    
+    const auto kcosPorTpt = k*cosPorT*pt;
+    const auto ksinPorTpt = k*sinPorT*pt;
+    
+    const auto t1 = (kcosPorTpt*cosa-ksinPorTpt*sina);
+    const auto t2 = (ksinPorTpt*cosa+kcosPorTpt*sina);
+    //
+    const auto t3 = (iptin*dadipt*cosa-sina)*pt;
+    const auto t4 = (iptin*dadipt*sina-(1.f-cosa))*pt;
  
-    errorProp[PosInMtrx(0,0,6)] = 1.f+k*dadx*(cosPorT*cosa-sinPorT*sina)*pt;
-    errorProp[PosInMtrx(0,1,6)] =     k*dady*(cosPorT*cosa-sinPorT*sina)*pt;
+    errorProp[PosInMtrx(0,0,6)] = 1.f+dadx*t1;
+    errorProp[PosInMtrx(0,1,6)] =     dady*t1;
     errorProp[PosInMtrx(0,2,6)] = 0.f;
-    errorProp[PosInMtrx(0,3,6)] = k*(cosPorT*(iptin*dadipt*cosa-sina)+sinPorT*((1.f-cosa)-iptin*dadipt*sina))*pt*pt;
-    errorProp[PosInMtrx(0,4,6)] = k*(cosPorT*dadphi*cosa - sinPorT*dadphi*sina - sinPorT*sina + cosPorT*cosa - cosPorT)*pt;
+    errorProp[PosInMtrx(0,3,6)] = (kcosPorTpt*t3-ksinPorTpt*t4);
+    errorProp[PosInMtrx(0,4,6)] = (kcosPorTpt*dadphi*cosa - ksinPorTpt*dadphi*sina - ksinPorTpt*sina + kcosPorTpt*cosa - kcosPorTpt);
     errorProp[PosInMtrx(0,5,6)] = 0.f;
 
-    errorProp[PosInMtrx(1,0,6)] =     k*dadx*(sinPorT*cosa+cosPorT*sina)*pt;
-    errorProp[PosInMtrx(1,1,6)] = 1.f+k*dady*(sinPorT*cosa+cosPorT*sina)*pt;
+    errorProp[PosInMtrx(1,0,6)] =     dadx*t2;
+    errorProp[PosInMtrx(1,1,6)] = 1.f+dady*t2;
     errorProp[PosInMtrx(1,2,6)] = 0.f;
-    errorProp[PosInMtrx(1,3,6)] = k*(sinPorT*(iptin*dadipt*cosa-sina)+cosPorT*(iptin*dadipt*sina-(1.f-cosa)))*pt*pt;
-    errorProp[PosInMtrx(1,4,6)] = k*(sinPorT*dadphi*cosa + cosPorT*dadphi*sina + sinPorT*cosa + cosPorT*sina - sinPorT)*pt;
+    errorProp[PosInMtrx(1,3,6)] = (ksinPorTpt*t3+kcosPorTpt*t4);
+    errorProp[PosInMtrx(1,4,6)] = (ksinPorTpt*dadphi*cosa + kcosPorTpt*dadphi*sina + ksinPorTpt*cosa + kcosPorTpt*sina - ksinPorTpt);
     errorProp[PosInMtrx(1,5,6)] = 0.f;
 
     //no trig approx here, theta can be large
@@ -1036,16 +1005,18 @@ __device__ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_,
     sinPorT=std::sin(thetain);
     //redefine sinPorT as 1./sinPorT to reduce the number of temporaries
     sinPorT = 1.f/sinPorT;
+    
+    const auto t5 = k*cosPorT*pt*sinPorT;
 
-    outPar_[iparZ] = zin + k*alpha*cosPorT*pt*sinPorT;    
+    outPar_(iparZ,it) = zin + alpha*t5;
 
-    errorProp[PosInMtrx(2,0,6)] = k*cosPorT*dadx*pt*sinPorT;
-    errorProp[PosInMtrx(2,1,6)] = k*cosPorT*dady*pt*sinPorT;
+    errorProp[PosInMtrx(2,0,6)] = dadx*t5;
+    errorProp[PosInMtrx(2,1,6)] = dady*t5;
     errorProp[PosInMtrx(2,2,6)] = 1.f;
-    errorProp[PosInMtrx(2,3,6)] = k*cosPorT*(iptin*dadipt-alpha)*pt*pt*sinPorT;
-    errorProp[PosInMtrx(2,4,6)] = k*dadphi*cosPorT*pt*sinPorT;
+    errorProp[PosInMtrx(2,3,6)] = t5*(iptin*dadipt-alpha)*pt;
+    errorProp[PosInMtrx(2,4,6)] = dadphi*t5;
     errorProp[PosInMtrx(2,5,6)] =-k*alpha*pt*sinPorT*sinPorT;   
-    //
+     //
     outPar_[iparIpt] = iptin;
  
     errorProp[PosInMtrx(3,0,6)] = 0.f;
