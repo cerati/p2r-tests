@@ -17,6 +17,9 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp
 #include <iomanip>
 #include <sys/time.h>
 
+//#include <concepts> //?
+#include <type_traits>
+
 #include <algorithm>
 #include <vector>
 #include <memory>
@@ -64,11 +67,9 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp
 #endif
 
 #ifdef __NVCOMPILER_CUDA__
-#define __kernel__ __global__
-constexpr bool gpu_offload = true;
+constexpr bool is_cuda_kernel = true;
 #else
-#define __kernel__ 
-constexpr bool gpu_offload = false;
+constexpr bool is_cuda_kernel = false;
 #endif
 
 namespace impl {
@@ -1070,37 +1071,33 @@ void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I_ &inCh
   return;
 }
 
-template <typename lambda_tp, bool grid_stride = true>
-__kernel__ void launch_p2r_kernels(const lambda_tp p2r_kernel, const int length){
+#ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection
+template <typename lambda_tp, bool grid_stride = false>
+__global__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const int length){
 
-#ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection      	
-  if target (nv::target::is_device) {
-    auto i = threadIdx.x + blockIdx.x * blockDim.x;
+  auto i = threadIdx.x + blockIdx.x * blockDim.x;
    
-    while (i < length) {
-      p2r_kernel(i);	   
+  while (i < length) {
+    p2r_kernel(i);	   
 
-      if (grid_stride)  i += gridDim.x * blockDim.x; 
-      else  break;
-    }
-  } else {
-    printf("Not implemented.\n");	  
+    if (grid_stride)  i += gridDim.x * blockDim.x; 
+    else  break;
   }
-#endif //__NVCOMPILER_CUDA__
 
   return;
 }
+#endif
 
-template <bool device_compute>
-void dispatch_p2r_kernels(auto&& p2r_kernels, const int ntrks_, const int nevnts_){
+template <bool cuda_compute = true>
+void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
   const int outer_loop_range = nevnts_*ntrks_;
 
-  if constexpr (device_compute) {
+  if constexpr (cuda_compute) {
 #ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection
     dim3 blocks(threadsperblock, 1, 1);
     dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
     //
-    launch_p2r_kernels<<<grid, blocks>>>(p2r_kernels, outer_loop_range);
+    launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
 #endif
   } else {
     //
@@ -1109,7 +1106,7 @@ void dispatch_p2r_kernels(auto&& p2r_kernels, const int ntrks_, const int nevnts
     std::for_each(policy,
                   impl::counting_iterator(0),
                   impl::counting_iterator(outer_loop_range),
-                  p2r_kernels);
+                  p2r_kernel);
   }
   	
   return;	
@@ -1214,7 +1211,7 @@ int main (int argc, char* argv[]) {
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(int itr=0; itr<NITER; itr++) {
-     dispatch_p2r_kernels<gpu_offload>(p2r_kernels, nb, nevts);
+     dispatch_p2r_kernels<is_cuda_kernel>(p2r_kernels, nb, nevts);
    } //end of itr loop
 
 #ifdef __NVCOMPILER_CUDA__
