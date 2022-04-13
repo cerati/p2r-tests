@@ -817,11 +817,11 @@ __device__ inline void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x
 
   MP6x6SF_ newErr;
   {
-     const auto t0 = rotT00[0]*trkErr_[ 0] + rotT01[it]*trkErr_[ 1];
-     const auto t1 = rotT00[0]*trkErr_[ 1] + rotT01[it]*trkErr_[ 2];
-     const auto t2 = rotT00[0]*trkErr_[ 3] + rotT01[it]*trkErr_[ 4];
-     const auto t3 = rotT00[0]*trkErr_[ 6] + rotT01[it]*trkErr_[ 7];
-     const auto t4 = rotT00[0]*trkErr_[10] + rotT01[it]*trkErr_[11];
+     const auto t0 = rotT00[0]*trkErr_[ 0] + rotT01[0]*trkErr_[ 1];
+     const auto t1 = rotT00[0]*trkErr_[ 1] + rotT01[0]*trkErr_[ 2];
+     const auto t2 = rotT00[0]*trkErr_[ 3] + rotT01[0]*trkErr_[ 4];
+     const auto t3 = rotT00[0]*trkErr_[ 6] + rotT01[0]*trkErr_[ 7];
+     const auto t4 = rotT00[0]*trkErr_[10] + rotT01[0]*trkErr_[11];
 
      newErr[ 0] = kGain[ 0]*t0 + kGain[ 1]*trkErr_[ 3];
      newErr[ 1] = kGain[ 3]*t0 + kGain[ 4]*trkErr_[ 3];
@@ -843,7 +843,7 @@ __device__ inline void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x
      newErr[17] = kGain[15]*t2 + kGain[16]*trkErr_[ 5];
      newErr[18] = kGain[15]*t3 + kGain[16]*trkErr_[ 8];
      newErr[19] = kGain[15]*t4 + kGain[16]*trkErr_[12];
-     newErr[20] = kGain[15]*(rotT00[it]*trkErr_[15] + rotT01[it]*trkErr_[16]) +
+     newErr[20] = kGain[15]*(rotT00[0]*trkErr_[15] + rotT01[0]*trkErr_[16]) +
                          kGain[16]*trkErr_[17];     
 
 
@@ -1008,7 +1008,7 @@ __device__ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_,
     
     const auto t5 = k*cosPorT*pt*sinPorT;
 
-    outPar_(iparZ,it) = zin + alpha*t5;
+    outPar_[iparZ] = zin + alpha*t5;
 
     errorProp[PosInMtrx(2,0,6)] = dadx*t5;
     errorProp[PosInMtrx(2,1,6)] = dady*t5;
