@@ -837,7 +837,7 @@ int main (int argc, char* argv[]) {
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
    // A warmup run to migrate data on the device:
-   oneapi::dpl::for_each(policy,
+   std::for_each(policy,
                  counting_iterator(0),
                  counting_iterator(outer_loop_range),
                  p2r_kernels);
@@ -845,7 +845,7 @@ int main (int argc, char* argv[]) {
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(int itr=0; itr<NITER; itr++) {
-     oneapi::dpl::for_each(policy,
+     std::for_each(policy,
                    counting_iterator(0),
                    counting_iterator(outer_loop_range),
                    p2r_kernels);
