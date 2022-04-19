@@ -32,7 +32,7 @@ see README.txt for instructions
 #define nb    (ntrks/bsize)
 
 #ifndef nevts
-#define nevts 10
+#define nevts 100
 #endif
 #define smear 0.00001 
 
@@ -48,15 +48,15 @@ see README.txt for instructions
 #endif
 
 #ifndef num_streams
-#define num_streams 1
+#define num_streams 4 
 #endif
 
 #ifndef elementsperthread 
-#define elementsperthread 32
+#define elementsperthread 1
 #endif
 
 #ifndef threadsperblockx
-#define threadsperblockx 1
+#define threadsperblockx 32
 #endif
 #ifndef blockspergrid
 #define blockspergrid (nevts*nb)
@@ -329,6 +329,7 @@ ALPAKA_FN_INLINE ALPAKA_FN_ACC void MultHelixProp(const MP6x6F* A, const MP6x6SF
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
   const size_t N = blockDim*ElemExtent;
   for(int ithrd=threadIdx;ithrd <blockDim ;ithrd+=blockDim)
+    #pragma omp simd
     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
     {
       size_t n = iele + ElemExtent * ithrd;
@@ -379,6 +380,7 @@ ALPAKA_FN_INLINE ALPAKA_FN_ACC void MultHelixPropTransp(const MP6x6F* A, const M
   const size_t N = blockDim*ElemExtent;
 //parallel_for(0,N,[&](int n){
   for(int ithrd=threadIdx;ithrd <blockDim ;ithrd+=blockDim)
+    #pragma omp simd
     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
     {
        size_t n = iele + ElemExtent * ithrd;
@@ -474,6 +476,7 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
   //MP3x6 kGain;
   //MP6x6SF newErr;
   for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    #pragma omp simd
     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
  
     size_t it = iele + ElemExtent * ithrd;
@@ -491,6 +494,7 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
   }}
 
   for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    #pragma omp simd
     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
     size_t it = iele + ElemExtent * ithrd;
     const double det = (double)resErr_loc->data[0*bsize+it] * resErr_loc->data[2*bsize+it] -
@@ -503,6 +507,7 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
   }}
 
   for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    #pragma omp simd
     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
     size_t it = iele + ElemExtent * ithrd;
       kGain->data[ 0*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00->data[it]*resErr_loc->data[ 0*bsize+it]) +
@@ -549,6 +554,7 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
       kGain->data[17*bsize+it] = 0;
    }}
    for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+     #pragma omp simd
      for(size_t iele=0 ;iele<ElemExtent;iele+=1){
         size_t it = iele + ElemExtent * ithrd;
         res_loc->data[0*bsize+it] =  rotT00->data[it]*(x(msP,it) - x(inPar,it)) + rotT01->data[it]*(y(msP,it) - y(inPar,it));
@@ -562,6 +568,7 @@ ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hit
         settheta(inPar, it, theta(inPar, it) + kGain->data[15*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[16*bsize+it] * res_loc->data[ 1*bsize+it]);
    }}
    for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+     #pragma omp simd
      for(size_t iele=0 ;iele<ElemExtent;iele+=1){
      size_t   it = iele + ElemExtent * ithrd;
 
@@ -702,6 +709,7 @@ ALPAKA_FN_ACC void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const M
   // provided that  "ElemExtent * blockDim == bsize"
   //////////////////////////////////////////////////////////////////////////
   for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    #pragma omp simd
     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
      size_t   it = iele + ElemExtent * ithrd;
 

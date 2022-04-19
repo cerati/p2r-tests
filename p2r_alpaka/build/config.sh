@@ -1,12 +1,9 @@
-#cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
-#    -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_CUDA_COMPILER=nvcc -DALPAKA_ACC_GPU_CUDA_ENABLE=on -DCMAKE_CUDA_ARCHITECTURES=70 ..\
+cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/ -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_CUDA_COMPILER=nvcc -DALPAKA_CXX_STANDARD=17     -DALPAKA_ACC_GPU_CUDA_ENABLE=on -DCMAKE_CUDA_ARCHITECTURES=70 ..
 
 ## TBB backend
 #cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
 #    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -DALPAKA_ACC_CPU_B_TBB_T_SEQ_ENABLE=on -DALPAKA_CXX_STANDARD=17\
-#    -DTBB_DIR="~/PPS/pixeltrack-standalone/external/tbb/cmake/" ..
-#    -DCMAKE_PREFIX_PATH="/opt/intel/compilers_and_libraries_2019.3.199/linux/tbb/include" ..
-    #-DTBB_DIR="/opt/intel/compilers_and_libraries_2019.3.199/linux/tbb" ..
+#    -DTBB_DIR="~/PPS/pixeltrack-standalone/external/tbb/lib/cmake/TBB/" ..
 
 
 # C++ serial backend
@@ -25,8 +22,8 @@
 #cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
 #    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -DALPAKA_ACC_CPU_B_SEQ_T_OMP2_ENABLE=on -DALPAKA_CXX_STANDARD=17 ..
 ## OMP2 grid block backend
-cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
-    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -DALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLE=on -DALPAKA_CXX_STANDARD=17 ..
+#cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+#    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -DALPAKA_ACC_CPU_B_OMP2_T_SEQ_ENABLE=on -DALPAKA_CXX_STANDARD=17 ..
 
 ## OMP5 CUDA backend (GCC) (crashed on running)
 #cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
