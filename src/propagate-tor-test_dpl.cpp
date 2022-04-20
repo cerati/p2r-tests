@@ -6,6 +6,9 @@ dpcpp -std=c++17 -O2 src/propagate-tor-test_dpl.cpp -o test-dpl.exe -Dntrks=8192
 
 */
 
+//NOTE: For better coexistence with the C++ standard library, include oneAPI DPC++ Library (oneDPL) 
+//      header files BEFORE the standard C++ header files.
+
 #include <oneapi/dpl/algorithm>
 #include <oneapi/dpl/execution>
 #include <oneapi/dpl/iterator>
@@ -23,6 +26,10 @@ dpcpp -std=c++17 -O2 src/propagate-tor-test_dpl.cpp -o test-dpl.exe -Dntrks=8192
 #include <vector>
 #include <memory>
 #include <numeric>
+
+#ifndef USE_GPU
+#define USE_CPU
+#endif
 
 #ifndef bsize
 #define bsize 1
@@ -785,7 +792,12 @@ int main (int argc, char* argv[]) {
    long setup_start, setup_stop;
    struct timeval timecheck;
    //
-   sycl::queue cq; //(sycl::gpu_selector{});
+#ifdef USE_CPU
+   sycl::queue cq(sycl::cpu_selector{});
+   printf("WARNING: dpc++ generated x86 backend. For Intel GPUs use -DUSE_GPU option.\n");
+#else
+   sycl::queue cq(sycl::gpu_selector{});
+#endif
    //
    cl::sycl::usm_allocator<MPTRK, cl::sycl::usm::alloc::shared> MPTRKAllocator(cq);
    cl::sycl::usm_allocator<MPHIT, cl::sycl::usm::alloc::shared> MPHITAllocator(cq);
@@ -802,6 +814,8 @@ int main (int argc, char* argv[]) {
    std::vector<MPTRK, decltype(MPTRKAllocator)> outtrcks(nevts*nb, MPTRKAllocator);
    
    auto policy = oneapi::dpl::execution::make_device_policy(cq);
+   //auto policy = oneapi::dpl::execution::device_policy{sycl::cpu_selector{}};
+   //auto policy = oneapi::dpl::execution::device_policy{sycl::gpu_selector{}};
 
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),

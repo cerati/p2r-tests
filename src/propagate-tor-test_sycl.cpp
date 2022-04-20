@@ -2,14 +2,9 @@
 export PSTL_USAGE_WARNINGS=1
 export ONEDPL_USE_DPCPP_BACKEND=1
 
-dpcpp -std=c++17 -O2 src/propagate-tor-test_dpl.cpp -o test-sycl.exe -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
+dpcpp -std=c++17 -O2 src/propagate-tor-test_sycl.cpp -o test-sycl.exe -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
 
 */
-
-#include <oneapi/dpl/algorithm>
-#include <oneapi/dpl/execution>
-#include <oneapi/dpl/iterator>
-#include <oneapi/dpl/random>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +18,10 @@ dpcpp -std=c++17 -O2 src/propagate-tor-test_dpl.cpp -o test-sycl.exe -Dntrks=819
 #include <vector>
 #include <memory>
 #include <numeric>
+
+#ifndef USE_GPU
+#define USE_CPU
+#endif
 
 #ifndef bsize
 #define bsize 1
@@ -784,7 +783,12 @@ int main (int argc, char* argv[]) {
    long setup_start, setup_stop;
    struct timeval timecheck;
    //
-   sycl::queue cq; //(sycl::gpu_selector{});
+#ifdef USE_CPU
+   sycl::queue cq(sycl::cpu_selector{});
+   printf("WARNING: dpc++ generated x86 backend. For Intel GPUs use -DUSE_GPU option.\n");
+#else
+   sycl::queue cq(sycl::gpu_selector{});
+#endif
    //
    cl::sycl::usm_allocator<MPTRK, cl::sycl::usm::alloc::shared> MPTRKAllocator(cq);
    cl::sycl::usm_allocator<MPHIT, cl::sycl::usm::alloc::shared> MPHITAllocator(cq);
