@@ -1,9 +1,9 @@
 /*
-nvc++ -cuda -O2 -std=c++20 -stdpar=gpu -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
+nvc++ -cuda -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=gpu -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
 
-nvc++ -cuda -O2 -std=c++20 -stdpar=multicore -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
+nvc++ -cuda -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
 
-nvc++ -O2 -std=c++20 -stdpar=multicore ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
+nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
 
 g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
 */
@@ -17,7 +17,8 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp
 #include <iomanip>
 #include <sys/time.h>
 
-//#include <concepts> //?
+#include <concepts> 
+#include <ranges>
 #include <type_traits>
 
 #include <algorithm>
@@ -26,11 +27,6 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp
 #include <numeric>
 #include <execution>
 #include <random>
-
-#ifdef __NVCOMPILER_CUDA__
-#include <nv/target>
-//#include <ranges> //?
-#endif
 
 #ifndef bsize
 #if defined(__NVCOMPILER_CUDA__)
@@ -67,61 +63,13 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp
 #endif
 
 #ifdef __NVCOMPILER_CUDA__
+#include <nv/target>
+#define __cuda_kernel__ __global__
 constexpr bool is_cuda_kernel = true;
 #else
+#define __cuda_kernel__
 constexpr bool is_cuda_kernel = false;
 #endif
-
-namespace impl {
-
-   template <typename IntType>
-   class counting_iterator {
-       static_assert(std::numeric_limits<IntType>::is_integer, "Cannot instantiate counting_iterator with a non-integer type");
-     public:
-       using value_type = IntType;
-       using difference_type = typename std::make_signed<IntType>::type;
-       using pointer = IntType*;
-       using reference = IntType&;
-       using iterator_category = std::random_access_iterator_tag;
-
-       counting_iterator() : value(0) { }
-       explicit counting_iterator(IntType v) : value(v) { }
-
-       value_type operator*() const { return value; }
-       value_type operator[](difference_type n) const { return value + n; }
-
-       counting_iterator& operator++() { ++value; return *this; }
-       counting_iterator operator++(int) {
-         counting_iterator result{value};
-         ++value;
-         return result;
-       }  
-       counting_iterator& operator--() { --value; return *this; }
-       counting_iterator operator--(int) {
-         counting_iterator result{value};
-         --value;
-         return result;
-       }
-       counting_iterator& operator+=(difference_type n) { value += n; return *this; }
-       counting_iterator& operator-=(difference_type n) { value -= n; return *this; }
-
-       friend counting_iterator operator+(counting_iterator const& i, difference_type n)          { return counting_iterator(i.value + n);  }
-       friend counting_iterator operator+(difference_type n, counting_iterator const& i)          { return counting_iterator(i.value + n);  }
-       friend difference_type   operator-(counting_iterator const& x, counting_iterator const& y) { return x.value - y.value;  }
-       friend counting_iterator operator-(counting_iterator const& i, difference_type n)          { return counting_iterator(i.value - n);  }
-
-       friend bool operator==(counting_iterator const& x, counting_iterator const& y) { return x.value == y.value;  }
-       friend bool operator!=(counting_iterator const& x, counting_iterator const& y) { return x.value != y.value;  }
-       friend bool operator<(counting_iterator const& x, counting_iterator const& y)  { return x.value < y.value; }
-       friend bool operator<=(counting_iterator const& x, counting_iterator const& y) { return x.value <= y.value; }
-       friend bool operator>(counting_iterator const& x, counting_iterator const& y)  { return x.value > y.value; }
-       friend bool operator>=(counting_iterator const& x, counting_iterator const& y) { return x.value >= y.value; }
-
-     private:
-       IntType value;
-   };
-
-} //impl
 
 enum class FieldOrder{P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER,
                       P2R_TRACKBLK_EVENT_MATIDX_LAYER_ORDER,
@@ -388,11 +336,11 @@ void convertTracks(policy_tp &policy, std::vector<MPTRK_> &external_order_data, 
   //create an accessor field:
   std::unique_ptr<MPTRKAccessor<order>> ind(new MPTRKAccessor<order>(*internal_order_data));
   // store in element order for bunches of bsize matrices (a la matriplex)
-  const int outer_loop_range = nevts*nb;
+  auto outer_loop_range = std::ranges::views::iota(0, nevts*nb);
   //
   std::for_each(policy,
-                impl::counting_iterator(0),
-                impl::counting_iterator(outer_loop_range),
+                std::ranges::begin(outer_loop_range),
+                std::ranges::end(outer_loop_range),		  
                 [=, exd_ = external_order_data.data(), &ind_ = *ind] (const auto tid) {
                   for (size_t it=0;it<bsize;++it) {
                   //const int l = it+ib*bsize+ie*nb*bsize;
@@ -426,11 +374,11 @@ void convertHits(policy_tp &policy, std::vector<MPHIT_> &external_order_data, MP
   //create an accessor field:
   std::unique_ptr<MPHITAccessor<order>> ind(new MPHITAccessor<order>(*internal_oder_data));
   // store in element order for bunches of bsize matrices (a la matriplex)
-  const int outer_loop_range = nevts*nb;
-  
+  auto outer_loop_range = std::ranges::views::iota(0, nevts*nb);
+
   std::for_each(policy,
-                impl::counting_iterator(0),
-                impl::counting_iterator(outer_loop_range),
+		std::ranges::begin(outer_loop_range),
+                std::ranges::end(outer_loop_range),
                 [=, exd_ = external_order_data.data(), &ind_ = *ind] (const auto tid) {
                    //  
                    for(int layer=0; layer<nlayer; ++layer) {  
@@ -1033,10 +981,13 @@ void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I_ &inCh
   return;
 }
 
-#ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection
-template <typename lambda_tp, bool grid_stride = false>
-__global__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const int length){
+template <bool is_cuda_call>
+concept cuda_concept = is_cuda_call == true;
 
+template <typename lambda_tp, bool grid_stride = false>
+requires (is_cuda_kernel == true)
+__cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const int length){
+#ifndef __GNUG__
   auto i = threadIdx.x + blockIdx.x * blockDim.x;
    
   while (i < length) {
@@ -1045,36 +996,40 @@ __global__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const int le
     if (grid_stride)  i += gridDim.x * blockDim.x; 
     else  break;
   }
-
+#endif
   return;
 }
-#endif
 
-template <bool cuda_compute = true>
+//CUDA specialized version:
+template <bool cuda_compute>
+requires cuda_concept<cuda_compute>
 void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
+#ifndef __GNUG__
   const int outer_loop_range = nevnts_*ntrks_;
 
-  if constexpr (cuda_compute) {
-#ifdef __NVCOMPILER_CUDA__ //we still need this ifdef-ed selection
-    dim3 blocks(threadsperblock, 1, 1);
-    dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
-    //
-    launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
+  dim3 blocks(threadsperblock, 1, 1);
+  dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
+  //
+  launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
 #endif
-  } else {
-    //
-    auto policy = std::execution::par_unseq;
-    //
-    std::for_each(policy,
-                  impl::counting_iterator(0),
-                  impl::counting_iterator(outer_loop_range),
-                  p2r_kernel);
-  }
-  	
   return;	
 }
 
+//General (default) implementation for both x86 and nvidia accelerators:
+template <bool cuda_compute>
+void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
+  //	
+  auto policy = std::execution::par_unseq;
+  //
+  auto outer_loop_range = std::ranges::views::iota(0, ntrks_*nevnts_);
+  //
+  std::for_each(policy,
+                std::ranges::begin(outer_loop_range),
+                std::ranges::end(outer_loop_range),
+                p2r_kernel);
 
+  return;
+}
 
 int main (int argc, char* argv[]) {
 
@@ -1150,7 +1105,7 @@ int main (int argc, char* argv[]) {
 		        outtracksAccessor.save(obtracks, i);
   
                       };  
-   
+
    auto policy = std::execution::par_unseq;
    //auto policy = std::execution::seq;
    
