@@ -5,7 +5,7 @@ nvc++ -cuda -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicor
 
 nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
 
-g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
+//g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
 */
 
 #include <stdio.h>
@@ -987,7 +987,7 @@ concept cuda_concept = is_cuda_call == true;
 template <typename lambda_tp, bool grid_stride = false>
 requires (is_cuda_kernel == true)
 __cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const int length){
-#ifndef __GNUG__
+
   auto i = threadIdx.x + blockIdx.x * blockDim.x;
    
   while (i < length) {
@@ -996,7 +996,7 @@ __cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const i
     if (grid_stride)  i += gridDim.x * blockDim.x; 
     else  break;
   }
-#endif
+
   return;
 }
 
@@ -1004,14 +1004,14 @@ __cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const i
 template <bool cuda_compute>
 requires cuda_concept<cuda_compute>
 void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
-#ifndef __GNUG__
+
   const int outer_loop_range = nevnts_*ntrks_;
 
   dim3 blocks(threadsperblock, 1, 1);
   dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
   //
   launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
-#endif
+
   return;	
 }
 
@@ -1029,6 +1029,15 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
                 p2r_kernel);
 
   return;
+}
+
+template<bool gpu_execution>
+constexpr FieldOrder getFieldOrder() {
+  if constexpr (gpu_execution) {
+    return FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER;    		
+  } 
+   
+  return FieldOrder::P2R_MATIDX_LAYER_TRACKBLK_EVENT_ORDER;
 }
 
 int main (int argc, char* argv[]) {
@@ -1054,11 +1063,9 @@ int main (int argc, char* argv[]) {
 
    long setup_start, setup_stop;
    struct timeval timecheck;
-#if defined(__NVCOMPILER_CUDA__)
-   constexpr auto order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER;
-#else
-   constexpr auto order = FieldOrder::P2R_MATIDX_LAYER_TRACKBLK_EVENT_ORDER;
-#endif
+
+   constexpr auto order = getFieldOrder<is_cuda_kernel>();
+
    using MPTRKAccessorTp = MPTRKAccessor<order>;
    using MPHITAccessorTp = MPHITAccessor<order>;
 
