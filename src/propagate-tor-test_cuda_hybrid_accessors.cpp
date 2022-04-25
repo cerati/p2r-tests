@@ -5,7 +5,6 @@ nvc++ -cuda -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicor
 
 nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./src/propagate-tor-test_cuda_hybrid.cpp  -o ./propagate_nvcpp_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
 
-//g++ -O3 -I. -fopenmp -mavx512f -std=c++20 src/propagate-tor-test_cuda_hybrid.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
 */
 
 #include <stdio.h>
@@ -1011,6 +1010,8 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
   dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
   //
   launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
+  //
+  cudaDeviceSynchronize();
 
   return;	
 }
@@ -1114,7 +1115,6 @@ int main (int argc, char* argv[]) {
                       };  
 
    auto policy = std::execution::par_unseq;
-   //auto policy = std::execution::seq;
    
    convertHits<decltype(policy)  , order, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(policy, hits,     hitsPtr.get());
    convertTracks<decltype(policy), order, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(policy, trcks,    trcksPtr.get());
@@ -1134,10 +1134,6 @@ int main (int argc, char* argv[]) {
    for(int itr=0; itr<NITER; itr++) {
      dispatch_p2r_kernels<is_cuda_kernel>(p2r_kernels, nb, nevts);
    } //end of itr loop
-
-#ifdef __NVCOMPILER_CUDA__
-   cudaDeviceSynchronize();
-#endif
 
    auto wall_stop = std::chrono::high_resolution_clock::now();
 
