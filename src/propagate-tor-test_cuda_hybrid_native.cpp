@@ -798,9 +798,28 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
   return;
 }
 
+//CUDA specialized version:
+template <bool cuda_compute>
+requires cuda_concept<cuda_compute>
+void prefetch(std::vector<MPTRK> &trks, std::vector<MPHIT> &hits, std::vector<MPTRK> &outtrks) {
+  cudaMemPrefetchAsync(trks.data(), trks.size() * sizeof(MPTRK), 0, 0);	
+  //
+  cudaMemPrefetchAsync(hits.data(), hits.size() * sizeof(MPHIT), 0, 0);
+  //
+  cudaMemPrefetchAsync(outtrks.data(), outtrks.size() * sizeof(MPTRK), 0, 0);
+  //
+  cudaDeviceSynchronize();
+
+  return;
+}
+
+//Default implementation
+template <bool cuda_compute>
+void prefetch(std::vector<MPTRK> &trks, std::vector<MPHIT> &hits, std::vector<MPTRK> &outtrks) {
+  return;	
+}
 
 int main (int argc, char* argv[]) {
-
    #include "input_track.h"
 
    std::vector<AHIT> inputhits{inputhit21,inputhit20,inputhit19,inputhit18,inputhit17,inputhit16,inputhit15,inputhit14,
@@ -822,11 +841,6 @@ int main (int argc, char* argv[]) {
 
    long setup_start, setup_stop;
    struct timeval timecheck;
-
-   constexpr auto order = getFieldOrder<is_cuda_kernel>();
-
-   using MPTRKAccessorTp = MPTRKAccessor<order>;
-   using MPHITAccessorTp = MPHITAccessor<order>;
 
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
@@ -861,11 +875,10 @@ int main (int argc, char* argv[]) {
                          outtracksPtr[i].save(obtracks);
                        };
  
-
-   auto policy = std::execution::par_unseq;
-
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
+
+   prefetch<is_cuda_kernel>(trcks, hits, outtrcks);
 
    printf("done preparing!\n");
 
@@ -888,7 +901,6 @@ int main (int argc, char* argv[]) {
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, -1);
 
-   convertTracks<decltype(policy), order, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(policy, outtrcks, outtrcksPtr.get());
    auto outtrk = outtrcks.data();
 
    int nnans = 0, nfail = 0;
@@ -1011,3 +1023,4 @@ int main (int argc, char* argv[]) {
 
    return 0;
 }
+
