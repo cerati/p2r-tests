@@ -889,7 +889,7 @@ int main (int argc, char* argv[]) {
 	    }
 	    */
 
-	    propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*obtracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
+	    propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, &(*obtracks).cov, &(*obtracks).par); // vectorized function
 
 	    /*
 	    for (size_t it=0; it<bsize;++it) {
