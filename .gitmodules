@@ -1,3 +1,6 @@
 [submodule "kokkos"]
 	path = kokkos
 	url = git@github.com:kokkos/kokkos.git
+[submodule "alpaka"]
+	path = alpaka
+	url = https://github.com/alpaka-group/alpaka.git
