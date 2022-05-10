@@ -33,7 +33,7 @@ technologies = {
     "acc.v3":{
         "cuda":['nvc++'],
         "cpu":['nvc++']
-     }
+     },
     "pstl":{
         "cpu":['gcc'], # add other compilers
         'cuda': ['nvc++','nvc++_x86']
@@ -49,8 +49,8 @@ technologies = {
     #}
 }
 cmds ={
-    "tbb":{"threads":["srun","-n","1",'-c','40',"numactl", "--cpunodebind=1"]},
-    #"tbb":{"threads":[]},
+    #"tbb":{"threads":["srun","-n","1",'-c','40',"numactl", "--cpunodebind=1"]},
+    "tbb":{"threads":[]},
     #"cuda":{"cuda":["srun","-n","1","-c","80","--exclusive","numactl","--cpunodebind=0"]}
     "cuda":{"cuda":["srun","-n","1"]},
     #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
@@ -58,10 +58,10 @@ cmds ={
     "cuda_v3":{"cuda":["srun","-n","1"]},
     "cuda_v4":{"cuda":["srun","-n","1"]},
     "acc.v3":{"cuda":["srun","-n","1"],
-             "cpu":["srun","-n","1"]}
+             "cpu":["srun","-n","1"]},
     "pstl":{"cuda":["srun","-n","1"],
-            "cpu":["srun","-n","1"]}
-    "cuda_v4":{"cuda":["srun","-n","1"]}
+            "cpu":["srun","-n","1"]},
+    "cuda_v4":{"cuda":["srun","-n","1"]},
     "hip":{"hip":[]},
 }
 # with default values
@@ -88,7 +88,7 @@ def compilationCommand(compiler, technology, backend, target, source, scanPoint,
         if technology=="pstl":
             cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native", "-std=c++17","-mavx512f",'-lm',"-lgomp","-ltbb"])
         else:
-            cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native", "-std=c++17"])
+            cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native", "-std=c++17","-ffast-math"])
 
     if compiler == "icc":
         cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
