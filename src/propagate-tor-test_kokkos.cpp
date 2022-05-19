@@ -34,10 +34,17 @@ see README.txt for instructions
 #define nlayer 20
 #endif
 
-#ifndef nthreads
-#define nthreads 1
+#ifndef elementsperthread 
+#define elementsperthread 32
 #endif
 
+#ifndef threadsperblockx  
+#define threadsperblockx 1
+#endif
+
+#ifndef num_streams
+#define num_streams 1
+#endif
 
 KOKKOS_FUNCTION size_t PosInMtrx(size_t i, size_t j, size_t D) {
   return i*D+j;
@@ -331,7 +338,7 @@ KOKKOS_FUNCTION void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C,
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t n) 
+  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,bsize),[&] (const size_t n) 
   {
     c[ 0*N+n] = a[ 0*N+n]*b[ 0*N+n] + a[ 1*N+n]*b[ 1*N+n] + a[ 3*N+n]*b[ 6*N+n] + a[ 4*N+n]*b[10*N+n];
     c[ 1*N+n] = a[ 0*N+n]*b[ 1*N+n] + a[ 1*N+n]*b[ 2*N+n] + a[ 3*N+n]*b[ 7*N+n] + a[ 4*N+n]*b[11*N+n];
@@ -377,7 +384,7 @@ KOKKOS_FUNCTION void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t n) 
+  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,bsize),[&] (const size_t n) 
   {
     c[ 0*N+n] = b[ 0*N+n]*a[ 0*N+n] + b[ 1*N+n]*a[ 1*N+n] + b[ 3*N+n]*a[ 3*N+n] + b[ 4*N+n]*a[ 4*N+n];
     c[ 1*N+n] = b[ 6*N+n]*a[ 0*N+n] + b[ 7*N+n]*a[ 1*N+n] + b[ 9*N+n]*a[ 3*N+n] + b[10*N+n]*a[ 4*N+n];
@@ -464,7 +471,7 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
                                 MP1F *rotT00, MP1F *rotT01, MP2x2SF *resErr_loc, MP3x6 *kGain,
                                 MP2F *res_loc, MP6x6SF * newErr, const member_type& teamMember){
   
-  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it){ 
+  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,bsize),[&] (const size_t it){ 
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00->data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
     rotT01->data[it] =  (x(msP,it) + x(inPar,it)) / (2*r);    
@@ -478,7 +485,7 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
     resErr_loc->data[ 2*bsize+it] = (trkErr->data[5*bsize+it] + hitErr->data[5*bsize+it]);
   });
 
-  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it) 
+  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,bsize),[&] (const size_t it) 
   {
     const double det = (double)resErr_loc->data[0*bsize+it] * resErr_loc->data[2*bsize+it] -
                        (double)resErr_loc->data[1*bsize+it] * resErr_loc->data[1*bsize+it];
@@ -489,7 +496,7 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
     resErr_loc->data[0*bsize+it]  = tmp;
   });
 
-  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it)
+  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,bsize),[&] (const size_t it)
    {
       kGain->data[ 0*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00->data[it]*resErr_loc->data[ 0*bsize+it]) +
 	                        trkErr->data[ 1*bsize+it]*(rotT01->data[it]*resErr_loc->data[ 0*bsize+it]) +
@@ -535,7 +542,7 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
       kGain->data[17*bsize+it] = 0;
    });
 
-  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it)
+  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,bsize),[&] (const size_t it)
    {
      res_loc->data[0*bsize+it] =  rotT00->data[it]*(x(msP,it) - x(inPar,it)) + rotT01->data[it]*(y(msP,it) - y(inPar,it));
      res_loc->data[1*bsize+it] =  z(msP,it) - z(inPar,it);
@@ -547,7 +554,7 @@ KOKKOS_FUNCTION void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* h
      setphi(inPar, it, phi(inPar, it) + kGain->data[12*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[13*bsize+it] * res_loc->data[ 1*bsize+it]);
      settheta(inPar, it, theta(inPar, it) + kGain->data[15*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[16*bsize+it] * res_loc->data[ 1*bsize+it]);
    });
-  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it)
+  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,bsize),[&] (const size_t it)
    {
      newErr->data[ 0*bsize+it] = kGain->data[ 0*bsize+it]*rotT00->data[it]*trkErr->data[ 0*bsize+it] +
                                 kGain->data[ 0*bsize+it]*rotT01->data[it]*trkErr->data[ 1*bsize+it] +
@@ -676,7 +683,7 @@ KOKKOS_FUNCTION void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const
                   const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp, const member_type& teamMember) {
   
   //MP6x6F errorProp, temp;
-  Kokkos::parallel_for( Kokkos::TeamThreadRange(teamMember,bsize),[&] (const size_t it){ 
+  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,bsize),[&] (const size_t it){ 
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp->data[bsize*PosInMtrx(i,i,6) + it] = 1.f;
     
@@ -861,7 +868,25 @@ int main (int argc, char* argv[]) {
    Kokkos::initialize(argc, argv);
    {
 
+   #ifdef KOKKOS_ENABLE_CUDA
+   #define MemSpace Kokkos::CudaSpace
+   #endif
+   #ifdef KOKKOS_ENABLE_HIP
+   #define MemSpace Kokkos::Experimental::HIPSpace
+   #endif
+   #ifdef KOKKOS_ENABLE_OPENMPTARGET
+   #define MemSpace Kokkos::OpenMPTargetSpace
+   #endif
+
+   #ifndef MemSpace
+   #define MemSpace Kokkos::HostSpace
+   #endif
+
    printf("After kokkos::init\n");
+   using ExecSpace = MemSpace::execution_space;
+   ExecSpace e;
+   e.print_configuration(std::cout, true);
+
    Kokkos::View<MPTRK*>             trk("trk",nevts*nb); // device pointer
    Kokkos::View<MPTRK*>::HostMirror h_trk = prepareTracks(inputtrk,trk);  // host pointer
    Kokkos::deep_copy( trk , h_trk);
@@ -878,6 +903,13 @@ int main (int argc, char* argv[]) {
 
    printf("done preparing!\n");
    
+   //using ExecSpace = MemSpace::execution_space;
+
+   //std::vector<int> weights(num_streams);
+   //for(int s=0;s<num_streams;s++) weights[s]=1; // equal weights for each steam
+   //auto instances = Kokkos::Experimental::partition_space(ExecSpcae,weights)
+
+   //std::vector< Kokkos::TeamPolicy<ExecSpace> >              team_policies(num_streams);
    typedef Kokkos::TeamPolicy<>               team_policy;
    typedef Kokkos::TeamPolicy<>::member_type  member_type;
 
@@ -900,11 +932,13 @@ int main (int argc, char* argv[]) {
    int shared_view_level = 0;
 
    //int team_policy_range = nevts;
-   int team_policy_range = nevts*nb;
+   int team_policy_range = nevts*nb;  // number of teams
+   int team_size = threadsperblockx;  // team size
+   int vector_size = elementsperthread;  // thread size
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(itr=0; itr<NITER; itr++) {
-      Kokkos::parallel_for("Kernel", team_policy(team_policy_range,Kokkos::AUTO).set_scratch_size( 0, Kokkos::PerTeam( total_shared_bytes )), 
+      Kokkos::parallel_for("Kernel", team_policy(team_policy_range,team_size,vector_size).set_scratch_size( 0, Kokkos::PerTeam( total_shared_bytes )), 
                                     KOKKOS_LAMBDA( const member_type &teamMember){
         int ie = teamMember.league_rank()/nb;
         int ib = teamMember.league_rank()% nb;
@@ -939,7 +973,7 @@ int main (int argc, char* argv[]) {
    auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
-   printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
+   printf("formatted %i %i %i %i %i %f 0 %f\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001 );
 
    //Copy back to host 
    Kokkos::deep_copy( h_outtrk, outtrk );
