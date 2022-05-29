@@ -835,8 +835,6 @@ int main (int argc, char* argv[]) {
                          outtracksPtr[i].save(obtracks);
                        };
 
-   const int outer_loop_range = nevts*nb;
-
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
@@ -846,27 +844,35 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   // A warmup run to migrate data on the device:
-   std::for_each(policy,
-                 counting_iterator(0),
-                 counting_iterator(outer_loop_range),
-                 p2r_kernels);
-
-   auto wall_start = std::chrono::high_resolution_clock::now();
+   const int outer_loop_range = nevts*nb;
+   
+   double wall_time = 0.0;
 
    for(int itr=0; itr<NITER; itr++) {
+     //
+     auto wall_start = std::chrono::high_resolution_clock::now();
+     //not so usefull, needs asynchronous prefetchers
      oneapi::dpl::experimental::for_each_async(policy,
                                                counting_iterator(0),
                                                counting_iterator(outer_loop_range),
                                                p2r_kernels);
+     //
+     cq.wait();
+     //
+     auto wall_stop = std::chrono::high_resolution_clock::now();
+     //
+     auto wall_diff = wall_stop - wall_start;
+     //
+     wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
+     //restore initial states:
+     if constexpr (include_data_transfer) {
+        std::copy(trcks.begin(), trcks.end(), h_trcks.begin());
+        //
+        std::copy(hits.begin(), hits.end(), h_hits.begin());
+        //
+        std::copy(outtrcks.begin(), outtrcks.end(), h_outtrcks.begin());
+     }
    } //end of itr loop
-
-   cq.wait();
-
-   auto wall_stop = std::chrono::high_resolution_clock::now();
-
-   auto wall_diff = wall_stop - wall_start;
-   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;   
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));

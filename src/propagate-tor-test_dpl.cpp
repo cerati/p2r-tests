@@ -52,6 +52,12 @@ dpcpp -std=c++17 -O2 src/propagate-tor-test_dpl.cpp -o test-dpl.exe -Dntrks=8192
 #define nlayer 20
 #endif
 
+#ifdef include_data
+constexpr bool include_data_transfer = true;
+#else
+constexpr bool include_data_transfer = false;
+#endif
+
 #include <CL/sycl.hpp>
 using oneapi::dpl::counting_iterator;
 
@@ -180,7 +186,6 @@ float randn(float mu, float sigma) {
   return (mu + sigma * (float) X1);
 }
 
-
 template<typename MPTRKAllocator>
 void prepareTracks(std::vector<MPTRK, MPTRKAllocator> &trcks, ATRK &inputtrk) {
   //
@@ -231,6 +236,7 @@ void prepareHits(std::vector<MPHIT, MPHITAllocator> &hits, std::vector<AHIT>& in
       }
     }
   }
+
   return;
 }
 
@@ -805,17 +811,35 @@ int main (int argc, char* argv[]) {
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
    //
-   std::vector<MPTRK, decltype(MPTRKAllocator)> trcks(nevts*nb, MPTRKAllocator); 
-   prepareTracks<decltype(MPTRKAllocator)>(trcks, inputtrk);
+   std::vector<MPTRK, decltype(MPTRKAllocator)> outtrcks(nevts*nb, MPTRKAllocator);
+
+   std::vector<MPTRK, decltype(MPTRKAllocator)> trcks(nevts*nb, MPTRKAllocator);
    //
    std::vector<MPHIT, decltype(MPHITAllocator)> hits(nlayer*nevts*nb, MPHITAllocator);
-   prepareHits<decltype(MPHITAllocator)>(hits, inputhits);
+
+   //create fake objects to emulate data transfers
+   std::vector<MPTRK, decltype(MPTRKAllocator)> h_outtrcks(nevts*nb, MPTRKAllocator);
    //
-   std::vector<MPTRK, decltype(MPTRKAllocator)> outtrcks(nevts*nb, MPTRKAllocator);
-   
+   std::vector<MPTRK, decltype(MPTRKAllocator)> h_trcks(nevts*nb, MPTRKAllocator); 
+   prepareTracks<decltype(MPTRKAllocator)>(h_trcks, inputtrk);
+   //
+   std::vector<MPHIT, decltype(MPHITAllocator)> h_hits(nlayer*nevts*nb, MPHITAllocator);
+   prepareHits<decltype(MPHITAllocator)>(h_hits, inputhits);
+   //
    auto policy = oneapi::dpl::execution::make_device_policy(cq);
-   //auto policy = oneapi::dpl::execution::device_policy{sycl::cpu_selector{}};
-   //auto policy = oneapi::dpl::execution::device_policy{sycl::gpu_selector{}};
+   //enforce data migration
+   std::copy(policy, h_outtrcks.begin(), h_outtrcks.end(), outtrcks.begin());
+   
+   if constexpr (include_data_transfer == false){
+     //enforce data migration:
+     std::copy(policy, h_trcks.begin(), h_trcks.end(), trcks.begin());
+     //
+     std::copy(policy, h_hits.begin(), h_hits.end(), hits.begin());
+   } else {//do  a regular copy :
+     std::copy(h_trcks.begin(), h_trcks.end(), trcks.begin());
+     //
+     std::copy(h_hits.begin(), h_hits.end(), hits.begin());
+   }
 
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
@@ -850,25 +874,35 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   // A warmup run to migrate data on the device:
-   std::for_each(policy,
-                 counting_iterator(0),
-                 counting_iterator(outer_loop_range),
-                 p2r_kernels);
-
-   auto wall_start = std::chrono::high_resolution_clock::now();
+   double wall_time = 0.0;
 
    for(int itr=0; itr<NITER; itr++) {
+     //
+     auto wall_start = std::chrono::high_resolution_clock::now();
+     //
      std::for_each(policy,
                    counting_iterator(0),
                    counting_iterator(outer_loop_range),
                    p2r_kernels);
+     //
+     if constexpr (include_data_transfer) {
+        std::copy(outtrcks.begin(), outtrcks.end(), h_outtrcks.begin());
+     }
+     //
+     auto wall_stop = std::chrono::high_resolution_clock::now();
+     //
+     auto wall_diff = wall_stop - wall_start;
+     //
+     wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
+     //restore initial states:
+     if constexpr (include_data_transfer) {
+        std::copy(trcks.begin(), trcks.end(), h_trcks.begin());
+        //
+        std::copy(hits.begin(), hits.end(), h_hits.begin());
+        //
+        std::copy(policy, h_outtrcks.begin(), h_outtrcks.end(), outtrcks.begin());
+     }
    } //end of itr loop
-
-   auto wall_stop = std::chrono::high_resolution_clock::now();
-
-   auto wall_diff = wall_stop - wall_start;
-   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;   
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
