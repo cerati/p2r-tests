@@ -165,7 +165,7 @@ namespace impl {
 
 } //impl
 
-/Collection of API functions:
+//Collection of API functions:
 int p2r_get_compute_device_id(){
   int dev = -1;
   cudaGetDevice(&dev);
@@ -936,14 +936,6 @@ __global__ void launch_p2r_kernel(MPTRK_ *obtracks_, MPTRK_ *btracks_, MPHIT_ *b
      if constexpr (grid_stride) i += gridDim.x * blockDim.x;
      else break;
   }
-  return;
-}
-
-void p2r_check_error(){
-  //	
-  auto error = cudaGetLastError();
-  if(error != cudaSuccess) std::cout << "Error detected, error " << error << std::endl;
-  //
   return;
 }
 

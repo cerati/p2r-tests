@@ -944,11 +944,8 @@ void propagateToR(const MP6x6SF &inErr, const MP6F &inPar, const MP1I &inChg,
   return;
 }
 
-template <bool is_cuda_call>
-concept cuda_concept = is_cuda_call == true;
-
 template <typename lambda_tp, bool grid_stride = false>
-requires (is_cuda_kernel == true)
+requires (enable_cuda == true)
 __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const int length){
 
   auto ib = threadIdx.x + blockIdx.x * blockDim.x;
@@ -968,8 +965,8 @@ __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const in
 }
 
 //CUDA specialized version:
-template <typename stream_tp, bool cuda_compute>
-requires cuda_concept<cuda_compute>
+template <typename stream_tp, bool is_cuda_target>
+requires CudaCompute<is_cuda_target>
 void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int ntrks_, const int nevnts_){
 
   const int outer_loop_range = nevnts_*ntrks_;
@@ -988,7 +985,7 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int ntrks_,
 }
 
 //General (default) implementation for both x86 and nvidia accelerators:
-template <typename stream_tp, bool cuda_compute>
+template <typename stream_tp, bool is_cuda_target>
 void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int ntrks_, const int nevnts_){
   //	
   auto policy = std::execution::par_unseq;
@@ -1030,8 +1027,8 @@ int main (int argc, char* argv[]) {
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
    
-   auto dev_id = p2z_get_compute_device_id<enable_cuda>();
-   auto streams= p2z_get_streams<enable_cuda>(nstreams);
+   auto dev_id = p2r_get_compute_device_id<enable_cuda>();
+   auto streams= p2r_get_streams<enable_cuda>(nstreams);
 
    auto stream = streams[0];//with UVM, we use only one compute stream 
 
@@ -1077,8 +1074,6 @@ int main (int argc, char* argv[]) {
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
-   prefetch<is_cuda_kernel>(trcks, hits, outtrcks);
-
    printf("done preparing!\n");
 
    printf("Size of struct MPTRK trk[] = %ld\n", nevts*nb*sizeof(MPTRK));
@@ -1096,7 +1091,7 @@ int main (int argc, char* argv[]) {
        p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
      }
      //
-     dispatch_p2r_kernels<decltype(stream), is_cuda_kernel>(p2r_kernels, stream, nb, nevts);
+     dispatch_p2r_kernels<decltype(stream), enable_cuda>(p2r_kernels, stream, nb, nevts);
      
      if constexpr (include_data_transfer) {  
        p2r_prefetch<MPTRK, enable_cuda>(outtrcks, host_id, stream); 
