@@ -949,7 +949,7 @@ concept cuda_concept = is_cuda_call == true;
 
 template <typename lambda_tp, bool grid_stride = false>
 requires (is_cuda_kernel == true)
-__cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const int length){
+__cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const int length){
 
   auto ib = threadIdx.x + blockIdx.x * blockDim.x;
   auto ie = threadIdx.y + blockIdx.y * blockDim.y;
@@ -968,9 +968,9 @@ __cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const i
 }
 
 //CUDA specialized version:
-template <bool cuda_compute>
+template <typename stream_tp, bool cuda_compute>
 requires cuda_concept<cuda_compute>
-void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
+void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int ntrks_, const int nevnts_){
 
   const int outer_loop_range = nevnts_*ntrks_;
 
@@ -980,7 +980,7 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
   dim3 blocks(blockx, blocky, 1);
   dim3 grid(((ntrks_ + blockx - 1)/ blockx), ((nevnts_ + blocky - 1)/ blocky),1);
   //
-  launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
+  launch_p2r_cuda_kernel<<<grid, blocks, 0, stream>>>(p2r_kernel, outer_loop_range);
   //
   p2r_check_error<is_cuda_target>();
 
@@ -988,8 +988,8 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
 }
 
 //General (default) implementation for both x86 and nvidia accelerators:
-template <bool cuda_compute>
-void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
+template <typename stream_tp, bool cuda_compute>
+void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int ntrks_, const int nevnts_){
   //	
   auto policy = std::execution::par_unseq;
   //
@@ -1096,7 +1096,7 @@ int main (int argc, char* argv[]) {
        p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
      }
      //
-     dispatch_p2r_kernels<is_cuda_kernel>(p2r_kernels, nb, nevts);
+     dispatch_p2r_kernels<decltype(stream), is_cuda_kernel>(p2r_kernels, stream, nb, nevts);
      
      if constexpr (include_data_transfer) {  
        p2r_prefetch<MPTRK, enable_cuda>(outtrcks, host_id, stream); 

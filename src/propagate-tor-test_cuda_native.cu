@@ -911,7 +911,7 @@ __device__ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_,
 }
 
 template <bool grid_stride = true>
-__global__ void launch_p2r_kernels(MPTRK_ *obtracks_, MPTRK_ *btracks_, MPHIT_ *bhits_, const int length){
+__global__ void launch_p2r_kernel(MPTRK_ *obtracks_, MPTRK_ *btracks_, MPHIT_ *bhits_, const int length){
    auto i = threadIdx.x + blockIdx.x * blockDim.x;
 
    MPTRK_ btracks;
@@ -1018,7 +1018,7 @@ int main (int argc, char* argv[]) {
        p2r_prefetch<MPHIT_, MPHITAllocator>(hits,  dev_id, stream);
      }
 
-     launch_p2r_kernels<<<grid, blocks>>>(outtrcks.data(), trcks.data(), hits.data(), phys_length);
+     launch_p2r_kernel<<<grid, blocks, 0, stream>>>(outtrcks.data(), trcks.data(), hits.data(), phys_length);
      //
      if constexpr (include_data_transfer) {
        p2r_prefetch<MPTRK_, MPTRKAllocator>(outtrcks, host_id, stream);
