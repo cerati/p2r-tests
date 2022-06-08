@@ -72,7 +72,7 @@ constexpr int iparTheta = 5;
 
 template <typename T, int N, int bSize_>
 struct MPNX {
-   std::array<T,N*bSize_> data;
+   sycl::marray<T,N*bSize_> data;
    //basic accessors
    const T& operator[](const int idx) const {return data[idx];}
    T& operator[](const int idx) {return data[idx];}
