@@ -838,17 +838,24 @@ int main (int argc, char* argv[]) {
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
    // A warmup run to migrate data on the device:
-   cq.submit([&](sycl::handler &h){
-       h.parallel_for(sycl::range(outer_loop_range), p2r_kernels);
-     });
+   try {
+     cq.submit([&](sycl::handler &h){
+         h.parallel_for(sycl::range(outer_loop_range), p2r_kernels);
+       });
+   } catch (sycl::exception const& e) {
+     std::cout << "Caught SYCL exception: " << e.what() << std::endl;	   
+   }
   
-
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(int itr=0; itr<NITER; itr++) {
-     cq.submit([&](sycl::handler &h){
-       h.parallel_for(sycl::range(outer_loop_range), p2r_kernels);
-     });
+     try {	   
+       cq.submit([&](sycl::handler &h){
+         h.parallel_for(sycl::range(outer_loop_range), p2r_kernels);
+       });
+     } catch (sycl::exception const& e) {
+       std::cout << "Caught SYCL exception: " << e.what() << std::endl; 	     
+     }
    } //end of itr loop
 
    cq.wait();
