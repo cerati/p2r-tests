@@ -105,6 +105,8 @@ constexpr int iparTheta = 5;
 template <typename T, int N, int bSize>
 struct MPNX_ {
    std::array<T,N*bSize> data;
+
+   MPNX_() = default;
    //basic accessors
    const T& operator[](const int idx) const {return data[idx];}
    T& operator[](const int idx) {return data[idx];}
@@ -129,12 +131,13 @@ struct MPTRK_ {
   MP6x6SF_ cov;
   MP1I_    q;
 
-  //  MP22I   hitidx;
+  MPTRK_() = default;
 };
 
 struct MPHIT_ {
   MP3F_    pos;
   MP3x3SF_ cov;
+  MPHIT_() = default;
 };
 
 template <typename T, int n, int bSize>
@@ -326,13 +329,17 @@ struct MPHITAccessor {
     
     return;
   }
-  
-  void save(MPHIT_ &src, const int tid, const int layer = 0) {
-    this->pos.save(src.pos, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    
-    return;
-  } 
+
+  const MPHIT_ load(const int tid, const int layer = 0) const {
+    MPHIT_ dst;
+
+    this->pos.load(dst.pos, tid, layer);
+    this->cov.load(dst.cov, tid, layer);
+
+    return std::move(dst);
+  }
+
+
 };
 
 
@@ -749,7 +756,7 @@ void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x3SF_ &hitErr_, con
   }
 
    MP6x6SF_ newErr;
-   for (size_t it=0;it<bsize;++it)   {
+   for (size_t it=0;it<N;++it)   {
 
      const auto t0 = rotT00[it]*trkErr_[ 0*N+it] + rotT01[it]*trkErr_[ 1*N+it];
      const auto t1 = rotT00[it]*trkErr_[ 1*N+it] + rotT01[it]*trkErr_[ 2*N+it];
@@ -1009,7 +1016,7 @@ __cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const i
 }
 
 //CUDA specialized version:
-template <bool cuda_compute>
+template <bool cuda_compute, int blockz=1>
 requires cuda_concept<cuda_compute>
 void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
 
@@ -1018,7 +1025,7 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
   const int blockx = threads_per_blockx;
   const int blocky = threads_per_blocky;
 
-  dim3 blocks(blockx, blocky, 1);
+  dim3 blocks(blockx, blocky, blockz);
   dim3 grid(((ntrks_ + blockx - 1)/ blockx), ((nevnts_ + blocky - 1)/ blocky),1);
   //
   launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
@@ -1029,7 +1036,7 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
 }
 
 //General (default) implementation for both x86 and nvidia accelerators:
-template <bool cuda_compute>
+template <bool cuda_compute, int blockz=1>
 void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
   //	
   auto policy = std::execution::par_unseq;
@@ -1109,16 +1116,17 @@ int main (int argc, char* argv[]) {
                         //  
                         MPTRK_ btracks;
                         MPTRK_ obtracks;
-                        MPHIT_ bhits;   
                         //
 		        btracksAccessor.load(btracks, i);
 		        //
+			constexpr int N = is_cuda_kernel ? 1 : bsize;//inner loop range
+			//
                         for(int layer=0; layer<nlayer; ++layer) {  
-                        //
-                          bhitsAccessor.load(bhits, i, layer);
                           //
-                          propagateToR<bsize>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-                          KalmanUpdate<bsize>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+			  const MPHIT_ bhits = bhitsAccessor.load(i, layer);
+                          //
+                          propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                          KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                           //
                         }
 		        //
