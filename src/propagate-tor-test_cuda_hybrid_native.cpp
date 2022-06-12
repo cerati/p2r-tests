@@ -291,6 +291,9 @@ constexpr int iparTheta = 5;
 template <typename T, int N, int bSize>
 struct MPNX {
    std::array<T,N*bSize> data;
+
+   MPNX() = default;
+
    //basic accessors
    const T& operator[](const int idx) const {return data[idx];}
    T& operator[](const int idx) {return data[idx];}
@@ -337,13 +340,19 @@ struct MPTRK {
   MP6x6SF cov;
   MP1I    q;
 
+  MPTRK() = default;
+
   //  MP22I   hitidx;
-  void load(MPTRK &dst){
+  const MPTRK load(){
+    MPTRK dst;
+
     par.load(dst.par);
     cov.load(dst.cov);
-    q.load(dst.q);    
-    return;	  
+    q.load(dst.q);
+
+    return std::move(dst);	  
   }
+
   void save(const MPTRK &src){
     par.save(src.par);
     cov.save(src.cov);
@@ -356,18 +365,16 @@ struct MPHIT {
   MP3F    pos;
   MP3x3SF cov;
   //
-  void load(MPHIT &dst){
+  MPHIT() = default;
+
+  const MPHIT load(){
+    MPHIT dst;
+
     pos.load(dst.pos);
     cov.load(dst.cov);
-    return;
-  }
-  void save(const MPHIT &src){
-    pos.save(src.pos);
-    cov.save(src.cov);
 
-    return;
+    return std::move(dst);
   }
-
 };
 
 ///////////////////////////////////////
@@ -1051,18 +1058,18 @@ int main (int argc, char* argv[]) {
                          outtracksPtr  = outtrcks.data(),
                          bhitsPtr      = hits.data()] (const auto i) {
                          //  
-                         MPTRK btracks;
                          MPTRK obtracks;
-                         MPHIT bhits;
                          //
-                         btracksPtr[i].load(btracks);
+                         const MPTRK btracks = btracksPtr[i].load();
                          //
+			 constexpr int N = bsize;
+			 //
                          for(int layer=0; layer<nlayer; ++layer) {
                            //
-                           bhitsPtr[layer+nlayer*i].load(bhits);
+                           const MPHIT bhits = bhitsPtr[layer+nlayer*i].load();
                            //
-                           propagateToR<bsize>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-                           KalmanUpdate<bsize>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+                           propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                           KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                            //
                          }
                          //

@@ -286,18 +286,20 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  void load(MPTRK_ &dst, const int tid, const int layer = 0) const {
-    this->par.load(dst.par, tid, layer);
-    this->cov.load(dst.cov, tid, layer);
-    this->q.load(dst.q, tid, layer);
+  const MPTRK_ load(const int tid) const {
+    MPTRK_ dst;
+
+    this->par.load(dst.par, tid, 0);
+    this->cov.load(dst.cov, tid, 0);
+    this->q.load(dst.q, tid, 0);
     
-    return;
+    return std::move(dst);
   }
   
-  void save(MPTRK_ &src, const int tid, const int layer = 0) {
-    this->par.save(src.par, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    this->q.save(src.q, tid, layer);
+  void save(MPTRK_ &src, const int tid) {
+    this->par.save(src.par, tid, 0);
+    this->cov.save(src.cov, tid, 0);
+    this->q.save(src.q, tid, 0);
     
     return;
   }
@@ -322,13 +324,6 @@ struct MPHITAccessor {
 
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
-  
-  void load(MPHIT_ &dst, const int tid, const int layer = 0) const {
-    this->pos.load(dst.pos, tid, layer);
-    this->cov.load(dst.cov, tid, layer);
-    
-    return;
-  }
 
   const MPHIT_ load(const int tid, const int layer = 0) const {
     MPHIT_ dst;
@@ -1114,10 +1109,9 @@ int main (int argc, char* argv[]) {
                         &bhitsAccessor      = *hitsAccPtr,
                         &outtracksAccessor  = *outtrcksAccPtr] (const auto i) {
                         //  
-                        MPTRK_ btracks;
                         MPTRK_ obtracks;
                         //
-		        btracksAccessor.load(btracks, i);
+		        const MPTRK_ btracks = btracksAccessor.load(i);
 		        //
 			constexpr int N = is_cuda_kernel ? 1 : bsize;//inner loop range
 			//
