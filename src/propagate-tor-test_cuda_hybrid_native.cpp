@@ -300,18 +300,7 @@ struct MPNX {
    const T& operator()(const int m, const int b) const {return data[m*bSize+b];}
    T& operator()(const int m, const int b) {return data[m*bSize+b];}
    //
-   void load(MPNX& dst) const{
-     for (size_t it=0;it<bSize;++it) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
-       for (size_t ip=0;ip<N;++ip) {    	
-    	 dst.data[it + ip*bSize] = this->operator()(ip, it);  
-       }
-     }//
-     
-     return;
-   }
-
-   void save(const MPNX& src) {
+   void copy(const MPNX& src) {
      for (size_t it=0;it<bSize;++it) {
      //const int l = it+ib*bsize+ie*nb*bsize;
        for (size_t ip=0;ip<N;++ip) {    	
@@ -342,21 +331,17 @@ struct MPTRK {
 
   MPTRK() = default;
 
-  //  MP22I   hitidx;
-  const MPTRK load(){
-    MPTRK dst;
-
-    par.load(dst.par);
-    cov.load(dst.cov);
-    q.load(dst.q);
-
-    return std::move(dst);	  
+  MPTRK(const MPTRK& src) {
+    par.copy(src.par);
+    cov.copy(src.cov);
+    q.copy(src.q);
+    return;
   }
 
-  void save(const MPTRK &src){
-    par.save(src.par);
-    cov.save(src.cov);
-    q.save(src.q);
+  void copy(const MPTRK &src){
+    par.copy(src.par);
+    cov.copy(src.cov);
+    q.copy(src.q);
     return;
   }
 };
@@ -367,13 +352,11 @@ struct MPHIT {
   //
   MPHIT() = default;
 
-  const MPHIT load(){
-    MPHIT dst;
+  MPHIT(const MPHIT &src){
+    pos.copy(src.pos);
+    cov.copy(src.cov);
 
-    pos.load(dst.pos);
-    cov.load(dst.cov);
-
-    return std::move(dst);
+    return;
   }
 };
 
@@ -1060,20 +1043,20 @@ int main (int argc, char* argv[]) {
                          //  
                          MPTRK obtracks;
                          //
-                         const MPTRK btracks = btracksPtr[i].load();
+                         const MPTRK btracks = MPTRK(btracksPtr[i]);
                          //
 			 constexpr int N = bsize;
 			 //
                          for(int layer=0; layer<nlayer; ++layer) {
                            //
-                           const MPHIT bhits = bhitsPtr[layer+nlayer*i].load();
+                           const MPHIT bhits = MPHIT(bhitsPtr[layer+nlayer*i]);
                            //
                            propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
                            KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                            //
                          }
                          //
-                         outtracksPtr[i].save(obtracks);
+                         outtracksPtr[i].copy(obtracks);
                        };
    // synchronize to ensure that all needed data is on the device:
    p2r_wait<enable_cuda>();
