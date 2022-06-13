@@ -301,8 +301,10 @@ struct MPNX {
    T& operator()(const int m, const int b) {return data[m*bSize+b];}
    //
    void copy(const MPNX& src) {
+#pragma unroll
      for (size_t it=0;it<bSize;++it) {
      //const int l = it+ib*bsize+ie*nb*bsize;
+#pragma unroll
        for (size_t ip=0;ip<N;++ip) {    	
     	 this->operator()(ip, it) = src.data[it + ip*bSize];  
        }
@@ -331,18 +333,11 @@ struct MPTRK {
 
   MPTRK() = default;
 
-  MPTRK(const MPTRK& src) {
+  MPTRK& operator=(const MPTRK &src){
     par.copy(src.par);
     cov.copy(src.cov);
     q.copy(src.q);
-    return;
-  }
-
-  void copy(const MPTRK &src){
-    par.copy(src.par);
-    cov.copy(src.cov);
-    q.copy(src.q);
-    return;
+    return *this;
   }
 };
 
@@ -353,9 +348,10 @@ struct MPHIT {
   MPHIT() = default;
 
   MPHIT(const MPHIT &src){
+    //
     pos.copy(src.pos);
     cov.copy(src.cov);
-
+    //
     return;
   }
 };
@@ -1043,7 +1039,7 @@ int main (int argc, char* argv[]) {
                          //  
                          MPTRK obtracks;
                          //
-                         const MPTRK btracks = MPTRK(btracksPtr[i]);
+                         const MPTRK btracks = btracksPtr[i];
                          //
 			 constexpr int N = bsize;
 			 //
@@ -1056,7 +1052,7 @@ int main (int argc, char* argv[]) {
                            //
                          }
                          //
-                         outtracksPtr[i].copy(obtracks);
+                         outtracksPtr[i] = obtracks;
                        };
    // synchronize to ensure that all needed data is on the device:
    p2r_wait<enable_cuda>();

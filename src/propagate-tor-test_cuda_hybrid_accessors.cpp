@@ -289,17 +289,17 @@ struct MPTRKAccessor {
   const MPTRK_ load(const int tid) const {
     MPTRK_ dst;
 
-    this->par.load(dst.par, tid, 0);
-    this->cov.load(dst.cov, tid, 0);
-    this->q.load(dst.q, tid, 0);
+    par.load(dst.par, tid, 0);
+    cov.load(dst.cov, tid, 0);
+    q.load(dst.q, tid, 0);
     
     return std::move(dst);
   }
   
   void save(MPTRK_ &src, const int tid) {
-    this->par.save(src.par, tid, 0);
-    this->cov.save(src.cov, tid, 0);
-    this->q.save(src.q, tid, 0);
+    par.save(src.par, tid, 0);
+    cov.save(src.cov, tid, 0);
+    q.save(src.q, tid, 0);
     
     return;
   }

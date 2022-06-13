@@ -140,13 +140,13 @@ struct MPNX {
    T& operator()(const int m, const int b) {return data[m*bSize+b];}
    //
    void copy(const MPNX& src) {
+#pragma unroll
      for (size_t it=0;it<bSize;++it) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
+ #pragma unroll
        for (size_t ip=0;ip<N;++ip) {    	
     	 this->operator()(ip, it) = src.data[it + ip*bSize];  
        }
      }//
-     
      return;
    }
 };
@@ -170,27 +170,21 @@ struct MPTRK {
 
   MPTRK() = default;
   //
-  MPTRK(const MPTRK &src){
+  MPTRK& operator=(const MPTRK &src){
     par.copy(src.par);
     cov.copy(src.cov);
     q.copy(src.q);
-  }
-
-  void copy(const MPTRK &src){
-    par.copy(src.par);
-    cov.copy(src.cov);
-    q.copy(src.q);
-    return;
+    return *this;
   }
 };
 
 struct MPHIT {
   MP3F    pos;
   MP3x3SF cov;
-  //
-  MPHIT() = default;
 
-  MPHIT(const MPHIT &src){
+  MPHIT() = default;
+  //
+  MPHIT(const MPHIT &src) {
     pos.copy(src.pos);
     cov.copy(src.cov);
   }
@@ -833,7 +827,7 @@ int main (int argc, char* argv[]) {
                          //  
                          MPTRK obtracks;
                          //
-                         const MPTRK btracks = MPTRK(btracksPtr[i]);
+                         const MPTRK btracks = btracksPtr[i];
                          //
 			 constexpr int N = bsize;
 			 //
@@ -846,7 +840,8 @@ int main (int argc, char* argv[]) {
                            //
                          }
                          //
-                         outtracksPtr[i].copy(obtracks);
+                         //outtracksPtr[i].copy(obtracks);
+			 outtracksPtr[i] = obtracks;
                        };
 
    const int outer_loop_range = nevts*nb;
