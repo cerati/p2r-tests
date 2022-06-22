@@ -2,9 +2,9 @@
 see README.txt for instructions
 */
 
-#include <cudaCheck.h>
-#include <cuda_profiler_api.h>
-#include "cuda_runtime.h"
+#include <alpaka/alpaka.hpp>
+#include <alpaka/example/ExampleDefaultAcc.hpp>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -48,7 +48,11 @@ see README.txt for instructions
 #endif
 
 #ifndef num_streams
-#define num_streams 1
+#define num_streams 4 
+#endif
+
+#ifndef elementsperthread 
+#define elementsperthread 1
 #endif
 
 #ifndef threadsperblockx
@@ -62,18 +66,18 @@ see README.txt for instructions
 #define nthreads 1
 #endif
 
-#define HOSTDEV __host__ __device__
 
-HOSTDEV constexpr size_t PosInMtrx(size_t i, size_t j, size_t D) {
+
+ALPAKA_FN_ACC constexpr size_t PosInMtrx(size_t i, size_t j, size_t D) {
   return i*D+j;
 }
 
-HOSTDEV size_t SymOffsets33(size_t i) {
+ALPAKA_FN_ACC size_t SymOffsets33(size_t i) {
   const size_t offs[9] = {0, 1, 3, 1, 2, 4, 3, 4, 5};
   return offs[i];
 }
 
-HOSTDEV size_t SymOffsets66(size_t i) {
+ALPAKA_FN_ACC size_t SymOffsets66(size_t i) {
   const size_t offs[36] = {0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
   return offs[i];
 }
@@ -169,105 +173,104 @@ float randn(float mu, float sigma) {
   return (mu + sigma * (float) X1);
 }
 
-HOSTDEV MPTRK* bTk(MPTRK* tracks, size_t ev, size_t ib) {
+ALPAKA_FN_ACC MPTRK* bTk(MPTRK* tracks, size_t ev, size_t ib) {
   return &(tracks[ib + nb*ev]);
 }
 
-HOSTDEV const MPTRK* bTk(const MPTRK* tracks, size_t ev, size_t ib) {
+ALPAKA_FN_ACC const MPTRK* bTk(const MPTRK* tracks, size_t ev, size_t ib) {
   return &(tracks[ib + nb*ev]);
 }
 
-HOSTDEV int q(const MP1I* bq, size_t it){
+ALPAKA_FN_ACC int q(const MP1I* bq, size_t it){
   return (*bq).data[it];
 }
 //
-HOSTDEV float par(const MP6F* bpars, size_t it, size_t ipar){
+ALPAKA_FN_ACC float par(const MP6F* bpars, size_t it, size_t ipar){
   return (*bpars).data[it + ipar*bsize];
 }
-HOSTDEV float x    (const MP6F* bpars, size_t it){ return par(bpars, it, 0); }
-HOSTDEV float y    (const MP6F* bpars, size_t it){ return par(bpars, it, 1); }
-HOSTDEV float z    (const MP6F* bpars, size_t it){ return par(bpars, it, 2); }
-HOSTDEV float ipt  (const MP6F* bpars, size_t it){ return par(bpars, it, 3); }
-HOSTDEV float phi  (const MP6F* bpars, size_t it){ return par(bpars, it, 4); }
-HOSTDEV float theta(const MP6F* bpars, size_t it){ return par(bpars, it, 5); }
+ALPAKA_FN_ACC float x    (const MP6F* bpars, size_t it){ return par(bpars, it, 0); }
+ALPAKA_FN_ACC float y    (const MP6F* bpars, size_t it){ return par(bpars, it, 1); }
+ALPAKA_FN_ACC float z    (const MP6F* bpars, size_t it){ return par(bpars, it, 2); }
+ALPAKA_FN_ACC float ipt  (const MP6F* bpars, size_t it){ return par(bpars, it, 3); }
+ALPAKA_FN_ACC float phi  (const MP6F* bpars, size_t it){ return par(bpars, it, 4); }
+ALPAKA_FN_ACC float theta(const MP6F* bpars, size_t it){ return par(bpars, it, 5); }
 //
-HOSTDEV float par(const MPTRK* btracks, size_t it, size_t ipar){
+ALPAKA_FN_ACC  float par(const MPTRK* btracks, size_t it, size_t ipar){
   return par(&(*btracks).par,it,ipar);
 }
-HOSTDEV float x    (const MPTRK* btracks, size_t it){ return par(btracks, it, 0); }
-HOSTDEV float y    (const MPTRK* btracks, size_t it){ return par(btracks, it, 1); }
-HOSTDEV float z    (const MPTRK* btracks, size_t it){ return par(btracks, it, 2); }
-HOSTDEV float ipt  (const MPTRK* btracks, size_t it){ return par(btracks, it, 3); }
-HOSTDEV float phi  (const MPTRK* btracks, size_t it){ return par(btracks, it, 4); }
-HOSTDEV float theta(const MPTRK* btracks, size_t it){ return par(btracks, it, 5); }
+ALPAKA_FN_ACC float x    (const MPTRK* btracks, size_t it){ return par(btracks, it, 0); }
+ALPAKA_FN_ACC float y    (const MPTRK* btracks, size_t it){ return par(btracks, it, 1); }
+ALPAKA_FN_ACC float z    (const MPTRK* btracks, size_t it){ return par(btracks, it, 2); }
+ALPAKA_FN_ACC float ipt  (const MPTRK* btracks, size_t it){ return par(btracks, it, 3); }
+ALPAKA_FN_ACC float phi  (const MPTRK* btracks, size_t it){ return par(btracks, it, 4); }
+ALPAKA_FN_ACC float theta(const MPTRK* btracks, size_t it){ return par(btracks, it, 5); }
 //
-HOSTDEV float par(const MPTRK* tracks, size_t ev, size_t tk, size_t ipar){
+ALPAKA_FN_ACC float par(const MPTRK* tracks, size_t ev, size_t tk, size_t ipar){
   size_t ib = tk/bsize;
   const MPTRK* btracks = bTk(tracks, ev, ib);
   size_t it = tk % bsize;
   return par(btracks, it, ipar);
 }
-HOSTDEV float x    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 0); }
-HOSTDEV float y    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 1); }
-HOSTDEV float z    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 2); }
-HOSTDEV float ipt  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 3); }
-HOSTDEV float phi  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 4); }
-HOSTDEV float theta(const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 5); }
+ALPAKA_FN_ACC float x    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 0); }
+ALPAKA_FN_ACC float y    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 1); }
+ALPAKA_FN_ACC float z    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 2); }
+ALPAKA_FN_ACC float ipt  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 3); }
+ALPAKA_FN_ACC float phi  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 4); }
+ALPAKA_FN_ACC float theta(const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 5); }
 //
-HOSTDEV void setpar(MP6F* bpars, size_t it, size_t ipar, float val){
+ALPAKA_FN_ACC void setpar(MP6F* bpars, size_t it, size_t ipar, float val){
   (*bpars).data[it + ipar*bsize] = val;
 }
-HOSTDEV void setx    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 0, val); }
-HOSTDEV void sety    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 1, val); }
-HOSTDEV void setz    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 2, val); }
-HOSTDEV void setipt  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 3, val); }
-HOSTDEV void setphi  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 4, val); }
-HOSTDEV void settheta(MP6F* bpars, size_t it, float val){ setpar(bpars, it, 5, val); }
+ALPAKA_FN_ACC void setx    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 0, val); }
+ALPAKA_FN_ACC void sety    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 1, val); }
+ALPAKA_FN_ACC void setz    (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 2, val); }
+ALPAKA_FN_ACC void setipt  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 3, val); }
+ALPAKA_FN_ACC void setphi  (MP6F* bpars, size_t it, float val){ setpar(bpars, it, 4, val); }
+ALPAKA_FN_ACC void settheta(MP6F* bpars, size_t it, float val){ setpar(bpars, it, 5, val); }
 //
-HOSTDEV void setpar(MPTRK* btracks, size_t it, size_t ipar, float val){
+ALPAKA_FN_ACC  void setpar(MPTRK* btracks, size_t it, size_t ipar, float val){
   setpar(&(*btracks).par,it,ipar,val);
 }
-HOSTDEV void setx    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 0, val); }
-HOSTDEV void sety    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 1, val); }
-HOSTDEV void setz    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 2, val); }
-HOSTDEV void setipt  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 3, val); }
-HOSTDEV void setphi  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 4, val); }
-HOSTDEV void settheta(MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 5, val); }
+ALPAKA_FN_ACC void setx    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 0, val); }
+ALPAKA_FN_ACC void sety    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 1, val); }
+ALPAKA_FN_ACC void setz    (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 2, val); }
+ALPAKA_FN_ACC void setipt  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 3, val); }
+ALPAKA_FN_ACC void setphi  (MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 4, val); }
+ALPAKA_FN_ACC void settheta(MPTRK* btracks, size_t it, float val){ setpar(btracks, it, 5, val); }
 
-HOSTDEV const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib) {
+ALPAKA_FN_ACC  const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib) {
   return &(hits[ib + nb*ev]);
 }
-HOSTDEV const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib,size_t lay) {
+ALPAKA_FN_ACC  const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib,size_t lay) {
 return &(hits[lay + (ib*nlayer) +(ev*nlayer*nb)]);
 }
 //
-HOSTDEV float pos(const MP3F* hpos, size_t it, size_t ipar){
+ALPAKA_FN_ACC  float pos(const MP3F* hpos, size_t it, size_t ipar){
   return (*hpos).data[it + ipar*bsize];
 }
-HOSTDEV float x(const MP3F* hpos, size_t it)    { return pos(hpos, it, 0); }
-HOSTDEV float y(const MP3F* hpos, size_t it)    { return pos(hpos, it, 1); }
-HOSTDEV float z(const MP3F* hpos, size_t it)    { return pos(hpos, it, 2); }
+ALPAKA_FN_ACC  float x(const MP3F* hpos, size_t it)    { return pos(hpos, it, 0); }
+ALPAKA_FN_ACC  float y(const MP3F* hpos, size_t it)    { return pos(hpos, it, 1); }
+ALPAKA_FN_ACC  float z(const MP3F* hpos, size_t it)    { return pos(hpos, it, 2); }
 //
-HOSTDEV float pos(const MPHIT* hits, size_t it, size_t ipar){
+ALPAKA_FN_ACC  float pos(const MPHIT* hits, size_t it, size_t ipar){
   return pos(&(*hits).pos,it,ipar);
 }
-HOSTDEV float x(const MPHIT* hits, size_t it)    { return pos(hits, it, 0); }
-HOSTDEV float y(const MPHIT* hits, size_t it)    { return pos(hits, it, 1); }
-HOSTDEV float z(const MPHIT* hits, size_t it)    { return pos(hits, it, 2); }
+ALPAKA_FN_ACC  float x(const MPHIT* hits, size_t it)    { return pos(hits, it, 0); }
+ALPAKA_FN_ACC  float y(const MPHIT* hits, size_t it)    { return pos(hits, it, 1); }
+ALPAKA_FN_ACC  float z(const MPHIT* hits, size_t it)    { return pos(hits, it, 2); }
 //
-HOSTDEV float pos(const MPHIT* hits, size_t ev, size_t tk, size_t ipar){
+ALPAKA_FN_ACC  float pos(const MPHIT* hits, size_t ev, size_t tk, size_t ipar){
   size_t ib = tk/bsize;
   const MPHIT* bhits = bHit(hits, ev, ib);
   size_t it = tk % bsize;
   return pos(bhits,it,ipar);
 }
-HOSTDEV float x(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 0); }
-HOSTDEV float y(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 1); }
-HOSTDEV float z(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 2); }
+ALPAKA_FN_ACC  float x(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 0); }
+ALPAKA_FN_ACC  float y(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 1); }
+ALPAKA_FN_ACC  float z(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, ev, tk, 2); }
 
 MPTRK* prepareTracks(ATRK inputtrk) {
-  MPTRK* result ; 
-  cudaCheck(cudaMallocHost((void**)&result,nevts*nb*sizeof(MPTRK)));
+  MPTRK* result = (MPTRK*) std::malloc(nevts*nb*sizeof(MPTRK));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t ie=0;ie<nevts;++ie) {
     for (size_t ib=0;ib<nb;++ib) {
@@ -282,7 +285,6 @@ MPTRK* prepareTracks(ATRK inputtrk) {
 	      }
 	      //q
 	      result[ib + nb*ie].q.data[it] = inputtrk.q;//can't really smear this or fit will be wrong
-        //if((ib + nb*ie)%10==0 ) printf("prep trk index = %i ,track = (%.3f)\n ", ib+nb*ie);
       }
     }
   }
@@ -290,8 +292,8 @@ MPTRK* prepareTracks(ATRK inputtrk) {
 }
 
 MPHIT* prepareHits(std::vector<AHIT>& inputhits) {
-  MPHIT* result;  //fixme, align?
-  cudaCheck(cudaMallocHost((void**)&result,nlayer*nevts*nb*sizeof(MPHIT)));
+  
+  MPHIT* result = (MPHIT*) std::malloc(nlayer*nevts*nb*sizeof(MPHIT));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
 
@@ -320,145 +322,164 @@ MPHIT* prepareHits(std::vector<AHIT>& inputhits) {
   return result;
 }
 
-#define N bsize
-__forceinline__ __device__ void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C) {
+//#define N bsize
+ALPAKA_FN_INLINE ALPAKA_FN_ACC void MultHelixProp(const MP6x6F* A, const MP6x6SF* B, MP6x6F* C,size_t const threadIdx, size_t const blockDim,uint32_t const ElemExtent) {
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-//parallel_for(0,N,[&](int n){
-  for(int n=threadIdx.x;n<N;n+=blockDim.x)
-  {
-    c[ 0*N+n] = a[ 0*N+n]*b[ 0*N+n] + a[ 1*N+n]*b[ 1*N+n] + a[ 3*N+n]*b[ 6*N+n] + a[ 4*N+n]*b[10*N+n];
-    c[ 1*N+n] = a[ 0*N+n]*b[ 1*N+n] + a[ 1*N+n]*b[ 2*N+n] + a[ 3*N+n]*b[ 7*N+n] + a[ 4*N+n]*b[11*N+n];
-    c[ 2*N+n] = a[ 0*N+n]*b[ 3*N+n] + a[ 1*N+n]*b[ 4*N+n] + a[ 3*N+n]*b[ 8*N+n] + a[ 4*N+n]*b[12*N+n];
-    c[ 3*N+n] = a[ 0*N+n]*b[ 6*N+n] + a[ 1*N+n]*b[ 7*N+n] + a[ 3*N+n]*b[ 9*N+n] + a[ 4*N+n]*b[13*N+n];
-    c[ 4*N+n] = a[ 0*N+n]*b[10*N+n] + a[ 1*N+n]*b[11*N+n] + a[ 3*N+n]*b[13*N+n] + a[ 4*N+n]*b[14*N+n];
-    c[ 5*N+n] = a[ 0*N+n]*b[15*N+n] + a[ 1*N+n]*b[16*N+n] + a[ 3*N+n]*b[18*N+n] + a[ 4*N+n]*b[19*N+n];
-    c[ 6*N+n] = a[ 6*N+n]*b[ 0*N+n] + a[ 7*N+n]*b[ 1*N+n] + a[ 9*N+n]*b[ 6*N+n] + a[10*N+n]*b[10*N+n];
-    c[ 7*N+n] = a[ 6*N+n]*b[ 1*N+n] + a[ 7*N+n]*b[ 2*N+n] + a[ 9*N+n]*b[ 7*N+n] + a[10*N+n]*b[11*N+n];
-    c[ 8*N+n] = a[ 6*N+n]*b[ 3*N+n] + a[ 7*N+n]*b[ 4*N+n] + a[ 9*N+n]*b[ 8*N+n] + a[10*N+n]*b[12*N+n];
-    c[ 9*N+n] = a[ 6*N+n]*b[ 6*N+n] + a[ 7*N+n]*b[ 7*N+n] + a[ 9*N+n]*b[ 9*N+n] + a[10*N+n]*b[13*N+n];
-    c[10*N+n] = a[ 6*N+n]*b[10*N+n] + a[ 7*N+n]*b[11*N+n] + a[ 9*N+n]*b[13*N+n] + a[10*N+n]*b[14*N+n];
-    c[11*N+n] = a[ 6*N+n]*b[15*N+n] + a[ 7*N+n]*b[16*N+n] + a[ 9*N+n]*b[18*N+n] + a[10*N+n]*b[19*N+n];
-    c[12*N+n] = a[12*N+n]*b[ 0*N+n] + a[13*N+n]*b[ 1*N+n] + b[ 3*N+n] + a[15*N+n]*b[ 6*N+n] + a[16*N+n]*b[10*N+n] + a[17*N+n]*b[15*N+n];
-    c[13*N+n] = a[12*N+n]*b[ 1*N+n] + a[13*N+n]*b[ 2*N+n] + b[ 4*N+n] + a[15*N+n]*b[ 7*N+n] + a[16*N+n]*b[11*N+n] + a[17*N+n]*b[16*N+n];
-    c[14*N+n] = a[12*N+n]*b[ 3*N+n] + a[13*N+n]*b[ 4*N+n] + b[ 5*N+n] + a[15*N+n]*b[ 8*N+n] + a[16*N+n]*b[12*N+n] + a[17*N+n]*b[17*N+n];
-    c[15*N+n] = a[12*N+n]*b[ 6*N+n] + a[13*N+n]*b[ 7*N+n] + b[ 8*N+n] + a[15*N+n]*b[ 9*N+n] + a[16*N+n]*b[13*N+n] + a[17*N+n]*b[18*N+n];
-    c[16*N+n] = a[12*N+n]*b[10*N+n] + a[13*N+n]*b[11*N+n] + b[12*N+n] + a[15*N+n]*b[13*N+n] + a[16*N+n]*b[14*N+n] + a[17*N+n]*b[19*N+n];
-    c[17*N+n] = a[12*N+n]*b[15*N+n] + a[13*N+n]*b[16*N+n] + b[17*N+n] + a[15*N+n]*b[18*N+n] + a[16*N+n]*b[19*N+n] + a[17*N+n]*b[20*N+n];
-    c[18*N+n] = a[18*N+n]*b[ 0*N+n] + a[19*N+n]*b[ 1*N+n] + a[21*N+n]*b[ 6*N+n] + a[22*N+n]*b[10*N+n];
-    c[19*N+n] = a[18*N+n]*b[ 1*N+n] + a[19*N+n]*b[ 2*N+n] + a[21*N+n]*b[ 7*N+n] + a[22*N+n]*b[11*N+n];
-    c[20*N+n] = a[18*N+n]*b[ 3*N+n] + a[19*N+n]*b[ 4*N+n] + a[21*N+n]*b[ 8*N+n] + a[22*N+n]*b[12*N+n];
-    c[21*N+n] = a[18*N+n]*b[ 6*N+n] + a[19*N+n]*b[ 7*N+n] + a[21*N+n]*b[ 9*N+n] + a[22*N+n]*b[13*N+n];
-    c[22*N+n] = a[18*N+n]*b[10*N+n] + a[19*N+n]*b[11*N+n] + a[21*N+n]*b[13*N+n] + a[22*N+n]*b[14*N+n];
-    c[23*N+n] = a[18*N+n]*b[15*N+n] + a[19*N+n]*b[16*N+n] + a[21*N+n]*b[18*N+n] + a[22*N+n]*b[19*N+n];
-    c[24*N+n] = a[24*N+n]*b[ 0*N+n] + a[25*N+n]*b[ 1*N+n] + a[27*N+n]*b[ 6*N+n] + a[28*N+n]*b[10*N+n];
-    c[25*N+n] = a[24*N+n]*b[ 1*N+n] + a[25*N+n]*b[ 2*N+n] + a[27*N+n]*b[ 7*N+n] + a[28*N+n]*b[11*N+n];
-    c[26*N+n] = a[24*N+n]*b[ 3*N+n] + a[25*N+n]*b[ 4*N+n] + a[27*N+n]*b[ 8*N+n] + a[28*N+n]*b[12*N+n];
-    c[27*N+n] = a[24*N+n]*b[ 6*N+n] + a[25*N+n]*b[ 7*N+n] + a[27*N+n]*b[ 9*N+n] + a[28*N+n]*b[13*N+n];
-    c[28*N+n] = a[24*N+n]*b[10*N+n] + a[25*N+n]*b[11*N+n] + a[27*N+n]*b[13*N+n] + a[28*N+n]*b[14*N+n];
-    c[29*N+n] = a[24*N+n]*b[15*N+n] + a[25*N+n]*b[16*N+n] + a[27*N+n]*b[18*N+n] + a[28*N+n]*b[19*N+n];
-    c[30*N+n] = b[15*N+n];
-    c[31*N+n] = b[16*N+n];
-    c[32*N+n] = b[17*N+n];
-    c[33*N+n] = b[18*N+n];
-    c[34*N+n] = b[19*N+n];
-    c[35*N+n] = b[20*N+n];
-  }//);
-}
-
-__forceinline__ __device__ void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C) {
-  const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
-  const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
-  float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-//parallel_for(0,N,[&](int n){
-  for(int n=threadIdx.x;n<N;n+=blockDim.x)
-  {
-    c[ 0*N+n] = b[ 0*N+n]*a[ 0*N+n] + b[ 1*N+n]*a[ 1*N+n] + b[ 3*N+n]*a[ 3*N+n] + b[ 4*N+n]*a[ 4*N+n];
-    c[ 1*N+n] = b[ 6*N+n]*a[ 0*N+n] + b[ 7*N+n]*a[ 1*N+n] + b[ 9*N+n]*a[ 3*N+n] + b[10*N+n]*a[ 4*N+n];
-    c[ 2*N+n] = b[ 6*N+n]*a[ 6*N+n] + b[ 7*N+n]*a[ 7*N+n] + b[ 9*N+n]*a[ 9*N+n] + b[10*N+n]*a[10*N+n];
-    c[ 3*N+n] = b[12*N+n]*a[ 0*N+n] + b[13*N+n]*a[ 1*N+n] + b[15*N+n]*a[ 3*N+n] + b[16*N+n]*a[ 4*N+n];
-    c[ 4*N+n] = b[12*N+n]*a[ 6*N+n] + b[13*N+n]*a[ 7*N+n] + b[15*N+n]*a[ 9*N+n] + b[16*N+n]*a[10*N+n];
-    c[ 5*N+n] = b[12*N+n]*a[12*N+n] + b[13*N+n]*a[13*N+n] + b[14*N+n] + b[15*N+n]*a[15*N+n] + b[16*N+n]*a[16*N+n] + b[17*N+n]*a[17*N+n];
-    c[ 6*N+n] = b[18*N+n]*a[ 0*N+n] + b[19*N+n]*a[ 1*N+n] + b[21*N+n]*a[ 3*N+n] + b[22*N+n]*a[ 4*N+n];
-    c[ 7*N+n] = b[18*N+n]*a[ 6*N+n] + b[19*N+n]*a[ 7*N+n] + b[21*N+n]*a[ 9*N+n] + b[22*N+n]*a[10*N+n];
-    c[ 8*N+n] = b[18*N+n]*a[12*N+n] + b[19*N+n]*a[13*N+n] + b[20*N+n] + b[21*N+n]*a[15*N+n] + b[22*N+n]*a[16*N+n] + b[23*N+n]*a[17*N+n];
-    c[ 9*N+n] = b[18*N+n]*a[18*N+n] + b[19*N+n]*a[19*N+n] + b[21*N+n]*a[21*N+n] + b[22*N+n]*a[22*N+n];
-    c[10*N+n] = b[24*N+n]*a[ 0*N+n] + b[25*N+n]*a[ 1*N+n] + b[27*N+n]*a[ 3*N+n] + b[28*N+n]*a[ 4*N+n];
-    c[11*N+n] = b[24*N+n]*a[ 6*N+n] + b[25*N+n]*a[ 7*N+n] + b[27*N+n]*a[ 9*N+n] + b[28*N+n]*a[10*N+n];
-    c[12*N+n] = b[24*N+n]*a[12*N+n] + b[25*N+n]*a[13*N+n] + b[26*N+n] + b[27*N+n]*a[15*N+n] + b[28*N+n]*a[16*N+n] + b[29*N+n]*a[17*N+n];
-    c[13*N+n] = b[24*N+n]*a[18*N+n] + b[25*N+n]*a[19*N+n] + b[27*N+n]*a[21*N+n] + b[28*N+n]*a[22*N+n];
-    c[14*N+n] = b[24*N+n]*a[24*N+n] + b[25*N+n]*a[25*N+n] + b[27*N+n]*a[27*N+n] + b[28*N+n]*a[28*N+n];
-    c[15*N+n] = b[30*N+n]*a[ 0*N+n] + b[31*N+n]*a[ 1*N+n] + b[33*N+n]*a[ 3*N+n] + b[34*N+n]*a[ 4*N+n];
-    c[16*N+n] = b[30*N+n]*a[ 6*N+n] + b[31*N+n]*a[ 7*N+n] + b[33*N+n]*a[ 9*N+n] + b[34*N+n]*a[10*N+n];
-    c[17*N+n] = b[30*N+n]*a[12*N+n] + b[31*N+n]*a[13*N+n] + b[32*N+n] + b[33*N+n]*a[15*N+n] + b[34*N+n]*a[16*N+n] + b[35*N+n]*a[17*N+n];
-    c[18*N+n] = b[30*N+n]*a[18*N+n] + b[31*N+n]*a[19*N+n] + b[33*N+n]*a[21*N+n] + b[34*N+n]*a[22*N+n];
-    c[19*N+n] = b[30*N+n]*a[24*N+n] + b[31*N+n]*a[25*N+n] + b[33*N+n]*a[27*N+n] + b[34*N+n]*a[28*N+n];
-    c[20*N+n] = b[35*N+n];
-  }//);
-}
-
-
-__forceinline__ __device__ void KalmanGainInv(const MP6x6SF* A, const MP3x3SF* B, MP3x3* C) {
-  const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
-  const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
-  float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  for(int n=threadIdx.x;n<N;n+=blockDim.x)
-  {
-    double det =
-      ((a[0*N+n]+b[0*N+n])*(((a[ 6*N+n]+b[ 3*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[7*N+n]+b[4*N+n])))) -
-      ((a[1*N+n]+b[1*N+n])*(((a[ 1*N+n]+b[ 1*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[2*N+n]+b[2*N+n])))) +
-      ((a[2*N+n]+b[2*N+n])*(((a[ 1*N+n]+b[ 1*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[6*N+n]+b[3*N+n]))));
-    double invdet = 1.0/det;
-
-    c[ 0*N+n] =  invdet*(((a[ 6*N+n]+b[ 3*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[7*N+n]+b[4*N+n])));
-    c[ 1*N+n] =  -1*invdet*(((a[ 1*N+n]+b[ 1*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[7*N+n]+b[4*N+n])));
-    c[ 2*N+n] =  invdet*(((a[ 1*N+n]+b[ 1*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[7*N+n]+b[4*N+n])));
-    c[ 3*N+n] =  -1*invdet*(((a[ 1*N+n]+b[ 1*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[2*N+n]+b[2*N+n])));
-    c[ 4*N+n] =  invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[2*N+n]+b[2*N+n])));
-    c[ 5*N+n] =  -1*invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[1*N+n]+b[1*N+n])));
-    c[ 6*N+n] =  invdet*(((a[ 1*N+n]+b[ 1*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[6*N+n]+b[3*N+n])));
-    c[ 7*N+n] =  -1*invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[1*N+n]+b[1*N+n])));
-    c[ 8*N+n] =  invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[6*N+n]+b[3*N+n])) - ((a[1*N+n]+b[1*N+n]) *(a[1*N+n]+b[1*N+n])));
-  }
-}
-__forceinline__ __device__ void KalmanGain(const MP6x6SF* A, const MP3x3* B, MP3x6* C) {
-  const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
-  const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
-  float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  for(int n=threadIdx.x;n<N;n+=blockDim.x)
-  {
-    c[ 0*N+n] = a[0*N+n]*b[0*N+n] + a[1*N+n]*b[3*N+n] + a[2*N+n]*b[6*N+n];
-    c[ 1*N+n] = a[0*N+n]*b[1*N+n] + a[1*N+n]*b[4*N+n] + a[2*N+n]*b[7*N+n];
-    c[ 2*N+n] = a[0*N+n]*b[2*N+n] + a[1*N+n]*b[5*N+n] + a[2*N+n]*b[8*N+n];
-    c[ 3*N+n] = a[1*N+n]*b[0*N+n] + a[6*N+n]*b[3*N+n] + a[7*N+n]*b[6*N+n];
-    c[ 4*N+n] = a[1*N+n]*b[1*N+n] + a[6*N+n]*b[4*N+n] + a[7*N+n]*b[7*N+n];
-    c[ 5*N+n] = a[1*N+n]*b[2*N+n] + a[6*N+n]*b[5*N+n] + a[7*N+n]*b[8*N+n];
-    c[ 6*N+n] = a[2*N+n]*b[0*N+n] + a[7*N+n]*b[3*N+n] + a[11*N+n]*b[6*N+n];
-    c[ 7*N+n] = a[2*N+n]*b[1*N+n] + a[7*N+n]*b[4*N+n] + a[11*N+n]*b[7*N+n];
-    c[ 8*N+n] = a[2*N+n]*b[2*N+n] + a[7*N+n]*b[5*N+n] + a[11*N+n]*b[8*N+n];
-    c[ 9*N+n] = a[3*N+n]*b[0*N+n] + a[8*N+n]*b[3*N+n] + a[12*N+n]*b[6*N+n];
-    c[ 10*N+n] = a[3*N+n]*b[1*N+n] + a[8*N+n]*b[4*N+n] + a[12*N+n]*b[7*N+n];
-    c[ 11*N+n] = a[3*N+n]*b[2*N+n] + a[8*N+n]*b[5*N+n] + a[12*N+n]*b[8*N+n];
-    c[ 12*N+n] = a[4*N+n]*b[0*N+n] + a[9*N+n]*b[3*N+n] + a[13*N+n]*b[6*N+n];
-    c[ 13*N+n] = a[4*N+n]*b[1*N+n] + a[9*N+n]*b[4*N+n] + a[13*N+n]*b[7*N+n];
-    c[ 14*N+n] = a[4*N+n]*b[2*N+n] + a[9*N+n]*b[5*N+n] + a[13*N+n]*b[8*N+n];
-    c[ 15*N+n] = a[5*N+n]*b[0*N+n] + a[10*N+n]*b[3*N+n] + a[14*N+n]*b[6*N+n];
-    c[ 16*N+n] = a[5*N+n]*b[1*N+n] + a[10*N+n]*b[4*N+n] + a[14*N+n]*b[7*N+n];
-    c[ 17*N+n] = a[5*N+n]*b[2*N+n] + a[10*N+n]*b[5*N+n] + a[14*N+n]*b[8*N+n];
+  const size_t N = blockDim*ElemExtent;
+  for(int ithrd=threadIdx;ithrd <blockDim ;ithrd+=blockDim)
+    #pragma omp simd
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
+    {
+      size_t n = iele + ElemExtent * ithrd;
+      c[ 0*N+n] = a[ 0*N+n]*b[ 0*N+n] + a[ 1*N+n]*b[ 1*N+n] + a[ 3*N+n]*b[ 6*N+n] + a[ 4*N+n]*b[10*N+n];
+      c[ 1*N+n] = a[ 0*N+n]*b[ 1*N+n] + a[ 1*N+n]*b[ 2*N+n] + a[ 3*N+n]*b[ 7*N+n] + a[ 4*N+n]*b[11*N+n];
+      c[ 2*N+n] = a[ 0*N+n]*b[ 3*N+n] + a[ 1*N+n]*b[ 4*N+n] + a[ 3*N+n]*b[ 8*N+n] + a[ 4*N+n]*b[12*N+n];
+      c[ 3*N+n] = a[ 0*N+n]*b[ 6*N+n] + a[ 1*N+n]*b[ 7*N+n] + a[ 3*N+n]*b[ 9*N+n] + a[ 4*N+n]*b[13*N+n];
+      c[ 4*N+n] = a[ 0*N+n]*b[10*N+n] + a[ 1*N+n]*b[11*N+n] + a[ 3*N+n]*b[13*N+n] + a[ 4*N+n]*b[14*N+n];
+      c[ 5*N+n] = a[ 0*N+n]*b[15*N+n] + a[ 1*N+n]*b[16*N+n] + a[ 3*N+n]*b[18*N+n] + a[ 4*N+n]*b[19*N+n];
+      c[ 6*N+n] = a[ 6*N+n]*b[ 0*N+n] + a[ 7*N+n]*b[ 1*N+n] + a[ 9*N+n]*b[ 6*N+n] + a[10*N+n]*b[10*N+n];
+      c[ 7*N+n] = a[ 6*N+n]*b[ 1*N+n] + a[ 7*N+n]*b[ 2*N+n] + a[ 9*N+n]*b[ 7*N+n] + a[10*N+n]*b[11*N+n];
+      c[ 8*N+n] = a[ 6*N+n]*b[ 3*N+n] + a[ 7*N+n]*b[ 4*N+n] + a[ 9*N+n]*b[ 8*N+n] + a[10*N+n]*b[12*N+n];
+      c[ 9*N+n] = a[ 6*N+n]*b[ 6*N+n] + a[ 7*N+n]*b[ 7*N+n] + a[ 9*N+n]*b[ 9*N+n] + a[10*N+n]*b[13*N+n];
+      c[10*N+n] = a[ 6*N+n]*b[10*N+n] + a[ 7*N+n]*b[11*N+n] + a[ 9*N+n]*b[13*N+n] + a[10*N+n]*b[14*N+n];
+      c[11*N+n] = a[ 6*N+n]*b[15*N+n] + a[ 7*N+n]*b[16*N+n] + a[ 9*N+n]*b[18*N+n] + a[10*N+n]*b[19*N+n];
+      c[12*N+n] = a[12*N+n]*b[ 0*N+n] + a[13*N+n]*b[ 1*N+n] + b[ 3*N+n] + a[15*N+n]*b[ 6*N+n] + a[16*N+n]*b[10*N+n] + a[17*N+n]*b[15*N+n];
+      c[13*N+n] = a[12*N+n]*b[ 1*N+n] + a[13*N+n]*b[ 2*N+n] + b[ 4*N+n] + a[15*N+n]*b[ 7*N+n] + a[16*N+n]*b[11*N+n] + a[17*N+n]*b[16*N+n];
+      c[14*N+n] = a[12*N+n]*b[ 3*N+n] + a[13*N+n]*b[ 4*N+n] + b[ 5*N+n] + a[15*N+n]*b[ 8*N+n] + a[16*N+n]*b[12*N+n] + a[17*N+n]*b[17*N+n];
+      c[15*N+n] = a[12*N+n]*b[ 6*N+n] + a[13*N+n]*b[ 7*N+n] + b[ 8*N+n] + a[15*N+n]*b[ 9*N+n] + a[16*N+n]*b[13*N+n] + a[17*N+n]*b[18*N+n];
+      c[16*N+n] = a[12*N+n]*b[10*N+n] + a[13*N+n]*b[11*N+n] + b[12*N+n] + a[15*N+n]*b[13*N+n] + a[16*N+n]*b[14*N+n] + a[17*N+n]*b[19*N+n];
+      c[17*N+n] = a[12*N+n]*b[15*N+n] + a[13*N+n]*b[16*N+n] + b[17*N+n] + a[15*N+n]*b[18*N+n] + a[16*N+n]*b[19*N+n] + a[17*N+n]*b[20*N+n];
+      c[18*N+n] = a[18*N+n]*b[ 0*N+n] + a[19*N+n]*b[ 1*N+n] + a[21*N+n]*b[ 6*N+n] + a[22*N+n]*b[10*N+n];
+      c[19*N+n] = a[18*N+n]*b[ 1*N+n] + a[19*N+n]*b[ 2*N+n] + a[21*N+n]*b[ 7*N+n] + a[22*N+n]*b[11*N+n];
+      c[20*N+n] = a[18*N+n]*b[ 3*N+n] + a[19*N+n]*b[ 4*N+n] + a[21*N+n]*b[ 8*N+n] + a[22*N+n]*b[12*N+n];
+      c[21*N+n] = a[18*N+n]*b[ 6*N+n] + a[19*N+n]*b[ 7*N+n] + a[21*N+n]*b[ 9*N+n] + a[22*N+n]*b[13*N+n];
+      c[22*N+n] = a[18*N+n]*b[10*N+n] + a[19*N+n]*b[11*N+n] + a[21*N+n]*b[13*N+n] + a[22*N+n]*b[14*N+n];
+      c[23*N+n] = a[18*N+n]*b[15*N+n] + a[19*N+n]*b[16*N+n] + a[21*N+n]*b[18*N+n] + a[22*N+n]*b[19*N+n];
+      c[24*N+n] = a[24*N+n]*b[ 0*N+n] + a[25*N+n]*b[ 1*N+n] + a[27*N+n]*b[ 6*N+n] + a[28*N+n]*b[10*N+n];
+      c[25*N+n] = a[24*N+n]*b[ 1*N+n] + a[25*N+n]*b[ 2*N+n] + a[27*N+n]*b[ 7*N+n] + a[28*N+n]*b[11*N+n];
+      c[26*N+n] = a[24*N+n]*b[ 3*N+n] + a[25*N+n]*b[ 4*N+n] + a[27*N+n]*b[ 8*N+n] + a[28*N+n]*b[12*N+n];
+      c[27*N+n] = a[24*N+n]*b[ 6*N+n] + a[25*N+n]*b[ 7*N+n] + a[27*N+n]*b[ 9*N+n] + a[28*N+n]*b[13*N+n];
+      c[28*N+n] = a[24*N+n]*b[10*N+n] + a[25*N+n]*b[11*N+n] + a[27*N+n]*b[13*N+n] + a[28*N+n]*b[14*N+n];
+      c[29*N+n] = a[24*N+n]*b[15*N+n] + a[25*N+n]*b[16*N+n] + a[27*N+n]*b[18*N+n] + a[28*N+n]*b[19*N+n];
+      c[30*N+n] = b[15*N+n];
+      c[31*N+n] = b[16*N+n];
+      c[32*N+n] = b[17*N+n];
+      c[33*N+n] = b[18*N+n];
+      c[34*N+n] = b[19*N+n];
+      c[35*N+n] = b[20*N+n];
+    }//);
   }
 }
 
-HOSTDEV inline float hipo(float x, float y)
+ALPAKA_FN_INLINE ALPAKA_FN_ACC void MultHelixPropTransp(const MP6x6F* A, const MP6x6F* B, MP6x6SF* C, size_t const threadIdx, size_t const blockDim, size_t const ElemExtent) {
+  const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
+  const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
+  float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
+  const size_t N = blockDim*ElemExtent;
+//parallel_for(0,N,[&](int n){
+  for(int ithrd=threadIdx;ithrd <blockDim ;ithrd+=blockDim)
+    #pragma omp simd
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
+    {
+       size_t n = iele + ElemExtent * ithrd;
+      c[ 0*N+n] = b[ 0*N+n]*a[ 0*N+n] + b[ 1*N+n]*a[ 1*N+n] + b[ 3*N+n]*a[ 3*N+n] + b[ 4*N+n]*a[ 4*N+n];
+      c[ 1*N+n] = b[ 6*N+n]*a[ 0*N+n] + b[ 7*N+n]*a[ 1*N+n] + b[ 9*N+n]*a[ 3*N+n] + b[10*N+n]*a[ 4*N+n];
+      c[ 2*N+n] = b[ 6*N+n]*a[ 6*N+n] + b[ 7*N+n]*a[ 7*N+n] + b[ 9*N+n]*a[ 9*N+n] + b[10*N+n]*a[10*N+n];
+      c[ 3*N+n] = b[12*N+n]*a[ 0*N+n] + b[13*N+n]*a[ 1*N+n] + b[15*N+n]*a[ 3*N+n] + b[16*N+n]*a[ 4*N+n];
+      c[ 4*N+n] = b[12*N+n]*a[ 6*N+n] + b[13*N+n]*a[ 7*N+n] + b[15*N+n]*a[ 9*N+n] + b[16*N+n]*a[10*N+n];
+      c[ 5*N+n] = b[12*N+n]*a[12*N+n] + b[13*N+n]*a[13*N+n] + b[14*N+n] + b[15*N+n]*a[15*N+n] + b[16*N+n]*a[16*N+n] + b[17*N+n]*a[17*N+n];
+      c[ 6*N+n] = b[18*N+n]*a[ 0*N+n] + b[19*N+n]*a[ 1*N+n] + b[21*N+n]*a[ 3*N+n] + b[22*N+n]*a[ 4*N+n];
+      c[ 7*N+n] = b[18*N+n]*a[ 6*N+n] + b[19*N+n]*a[ 7*N+n] + b[21*N+n]*a[ 9*N+n] + b[22*N+n]*a[10*N+n];
+      c[ 8*N+n] = b[18*N+n]*a[12*N+n] + b[19*N+n]*a[13*N+n] + b[20*N+n] + b[21*N+n]*a[15*N+n] + b[22*N+n]*a[16*N+n] + b[23*N+n]*a[17*N+n];
+      c[ 9*N+n] = b[18*N+n]*a[18*N+n] + b[19*N+n]*a[19*N+n] + b[21*N+n]*a[21*N+n] + b[22*N+n]*a[22*N+n];
+      c[10*N+n] = b[24*N+n]*a[ 0*N+n] + b[25*N+n]*a[ 1*N+n] + b[27*N+n]*a[ 3*N+n] + b[28*N+n]*a[ 4*N+n];
+      c[11*N+n] = b[24*N+n]*a[ 6*N+n] + b[25*N+n]*a[ 7*N+n] + b[27*N+n]*a[ 9*N+n] + b[28*N+n]*a[10*N+n];
+      c[12*N+n] = b[24*N+n]*a[12*N+n] + b[25*N+n]*a[13*N+n] + b[26*N+n] + b[27*N+n]*a[15*N+n] + b[28*N+n]*a[16*N+n] + b[29*N+n]*a[17*N+n];
+      c[13*N+n] = b[24*N+n]*a[18*N+n] + b[25*N+n]*a[19*N+n] + b[27*N+n]*a[21*N+n] + b[28*N+n]*a[22*N+n];
+      c[14*N+n] = b[24*N+n]*a[24*N+n] + b[25*N+n]*a[25*N+n] + b[27*N+n]*a[27*N+n] + b[28*N+n]*a[28*N+n];
+      c[15*N+n] = b[30*N+n]*a[ 0*N+n] + b[31*N+n]*a[ 1*N+n] + b[33*N+n]*a[ 3*N+n] + b[34*N+n]*a[ 4*N+n];
+      c[16*N+n] = b[30*N+n]*a[ 6*N+n] + b[31*N+n]*a[ 7*N+n] + b[33*N+n]*a[ 9*N+n] + b[34*N+n]*a[10*N+n];
+      c[17*N+n] = b[30*N+n]*a[12*N+n] + b[31*N+n]*a[13*N+n] + b[32*N+n] + b[33*N+n]*a[15*N+n] + b[34*N+n]*a[16*N+n] + b[35*N+n]*a[17*N+n];
+      c[18*N+n] = b[30*N+n]*a[18*N+n] + b[31*N+n]*a[19*N+n] + b[33*N+n]*a[21*N+n] + b[34*N+n]*a[22*N+n];
+      c[19*N+n] = b[30*N+n]*a[24*N+n] + b[31*N+n]*a[25*N+n] + b[33*N+n]*a[27*N+n] + b[34*N+n]*a[28*N+n];
+      c[20*N+n] = b[35*N+n];
+    }//);
+  }
+}
+
+
+//ALPAKA_FN_ACC void KalmanGainInv(const MP6x6SF* A, const MP3x3SF* B, MP3x3* C) {
+//  const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
+//  const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
+//  float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
+//  for(int n=threadIdx.x;n<N;n+=blockDim.x)
+//  {
+//    double det =
+//      ((a[0*N+n]+b[0*N+n])*(((a[ 6*N+n]+b[ 3*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[7*N+n]+b[4*N+n])))) -
+//      ((a[1*N+n]+b[1*N+n])*(((a[ 1*N+n]+b[ 1*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[2*N+n]+b[2*N+n])))) +
+//      ((a[2*N+n]+b[2*N+n])*(((a[ 1*N+n]+b[ 1*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[6*N+n]+b[3*N+n]))));
+//    double invdet = 1.0/det;
+//
+//    c[ 0*N+n] =  invdet*(((a[ 6*N+n]+b[ 3*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[7*N+n]+b[4*N+n])));
+//    c[ 1*N+n] =  -1*invdet*(((a[ 1*N+n]+b[ 1*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[7*N+n]+b[4*N+n])));
+//    c[ 2*N+n] =  invdet*(((a[ 1*N+n]+b[ 1*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[7*N+n]+b[4*N+n])));
+//    c[ 3*N+n] =  -1*invdet*(((a[ 1*N+n]+b[ 1*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[2*N+n]+b[2*N+n])));
+//    c[ 4*N+n] =  invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[2*N+n]+b[2*N+n])));
+//    c[ 5*N+n] =  -1*invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[1*N+n]+b[1*N+n])));
+//    c[ 6*N+n] =  invdet*(((a[ 1*N+n]+b[ 1*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[6*N+n]+b[3*N+n])));
+//    c[ 7*N+n] =  -1*invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[7*N+n]+b[4*N+n])) - ((a[2*N+n]+b[2*N+n]) *(a[1*N+n]+b[1*N+n])));
+//    c[ 8*N+n] =  invdet*(((a[ 0*N+n]+b[ 0*N+n]) *(a[6*N+n]+b[3*N+n])) - ((a[1*N+n]+b[1*N+n]) *(a[1*N+n]+b[1*N+n])));
+//  }
+//}
+//ALPAKA_FN_ACC void KalmanGain(const MP6x6SF* A, const MP3x3* B, MP3x6* C) {
+//  const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
+//  const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
+//  float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
+//  for(int n=threadIdx.x;n<N;n+=blockDim.x)
+//  {
+//    c[ 0*N+n] = a[0*N+n]*b[0*N+n] + a[1*N+n]*b[3*N+n] + a[2*N+n]*b[6*N+n];
+//    c[ 1*N+n] = a[0*N+n]*b[1*N+n] + a[1*N+n]*b[4*N+n] + a[2*N+n]*b[7*N+n];
+//    c[ 2*N+n] = a[0*N+n]*b[2*N+n] + a[1*N+n]*b[5*N+n] + a[2*N+n]*b[8*N+n];
+//    c[ 3*N+n] = a[1*N+n]*b[0*N+n] + a[6*N+n]*b[3*N+n] + a[7*N+n]*b[6*N+n];
+//    c[ 4*N+n] = a[1*N+n]*b[1*N+n] + a[6*N+n]*b[4*N+n] + a[7*N+n]*b[7*N+n];
+//    c[ 5*N+n] = a[1*N+n]*b[2*N+n] + a[6*N+n]*b[5*N+n] + a[7*N+n]*b[8*N+n];
+//    c[ 6*N+n] = a[2*N+n]*b[0*N+n] + a[7*N+n]*b[3*N+n] + a[11*N+n]*b[6*N+n];
+//    c[ 7*N+n] = a[2*N+n]*b[1*N+n] + a[7*N+n]*b[4*N+n] + a[11*N+n]*b[7*N+n];
+//    c[ 8*N+n] = a[2*N+n]*b[2*N+n] + a[7*N+n]*b[5*N+n] + a[11*N+n]*b[8*N+n];
+//    c[ 9*N+n] = a[3*N+n]*b[0*N+n] + a[8*N+n]*b[3*N+n] + a[12*N+n]*b[6*N+n];
+//    c[ 10*N+n] = a[3*N+n]*b[1*N+n] + a[8*N+n]*b[4*N+n] + a[12*N+n]*b[7*N+n];
+//    c[ 11*N+n] = a[3*N+n]*b[2*N+n] + a[8*N+n]*b[5*N+n] + a[12*N+n]*b[8*N+n];
+//    c[ 12*N+n] = a[4*N+n]*b[0*N+n] + a[9*N+n]*b[3*N+n] + a[13*N+n]*b[6*N+n];
+//    c[ 13*N+n] = a[4*N+n]*b[1*N+n] + a[9*N+n]*b[4*N+n] + a[13*N+n]*b[7*N+n];
+//    c[ 14*N+n] = a[4*N+n]*b[2*N+n] + a[9*N+n]*b[5*N+n] + a[13*N+n]*b[8*N+n];
+//    c[ 15*N+n] = a[5*N+n]*b[0*N+n] + a[10*N+n]*b[3*N+n] + a[14*N+n]*b[6*N+n];
+//    c[ 16*N+n] = a[5*N+n]*b[1*N+n] + a[10*N+n]*b[4*N+n] + a[14*N+n]*b[7*N+n];
+//    c[ 17*N+n] = a[5*N+n]*b[2*N+n] + a[10*N+n]*b[5*N+n] + a[14*N+n]*b[8*N+n];
+//  }
+//}
+
+ALPAKA_FN_ACC inline float hipo(float x, float y)
 {
   return std::sqrt(x*x + y*y);
 }
 
-__device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP,
-                            	MP1F *rotT00, MP1F *rotT01, MP2x2SF *resErr_loc, MP3x6 *kGain,
-                                MP2F *res_loc, MP6x6SF * newErr ){
-  
-  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+ALPAKA_FN_ACC void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr, const MP3F* msP,
+                            	MP1F  *rotT00, MP1F  *rotT01, MP2x2SF  *resErr_loc, MP3x6  *kGain,
+                                MP2F  *res_loc, MP6x6SF  * newErr,
+                                uint32_t const threadIdx, uint32_t const blockDim, uint32_t const ElemExtent ){
+  //MP1F rotT00;
+  //MP1F rotT01;
+  //MP2x2SF resErr_loc;
+  //MP2F res_loc;
+  //MP3x6 kGain;
+  //MP6x6SF newErr;
+  for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    #pragma omp simd
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
+ 
+    size_t it = iele + ElemExtent * ithrd;
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00->data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
     rotT01->data[it] =  (x(msP,it) + x(inPar,it)) / (2*r);    
@@ -470,9 +491,12 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
     resErr_loc->data[ 1*bsize+it] = (trkErr->data[3*bsize+it] + hitErr->data[3*bsize+it])*rotT00->data[it] +
                                    (trkErr->data[4*bsize+it] + hitErr->data[4*bsize+it])*rotT01->data[it];
     resErr_loc->data[ 2*bsize+it] = (trkErr->data[5*bsize+it] + hitErr->data[5*bsize+it]);
-  }
+  }}
 
-  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+  for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    #pragma omp simd
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
+    size_t it = iele + ElemExtent * ithrd;
     const double det = (double)resErr_loc->data[0*bsize+it] * resErr_loc->data[2*bsize+it] -
                        (double)resErr_loc->data[1*bsize+it] * resErr_loc->data[1*bsize+it];
     const float s   = 1.f / det;
@@ -480,9 +504,12 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
     resErr_loc->data[1*bsize+it] *= -s;
     resErr_loc->data[2*bsize+it]  = s * resErr_loc->data[0*bsize+it];
     resErr_loc->data[0*bsize+it]  = tmp;
-  }
+  }}
 
-  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+  for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    #pragma omp simd
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
+    size_t it = iele + ElemExtent * ithrd;
       kGain->data[ 0*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00->data[it]*resErr_loc->data[ 0*bsize+it]) +
 	                        trkErr->data[ 1*bsize+it]*(rotT01->data[it]*resErr_loc->data[ 0*bsize+it]) +
 	                        trkErr->data[ 3*bsize+it]*resErr_loc->data[ 1*bsize+it];
@@ -525,21 +552,26 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
 	                        trkErr->data[16*bsize+it]*(rotT01->data[it]*resErr_loc->data[ 1*bsize+it]) +
 	                        trkErr->data[17*bsize+it]*resErr_loc->data[ 2*bsize+it];
       kGain->data[17*bsize+it] = 0;
-   }
+   }}
+   for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+     #pragma omp simd
+     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
+        size_t it = iele + ElemExtent * ithrd;
+        res_loc->data[0*bsize+it] =  rotT00->data[it]*(x(msP,it) - x(inPar,it)) + rotT01->data[it]*(y(msP,it) - y(inPar,it));
+        res_loc->data[1*bsize+it] =  z(msP,it) - z(inPar,it);
 
-   for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
-     res_loc->data[0*bsize+it] =  rotT00->data[it]*(x(msP,it) - x(inPar,it)) + rotT01->data[it]*(y(msP,it) - y(inPar,it));
-     res_loc->data[1*bsize+it] =  z(msP,it) - z(inPar,it);
+        setx(inPar, it, x(inPar, it) + kGain->data[ 0*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[ 1*bsize+it] * res_loc->data[ 1*bsize+it]);
+        sety(inPar, it, y(inPar, it) + kGain->data[ 3*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[ 4*bsize+it] * res_loc->data[ 1*bsize+it]);
+        setz(inPar, it, z(inPar, it) + kGain->data[ 6*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[ 7*bsize+it] * res_loc->data[ 1*bsize+it]);
+        setipt(inPar, it, ipt(inPar, it) + kGain->data[ 9*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[10*bsize+it] * res_loc->data[ 1*bsize+it]);
+        setphi(inPar, it, phi(inPar, it) + kGain->data[12*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[13*bsize+it] * res_loc->data[ 1*bsize+it]);
+        settheta(inPar, it, theta(inPar, it) + kGain->data[15*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[16*bsize+it] * res_loc->data[ 1*bsize+it]);
+   }}
+   for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+     #pragma omp simd
+     for(size_t iele=0 ;iele<ElemExtent;iele+=1){
+     size_t   it = iele + ElemExtent * ithrd;
 
-     setx(inPar, it, x(inPar, it) + kGain->data[ 0*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[ 1*bsize+it] * res_loc->data[ 1*bsize+it]);
-     sety(inPar, it, y(inPar, it) + kGain->data[ 3*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[ 4*bsize+it] * res_loc->data[ 1*bsize+it]);
-     setz(inPar, it, z(inPar, it) + kGain->data[ 6*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[ 7*bsize+it] * res_loc->data[ 1*bsize+it]);
-     setipt(inPar, it, ipt(inPar, it) + kGain->data[ 9*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[10*bsize+it] * res_loc->data[ 1*bsize+it]);
-     setphi(inPar, it, phi(inPar, it) + kGain->data[12*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[13*bsize+it] * res_loc->data[ 1*bsize+it]);
-     settheta(inPar, it, theta(inPar, it) + kGain->data[15*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[16*bsize+it] * res_loc->data[ 1*bsize+it]);
-   }
-
-   for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
      newErr->data[ 0*bsize+it] = kGain->data[ 0*bsize+it]*rotT00->data[it]*trkErr->data[ 0*bsize+it] +
                                 kGain->data[ 0*bsize+it]*rotT01->data[it]*trkErr->data[ 1*bsize+it] +
                                 kGain->data[ 1*bsize+it]*trkErr->data[ 3*bsize+it];
@@ -625,7 +657,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
      newErr->data[18*bsize+it] = trkErr->data[18*bsize+it] - newErr->data[18*bsize+it];
      newErr->data[19*bsize+it] = trkErr->data[19*bsize+it] - newErr->data[19*bsize+it];
      newErr->data[20*bsize+it] = trkErr->data[20*bsize+it] - newErr->data[20*bsize+it];
-   }
+   }}
 
   /*
   MPlexLH K;           // kalman gain, fixme should be L2
@@ -650,7 +682,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
   (*trkErr) = (*newErr);
 }
 
-HOSTDEV inline void sincos4(const float x, float& sin, float& cos)
+ALPAKA_FN_ACC inline void sincos4(const float x, float& sin, float& cos)
 {
    // Had this writen with explicit division by factorial.
    // The *whole* fitting test ran like 2.5% slower on MIC, sigh.
@@ -662,11 +694,25 @@ HOSTDEV inline void sincos4(const float x, float& sin, float& cos)
 
 constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
-__device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
-                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp) {
-  
-  //MP6x6F errorProp, temp;
-  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+ALPAKA_FN_ACC void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg, 
+                  const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp,
+                uint32_t const threadIdx, uint32_t const blockDim,uint32_t const ElemExtent) {
+ 
+   
+  //printf("propagateToR :(ThreadIdx,blockDim,ElemExtent)=(%i,%i,%i) \n ",threadIdx,blockDim,ElemExtent);
+  //////////////////////////////////////////////////////////////////////////
+  // For GPU this loop reduces to :
+  //  for(size_t ithrd=threadIdx;ithrd<bsize;ithrd+=blockDim)
+  // For CPU this loop reduces to :
+  //   for(size_t iele=0;iele<bsize;iele+=1) 
+  // 
+  // provided that  "ElemExtent * blockDim == bsize"
+  //////////////////////////////////////////////////////////////////////////
+  for(size_t ithrd=threadIdx;ithrd<blockDim;ithrd+=blockDim){
+    #pragma omp simd
+    for(size_t iele=0 ;iele<ElemExtent;iele+=1){
+     size_t   it = iele + ElemExtent * ithrd;
+
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp->data[bsize*PosInMtrx(i,i,6) + it] = 1.f;
     
@@ -810,46 +856,91 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
     errorProp->data[bsize*PosInMtrx(5,3,6) + it] = 0.f;
     errorProp->data[bsize*PosInMtrx(5,4,6) + it] = 0.f;
     errorProp->data[bsize*PosInMtrx(5,5,6) + it] = 1.f;
-  }
+   
+  }}
 
-  MultHelixProp(errorProp, inErr, temp);
-  MultHelixPropTransp(errorProp, temp, outErr);
+  MultHelixProp(errorProp, inErr, temp, threadIdx, blockDim,ElemExtent);
+  MultHelixPropTransp(errorProp, temp, outErr, threadIdx, blockDim,ElemExtent);
 }
 
-__device__ __constant__ int ie_range = (int) nevts/num_streams; 
-//__global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk, MP6x6SF* newErr,MP6x6F* errorProp , const int stream){
-__global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int stream){
-  ///*__shared__*/ struct MP6x6F errorProp, temp; // shared memory here causes a race condition. Probably move to inside the p2z function? i forgot why I did it this way to begin with. maybe to make it shared?
+const  int ie_range = (int) nevts/num_streams; 
 
-   __shared__ struct MP6x6F errorProp, temp;
-   __shared__ struct MP1F rotT00, rotT01; 
-   __shared__ struct MP2x2SF resErr_loc; 
-   __shared__ struct MP3x6 kGain;
-   __shared__ struct MP2F res_loc;
-   __shared__ struct MP6x6SF newErr;
+struct GPUsequenceKernel
+{
+public:
+    template<typename TAcc>
+    ALPAKA_FN_ACC auto operator()(
+        TAcc const& acc,
+        MPTRK* trk,
+        MPHIT* hit,
+        MPTRK* outtrk,
+         const int stream
+        ) const -> void
+    {
+       const int end = (stream < num_streams) ?
+         nb*nevts / num_streams : // for "full" streams
+         nb*nevts % num_streams; // possible remainder
+    
+       using Dim = alpaka::Dim<TAcc>;
+       using Idx = alpaka::Idx<TAcc>;
+       using Vec = alpaka::Vec<Dim, Idx>;
+       
+       uint32_t const ElemExtent(alpaka::getWorkDiv<alpaka::Thread, alpaka::Elems>(acc)[0u]);
 
-   const int end = (stream < num_streams) ?
-     nb*nevts / num_streams : // for "full" streams
-     nb*nevts % num_streams; // possible remainder
+       uint32_t const ThreadIdx(alpaka::getIdx<alpaka::Block, alpaka::Threads>(acc)[0u]);
+       uint32_t const ThreadExtent(alpaka::getWorkDiv<alpaka::Block, alpaka::Threads>(acc)[0u]);
 
-   for (size_t ti = blockIdx.x; ti< end; ti+=gridDim.x){
-      int ie = ti/nb;
-      int ib = ti%nb;
-      const MPTRK* btracks = bTk(trk,ie,ib);
-      MPTRK* obtracks = bTk(outtrk,ie,ib);
-       (*obtracks) = (*btracks);
-      for (int layer=0;layer<nlayer;++layer){	
-        const MPHIT* bhits = bHit(hit,ie,ib,layer);
-          propagateToR(&(*obtracks).cov, &(*obtracks).par, &(*obtracks).q, &(*bhits).pos, 
-                       &(*obtracks).cov, &(*obtracks).par, &(errorProp),&temp);
-          KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,
-                    &rotT00, &rotT01, &resErr_loc, &kGain, &res_loc, &(newErr));
+       uint32_t BlockIdx(alpaka::getIdx<alpaka::Grid, alpaka::Blocks>(acc)[0u]);
+       uint32_t BlockExtent(alpaka::getWorkDiv<alpaka::Grid, alpaka::Blocks>(acc)[0u]);
+
+       auto & errorProp = alpaka::declareSharedVar<MP6x6F,__COUNTER__>(acc);
+       auto & temp = alpaka::declareSharedVar<MP6x6F,__COUNTER__>(acc);
+       auto & rotT00 = alpaka::declareSharedVar<MP1F,__COUNTER__>(acc);
+       auto & rotT01 = alpaka::declareSharedVar<MP1F,__COUNTER__>(acc);
+       auto & resErr_loc = alpaka::declareSharedVar<MP2x2SF,__COUNTER__>(acc);
+       auto & kGain = alpaka::declareSharedVar<MP3x6,__COUNTER__>(acc);
+       auto & res_loc = alpaka::declareSharedVar<MP2F,__COUNTER__>(acc);
+       auto & newErr = alpaka::declareSharedVar<MP6x6SF,__COUNTER__>(acc);
+
+       for (uint32_t ti=BlockIdx; ti< end; ti+=BlockExtent){
+          int ie = ti/nb;
+          int ib = ti%nb;
+          const MPTRK* btracks = bTk(trk,ie,ib);
+          MPTRK* obtracks = bTk(outtrk,ie,ib);
+          (*obtracks) = (*btracks);
+          for (int layer=0;layer<nlayer;++layer){	
+            const MPHIT* bhits = bHit(hit,ie,ib,layer);
+              propagateToR(&(*btracks).cov, &(*btracks).par, &(*btracks).q, &(*bhits).pos, 
+                           &(*obtracks).cov, &(*obtracks).par, &(errorProp), &temp,ThreadIdx, ThreadExtent,ElemExtent);
+              KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos,
+                            &rotT00, &rotT01, &resErr_loc, &kGain, &res_loc, &(newErr),
+                            ThreadIdx,ThreadExtent,ElemExtent);
+           }
+        //printf("index = %i ,(blockIdx,blockExt)=(%i,%i), ,(ThreadIdx,ThreadExt)=(%i,%i) \n ",
+        //printf("index = %u ,(blockIdx,blockExt)=(%u,%u), (ThreadIdx,ThreadExt)=(%u,%u), track = (%.3f) \n ",
+        //                                         (unsigned int) ti,(unsigned int) BlockIdx,(unsigned int) BlockExtent,
+        //                                         (unsigned int) ThreadIdx,(unsigned int) ThreadExtent);
+                                                  //&(*btracks).par.data[8]);
        }
-    //if((index)%100==0 ) printf("index = %i ,(block,grid)=(%i,%i), track = (%.3f)\n ", index,blockDim.x,gridDim.x,&(*btracks).par.data[8]);
-   }
-}
+        
+    }
+};
 
 int main (int argc, char* argv[]) {
+
+   using Dim = alpaka::DimInt<1u>;
+   using Idx = std::uint32_t;
+  
+   //switches accelerator based on CMAKE option 
+   using Acc = alpaka::ExampleDefaultAcc<Dim, Idx>;
+   using WorkDiv = alpaka::WorkDivMembers<Dim, Idx>;
+   using Vec = alpaka::Vec<Dim, Idx>;
+ 
+   std::cout << "Using alpaka accelerator: " << alpaka::getAccName<Acc>() << std::endl;
+
+   // Select the first device available on a system, for the chosen accelerator
+   auto const device = alpaka::getDevByIdx<Acc>(0u);
+
 
    printf("Streams: %d, blocks: %d, threads(x): (%d), bsize = (%i)\n",num_streams,blockspergrid,threadsperblockx,bsize);
    
@@ -876,55 +967,112 @@ int main (int argc, char* argv[]) {
 
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
-   MPTRK* trk = prepareTracks(inputtrk);
-   MPHIT* hit = prepareHits(inputhits);
-   MPTRK* outtrk ;
-   cudaMallocHost((void**)&outtrk,nevts*nb*sizeof(MPTRK)); 
-   //device pointers
-   MPTRK* trk_dev;
-   MPHIT* hit_dev;
-   MPTRK* outtrk_dev;
-   cudaMalloc((MPTRK**)&trk_dev,nevts*nb*sizeof(MPTRK));
-   cudaMalloc((MPHIT**)&hit_dev,nlayer*nevts*nb*sizeof(MPHIT));
-   cudaMalloc((MPTRK**)&outtrk_dev,nevts*nb*sizeof(MPTRK));
-   dim3 grid(blockspergrid,1,1);
-   dim3 block(threadsperblockx,1,1); 
-
-   //for (size_t ie=0;ie<nevts;++ie) {
-   //  for (size_t it=0;it<ntrks;++it) {
-   //    float x_ = x(trk,ie,it);
-   //    float y_ = y(trk,ie,it);
-   //    float z_ = z(trk,ie,it);
-   //    float r_ = sqrtf(x_*x_ + y_*y_);
-   //    if((it+ie*ntrks)%10==0) printf("iTrk = %i,  track (x,y,z,r)=(%.3f,%.3f,%.3f,%.3f) \n", it+ie*ntrks, x_,y_,z_,r_);
-   //  }
-   //}
-
-   int device = -1;
-   cudaGetDevice(&device);
-
-  printf(" Runing on cudaDevice: %d\n", device);
-
-  int nDevices;
-  cudaGetDeviceCount(&nDevices);
-  for (int i = 0; i < nDevices; i++) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, i);
-    printf(" Device Number: %d\n", i);
-    printf("  Device name: %s\n", prop.name);
-  }
 
   int stream_chunk = ((int)(nevts*nb/num_streams));
   int stream_remainder = ((int)((nevts*nb)%num_streams));
   int stream_range;
   if (stream_remainder == 0){ stream_range =num_streams;}
   else{stream_range = num_streams+1;}
-  cudaStream_t streams[stream_range];
-  for (int s = 0; s<stream_range;s++){
-    //cudaStreamCreateWithFlags(&streams[s],cudaStreamNonBlocking);
-    cudaStreamCreate(&streams[s]);
-  }
+  //cudaStream_t streams[stream_range];
 
+   auto chunkSize = [&](int s) {
+     return s < num_streams ? stream_chunk : stream_remainder;
+   };
+   auto forStream = [&](auto ptr, int s) {
+     return ptr + s*stream_chunk;
+   };
+
+   Idx const nMPHIT(nevts*nb*nlayer);   
+   Idx const nMPTRK(nevts*nb);   
+   alpaka::Vec<Dim, Idx> MPHITExtent(nMPHIT);
+   alpaka::Vec<Dim, Idx> MPTRKExtent(nMPTRK);
+    
+   using DevHost = alpaka::DevCpu;
+   auto const devHost = alpaka::getDevByIdx<DevHost>(0u);
+
+   using MPTRKBufHost = alpaka::Buf<DevHost, MPTRK, Dim, Idx>;
+   using MPHITBufHost = alpaka::Buf<DevHost, MPHIT, Dim, Idx>;
+   using MPTRKBufDev = alpaka::Buf<Acc, MPTRK, Dim, Idx>;
+   using MPHITBufDev = alpaka::Buf<Acc, MPHIT, Dim, Idx>;
+ 
+   std::vector<Vec> MPTRKExtents;
+   std::vector<Vec> MPHITExtents;
+   std::vector<MPTRKBufHost> trk_bufHosts,outtrk_bufHosts;
+   std::vector<MPHITBufHost> hit_bufHosts;
+   std::vector<MPTRKBufDev> trk_bufDevs,outtrk_bufDevs;
+   std::vector<MPHITBufDev> hit_bufDevs;
+
+   MPTRK* trks[num_streams];
+   MPHIT* hits[num_streams];
+   MPTRK* outtrks[num_streams];
+   MPTRK* trks_dev[num_streams];
+   MPHIT* hits_dev[num_streams];
+   MPTRK* outtrks_dev[num_streams];
+
+   MPTRK* alltrks;  // all trks on hosts
+   MPHIT* allhits;  // all hits on hosts, get pointers from alpaka buffer
+   MPTRK* outtrk = (MPTRK*) std::malloc(nevts*nb*sizeof(MPTRK)); // all out tracks on host, manually allocate memory
+   alltrks = prepareTracks(inputtrk);
+   allhits = prepareHits(inputhits);
+
+   for(int s=0;s<num_streams;s++){
+        MPTRKExtents.emplace_back(Idx(chunkSize(s)));
+        MPHITExtents.emplace_back(Idx(chunkSize(s)*nlayer));
+    
+        trk_bufHosts.emplace_back(alpaka::allocBuf<MPTRK,Idx>(devHost,MPTRKExtents[s]));
+        hit_bufHosts.emplace_back(alpaka::allocBuf<MPHIT,Idx>(devHost,MPHITExtents[s]));
+        outtrk_bufHosts.emplace_back(alpaka::allocBuf<MPTRK,Idx>(devHost,MPTRKExtents[s]));
+
+        //device pointers
+        trk_bufDevs.emplace_back(alpaka::allocBuf<MPTRK,Idx>(device,MPTRKExtents[s]));
+        hit_bufDevs.emplace_back(alpaka::allocBuf<MPHIT,Idx>(device,MPHITExtents[s]));
+        outtrk_bufDevs.emplace_back(alpaka::allocBuf<MPTRK,Idx>(device,MPTRKExtents[s]));
+   }
+    // For async copy
+   for(int s=0;s<num_streams;s++){
+        prepareForAsyncCopy(trk_bufHosts[s]);
+        prepareForAsyncCopy(hit_bufHosts[s]);
+        prepareForAsyncCopy(outtrk_bufHosts[s]);
+   }
+
+   int offset=0;
+   int offset_hits=0;
+   for(int s=0;s<num_streams;s++){
+        trks[s] = alpaka::getPtrNative(trk_bufHosts[s]);
+
+        std::copy(alltrks+offset,alltrks+offset+chunkSize(s), trks[s]); // stitch the outtrks from different streams together
+        offset+=chunkSize(s);
+
+        //std::cout<< "stream s = "<< s << "  size of trks= "<< sizeof(trks[s]) <<" chunkSize = " << chunkSize(s)<< std::endl;
+        hits[s] = alpaka::getPtrNative(hit_bufHosts[s]);
+        std::copy(allhits+offset_hits,allhits+offset_hits+chunkSize(s)*nlayer, hits[s]); // stitch the outtrks from different streams together
+        offset_hits+= chunkSize(s)*nlayer;
+        outtrks[s] = alpaka::getPtrNative(outtrk_bufHosts[s]); 
+
+        trks_dev[s] = alpaka::getPtrNative(trk_bufDevs[s]);
+        hits_dev[s] = alpaka::getPtrNative(hit_bufDevs[s]);
+        outtrks_dev[s] = alpaka::getPtrNative(outtrk_bufDevs[s]);
+
+    } 
+
+    
+   Vec const elementsPerThread(Vec::all(static_cast<Idx>(elementsperthread)));
+   Vec const blocksPerGrid(Vec::all(static_cast<Idx>(blockspergrid)));
+   Vec const threadsPerBlock(Vec::all(static_cast<Idx>(threadsperblockx)));
+
+   WorkDiv const workDiv = WorkDiv(blocksPerGrid,threadsPerBlock,elementsPerThread); 
+
+   // Define type for a queue with requested properties:
+   // in this example we require the queue to be blocking the host side
+   // while operations on the device (kernels, memory transfers) are running
+   using QueueAcc = alpaka::Queue<Acc, alpaka::NonBlocking>;
+   // Create a queue for the device
+  // QueueAcc queue(device);
+
+  std::vector<QueueAcc> queue;
+  for (int s =0; s<stream_range;s++) {
+    queue.emplace_back(device);
+  }
 
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
@@ -939,34 +1087,31 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(struct MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nlayer*nevts*nb*sizeof(struct MPHIT));
 
+  GPUsequenceKernel GPUsequence;
 
-   //WIP: attempt to increase shared memory size 
-   //size_t maxbytes = 100000; 
-   //cudaFuncSetAttribute(GPUsequence, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
-   //cudaFuncSetAttribute(GPUsequence, cudaFuncAttributePreferredSharedMemoryCarveout, maxbytes);
+  auto const taskKernel = [&](int s) {
+        auto const task(alpaka::createTaskKernel<Acc>(workDiv, GPUsequence, trks_dev[s], hits_dev[s], outtrks_dev[s],    s     ));
+        return task;
+    };
 
-   //MP6x6SF * newErr;
-   //MP6x6F * errorProp;
-   //cudaMalloc(&newErr,sizeof(MP6x6SF)*blockspergrid);
-   //cudaMalloc(&errorProp,sizeof(MP6x6F)*blockspergrid);
 
-   auto chunkSize = [&](int s) {
-     return s < num_streams ? stream_chunk : stream_remainder;
-   };
-   auto forStream = [&](auto ptr, int s) {
-     return ptr + s*stream_chunk;
-   };
    auto transferAsyncTrk = [&](int s) {
-     cudaCheck(cudaMemcpyAsync(forStream(trk_dev, s), forStream(trk, s), chunkSize(s)*sizeof(MPTRK), cudaMemcpyHostToDevice, streams[s]));
+     //alpaka::memcpy(queue[s], trk_bufDev, trk_bufHost, MPTRKExtent);
+     //printf(" Transferring Trk for stream chunk = %ld\n", s);
+     alpaka::memcpy(queue[s], trk_bufDevs[s], trk_bufHosts[s], MPTRKExtents[s]);
    };
    auto transferAsyncHit = [&](int s) {
-     cudaCheck(cudaMemcpyAsync(forStream(hit_dev, s), forStream(hit, s), chunkSize(s)*nlayer*sizeof(MPHIT), cudaMemcpyHostToDevice, streams[s]));
+     //printf(" Transferring Hit for stream chunk = %ld\n", s);
+     //alpaka::memcpy(queue[s], hit_bufDev, hit_bufHost, MPHITExtent);
+     alpaka::memcpy(queue[s], hit_bufDevs[s], hit_bufHosts[s], MPHITExtents[s]);
    };
    auto transfer_backAsync = [&](int s) {
-     cudaCheck(cudaMemcpyAsync(forStream(outtrk, s), forStream(outtrk_dev, s), chunkSize(s)*sizeof(MPTRK), cudaMemcpyDeviceToHost, streams[s]));
+     //alpaka::memcpy(queue[s], outtrk_bufHost, outtrk_bufDev, MPTRKExtent);
+     alpaka::memcpy(queue[s], outtrk_bufHosts[s], outtrk_bufDevs[s], MPTRKExtents[s]);
    };
 
    auto doWork = [&](const char* msg, int nIters) {
+     std::cout<< msg <<std::endl;
      double wall_time = 0;
 
 #ifdef MEASURE_H2D_TRANSFER
@@ -978,15 +1123,16 @@ int main (int argc, char* argv[]) {
        }
 
        for (int s = 0; s<num_streams;s++) {
-         GPUsequence<<<grid,block,0,streams[s]>>>(forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s),s);
+         alpaka::enqueue(queue[s], taskKernel(s));
        }
-
 #ifdef MEASURE_D2H_TRANSFER
        for (int s = 0; s<num_streams;s++) {
          transfer_backAsync(s);
        }
 #endif // MEASURE_D2H_TRANSFER
-       cudaDeviceSynchronize();
+       for (int s = 0; s<num_streams;s++) {
+        alpaka::wait(queue[s]); 
+        }
        auto wall_stop = std::chrono::high_resolution_clock::now();
        wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
      }
@@ -995,19 +1141,23 @@ int main (int argc, char* argv[]) {
        transferAsyncTrk(s);
        transferAsyncHit(s);
      }
-     cudaDeviceSynchronize();
+     //wait for all transferr to finish
+     for (int s = 0; s<num_streams;s++) {
+     alpaka::wait(queue[s]); 
+     }
      for(int itr=0; itr<nIters; itr++) {
        auto wall_start = std::chrono::high_resolution_clock::now();
        for (int s = 0; s<num_streams;s++) {
-         GPUsequence<<<grid,block,0,streams[s]>>>(forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s), s);
+         alpaka::enqueue(queue[s], taskKernel(s));
        }
-
 #ifdef MEASURE_D2H_TRANSFER
        for (int s = 0; s<num_streams;s++) {
          transfer_backAsync(s);
        }
 #endif // MEASURE_D2H_TRANSFER
-       cudaDeviceSynchronize();
+       for (int s = 0; s<num_streams;s++) {
+       alpaka::wait(queue[s]); 
+      }
        auto wall_stop = std::chrono::high_resolution_clock::now();
        wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
      }
@@ -1016,21 +1166,35 @@ int main (int argc, char* argv[]) {
 #ifndef MEASURE_D2H_TRANSFER
      for (int s = 0; s<num_streams;s++) {
        transfer_backAsync(s);
+       alpaka::wait(queue[s]); 
      }
-     cudaDeviceSynchronize();
 #endif
-
      return wall_time;
    };
 
    doWork("Warming up", NWARMUP);
    auto wall_time = doWork("Launching", NITER);
 
+#ifdef MEASURE_H2D_TRANSFER
+   printf("Measuring H2D Transfer\n");
+#else
+   printf("Excluding H2D Transfer\n");
+#endif
+#ifdef MEASURE_D2H_TRANSFER
+   printf("Measuring D2H Transfer\n");
+#else
+   printf("Excluding D2H Transfer\n");
+#endif
+
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, nthreads);
 
-
+   offset = 0;
+   for(int s=0;s<num_streams;s++){
+    std::copy(outtrks[s],outtrks[s]+chunkSize(s), outtrk+offset); // stitch the outtrks from different streams together
+    offset += chunkSize(s);
+   }
    int nnans = 0, nfail = 0;
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
    float avgpt = 0, avgphi = 0, avgtheta = 0;
@@ -1147,12 +1311,12 @@ int main (int argc, char* argv[]) {
    printf("number of tracks with nans=%i\n", nnans);
    printf("number of tracks failed=%i\n", nfail);
 
-   cudaFreeHost(trk);
-   cudaFreeHost(hit);
-   cudaFreeHost(outtrk);
-   cudaFree(trk_dev);
-   cudaFree(hit_dev);
-   cudaFree(outtrk_dev);
+   //cudaFreeHost(trk);
+   //cudaFreeHost(hit);
+   //cudaFreeHost(outtrk);
+   //cudaFree(trk_dev);
+   //cudaFree(hit_dev);
+   //cudaFree(outtrk_dev);
 
    return 0;
 }

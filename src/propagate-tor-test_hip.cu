@@ -2,9 +2,8 @@
 see README.txt for instructions
 */
 
-#include <cudaCheck.h>
-#include <cuda_profiler_api.h>
-#include "cuda_runtime.h"
+#include <hipCheck.h>
+#include <hip/hip_runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -267,7 +266,7 @@ HOSTDEV float z(const MPHIT* hits, size_t ev, size_t tk)    { return pos(hits, e
 
 MPTRK* prepareTracks(ATRK inputtrk) {
   MPTRK* result ; 
-  cudaCheck(cudaMallocHost((void**)&result,nevts*nb*sizeof(MPTRK)));
+  hipCheck(hipHostMalloc((void**)&result,nevts*nb*sizeof(MPTRK)));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t ie=0;ie<nevts;++ie) {
     for (size_t ib=0;ib<nb;++ib) {
@@ -291,7 +290,7 @@ MPTRK* prepareTracks(ATRK inputtrk) {
 
 MPHIT* prepareHits(std::vector<AHIT>& inputhits) {
   MPHIT* result;  //fixme, align?
-  cudaCheck(cudaMallocHost((void**)&result,nlayer*nevts*nb*sizeof(MPHIT)));
+  hipCheck(hipHostMalloc((void**)&result,nlayer*nevts*nb*sizeof(MPHIT)));
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
 
@@ -326,7 +325,7 @@ __forceinline__ __device__ void MultHelixProp(const MP6x6F* A, const MP6x6SF* B,
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
 //parallel_for(0,N,[&](int n){
-  for(int n=threadIdx.x;n<N;n+=blockDim.x)
+  for(int n=hipThreadIdx_x;n<N;n+=hipBlockDim_x)
   {
     c[ 0*N+n] = a[ 0*N+n]*b[ 0*N+n] + a[ 1*N+n]*b[ 1*N+n] + a[ 3*N+n]*b[ 6*N+n] + a[ 4*N+n]*b[10*N+n];
     c[ 1*N+n] = a[ 0*N+n]*b[ 1*N+n] + a[ 1*N+n]*b[ 2*N+n] + a[ 3*N+n]*b[ 7*N+n] + a[ 4*N+n]*b[11*N+n];
@@ -372,7 +371,7 @@ __forceinline__ __device__ void MultHelixPropTransp(const MP6x6F* A, const MP6x6
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
 //parallel_for(0,N,[&](int n){
-  for(int n=threadIdx.x;n<N;n+=blockDim.x)
+  for(int n=hipThreadIdx_x;n<N;n+=hipBlockDim_x)
   {
     c[ 0*N+n] = b[ 0*N+n]*a[ 0*N+n] + b[ 1*N+n]*a[ 1*N+n] + b[ 3*N+n]*a[ 3*N+n] + b[ 4*N+n]*a[ 4*N+n];
     c[ 1*N+n] = b[ 6*N+n]*a[ 0*N+n] + b[ 7*N+n]*a[ 1*N+n] + b[ 9*N+n]*a[ 3*N+n] + b[10*N+n]*a[ 4*N+n];
@@ -403,7 +402,7 @@ __forceinline__ __device__ void KalmanGainInv(const MP6x6SF* A, const MP3x3SF* B
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  for(int n=threadIdx.x;n<N;n+=blockDim.x)
+  for(int n=hipThreadIdx_x;n<N;n+=hipBlockDim_x)
   {
     double det =
       ((a[0*N+n]+b[0*N+n])*(((a[ 6*N+n]+b[ 3*N+n]) *(a[11*N+n]+b[5*N+n])) - ((a[7*N+n]+b[4*N+n]) *(a[7*N+n]+b[4*N+n])))) -
@@ -426,7 +425,7 @@ __forceinline__ __device__ void KalmanGain(const MP6x6SF* A, const MP3x3* B, MP3
   const float* a = (*A).data; //ASSUME_ALIGNED(a, 64);
   const float* b = (*B).data; //ASSUME_ALIGNED(b, 64);
   float* c = (*C).data;       //ASSUME_ALIGNED(c, 64);
-  for(int n=threadIdx.x;n<N;n+=blockDim.x)
+  for(int n=hipThreadIdx_x;n<N;n+=hipBlockDim_x)
   {
     c[ 0*N+n] = a[0*N+n]*b[0*N+n] + a[1*N+n]*b[3*N+n] + a[2*N+n]*b[6*N+n];
     c[ 1*N+n] = a[0*N+n]*b[1*N+n] + a[1*N+n]*b[4*N+n] + a[2*N+n]*b[7*N+n];
@@ -458,7 +457,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
                             	MP1F *rotT00, MP1F *rotT01, MP2x2SF *resErr_loc, MP3x6 *kGain,
                                 MP2F *res_loc, MP6x6SF * newErr ){
   
-  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+  for(size_t it=hipThreadIdx_x;it<bsize;it+=hipBlockDim_x){
     const float r = hipo(x(msP,it), y(msP,it));
     rotT00->data[it] = -(y(msP,it) + y(inPar,it)) / (2*r);
     rotT01->data[it] =  (x(msP,it) + x(inPar,it)) / (2*r);    
@@ -472,7 +471,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
     resErr_loc->data[ 2*bsize+it] = (trkErr->data[5*bsize+it] + hitErr->data[5*bsize+it]);
   }
 
-  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+  for(size_t it=hipThreadIdx_x;it<bsize;it+=hipBlockDim_x){
     const double det = (double)resErr_loc->data[0*bsize+it] * resErr_loc->data[2*bsize+it] -
                        (double)resErr_loc->data[1*bsize+it] * resErr_loc->data[1*bsize+it];
     const float s   = 1.f / det;
@@ -482,7 +481,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
     resErr_loc->data[0*bsize+it]  = tmp;
   }
 
-  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+  for(size_t it=hipThreadIdx_x;it<bsize;it+=hipBlockDim_x){
       kGain->data[ 0*bsize+it] = trkErr->data[ 0*bsize+it]*(rotT00->data[it]*resErr_loc->data[ 0*bsize+it]) +
 	                        trkErr->data[ 1*bsize+it]*(rotT01->data[it]*resErr_loc->data[ 0*bsize+it]) +
 	                        trkErr->data[ 3*bsize+it]*resErr_loc->data[ 1*bsize+it];
@@ -527,7 +526,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
       kGain->data[17*bsize+it] = 0;
    }
 
-   for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+   for(size_t it=hipThreadIdx_x;it<bsize;it+=hipBlockDim_x){
      res_loc->data[0*bsize+it] =  rotT00->data[it]*(x(msP,it) - x(inPar,it)) + rotT01->data[it]*(y(msP,it) - y(inPar,it));
      res_loc->data[1*bsize+it] =  z(msP,it) - z(inPar,it);
 
@@ -539,7 +538,7 @@ __device__ void KalmanUpdate(MP6x6SF* trkErr, MP6F* inPar, const MP3x3SF* hitErr
      settheta(inPar, it, theta(inPar, it) + kGain->data[15*bsize+it] * res_loc->data[ 0*bsize+it] + kGain->data[16*bsize+it] * res_loc->data[ 1*bsize+it]);
    }
 
-   for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+   for(size_t it=hipThreadIdx_x;it<bsize;it+=hipBlockDim_x){
      newErr->data[ 0*bsize+it] = kGain->data[ 0*bsize+it]*rotT00->data[it]*trkErr->data[ 0*bsize+it] +
                                 kGain->data[ 0*bsize+it]*rotT01->data[it]*trkErr->data[ 1*bsize+it] +
                                 kGain->data[ 1*bsize+it]*trkErr->data[ 3*bsize+it];
@@ -666,7 +665,7 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
                   const MP3F* msP, MP6x6SF* outErr, MP6F* outPar, MP6x6F* errorProp, MP6x6F* temp) {
   
   //MP6x6F errorProp, temp;
-  for(size_t it=threadIdx.x;it<bsize;it+=blockDim.x){
+  for(size_t it=hipThreadIdx_x;it<bsize;it+=hipBlockDim_x){
     //initialize erroProp to identity matrix
     for (size_t i=0;i<6;++i) errorProp->data[bsize*PosInMtrx(i,i,6) + it] = 1.f;
     
@@ -832,7 +831,7 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int st
      nb*nevts / num_streams : // for "full" streams
      nb*nevts % num_streams; // possible remainder
 
-   for (size_t ti = blockIdx.x; ti< end; ti+=gridDim.x){
+   for (size_t ti = hipBlockIdx_x; ti< end; ti+=hipGridDim_x){
       int ie = ti/nb;
       int ib = ti%nb;
       const MPTRK* btracks = bTk(trk,ie,ib);
@@ -879,14 +878,14 @@ int main (int argc, char* argv[]) {
    MPTRK* trk = prepareTracks(inputtrk);
    MPHIT* hit = prepareHits(inputhits);
    MPTRK* outtrk ;
-   cudaMallocHost((void**)&outtrk,nevts*nb*sizeof(MPTRK)); 
+   hipHostMalloc((void**)&outtrk,nevts*nb*sizeof(MPTRK)); 
    //device pointers
    MPTRK* trk_dev;
    MPHIT* hit_dev;
    MPTRK* outtrk_dev;
-   cudaMalloc((MPTRK**)&trk_dev,nevts*nb*sizeof(MPTRK));
-   cudaMalloc((MPHIT**)&hit_dev,nlayer*nevts*nb*sizeof(MPHIT));
-   cudaMalloc((MPTRK**)&outtrk_dev,nevts*nb*sizeof(MPTRK));
+   hipCheck(hipMalloc((MPTRK**)&trk_dev,nevts*nb*sizeof(MPTRK)));
+   hipCheck(hipMalloc((MPHIT**)&hit_dev,nlayer*nevts*nb*sizeof(MPHIT)));
+   hipCheck(hipMalloc((MPTRK**)&outtrk_dev,nevts*nb*sizeof(MPTRK)));
    dim3 grid(blockspergrid,1,1);
    dim3 block(threadsperblockx,1,1); 
 
@@ -901,28 +900,17 @@ int main (int argc, char* argv[]) {
    //}
 
    int device = -1;
-   cudaGetDevice(&device);
-
-  printf(" Runing on cudaDevice: %d\n", device);
-
-  int nDevices;
-  cudaGetDeviceCount(&nDevices);
-  for (int i = 0; i < nDevices; i++) {
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, i);
-    printf(" Device Number: %d\n", i);
-    printf("  Device name: %s\n", prop.name);
-  }
+   hipGetDevice(&device);
 
   int stream_chunk = ((int)(nevts*nb/num_streams));
   int stream_remainder = ((int)((nevts*nb)%num_streams));
   int stream_range;
   if (stream_remainder == 0){ stream_range =num_streams;}
   else{stream_range = num_streams+1;}
-  cudaStream_t streams[stream_range];
+  hipStream_t streams[stream_range];
   for (int s = 0; s<stream_range;s++){
     //cudaStreamCreateWithFlags(&streams[s],cudaStreamNonBlocking);
-    cudaStreamCreate(&streams[s]);
+    hipStreamCreate(&streams[s]);
   }
 
 
@@ -947,8 +935,8 @@ int main (int argc, char* argv[]) {
 
    //MP6x6SF * newErr;
    //MP6x6F * errorProp;
-   //cudaMalloc(&newErr,sizeof(MP6x6SF)*blockspergrid);
-   //cudaMalloc(&errorProp,sizeof(MP6x6F)*blockspergrid);
+   //hipMalloc(&newErr,sizeof(MP6x6SF)*blockspergrid);
+   //hipMalloc(&errorProp,sizeof(MP6x6F)*blockspergrid);
 
    auto chunkSize = [&](int s) {
      return s < num_streams ? stream_chunk : stream_remainder;
@@ -957,16 +945,17 @@ int main (int argc, char* argv[]) {
      return ptr + s*stream_chunk;
    };
    auto transferAsyncTrk = [&](int s) {
-     cudaCheck(cudaMemcpyAsync(forStream(trk_dev, s), forStream(trk, s), chunkSize(s)*sizeof(MPTRK), cudaMemcpyHostToDevice, streams[s]));
+     hipCheck(hipMemcpyAsync(forStream(trk_dev, s), forStream(trk, s), chunkSize(s)*sizeof(MPTRK), hipMemcpyHostToDevice, streams[s]));
    };
    auto transferAsyncHit = [&](int s) {
-     cudaCheck(cudaMemcpyAsync(forStream(hit_dev, s), forStream(hit, s), chunkSize(s)*nlayer*sizeof(MPHIT), cudaMemcpyHostToDevice, streams[s]));
+     hipCheck(hipMemcpyAsync(forStream(hit_dev, s), forStream(hit, s), chunkSize(s)*nlayer*sizeof(MPHIT), hipMemcpyHostToDevice, streams[s]));
    };
    auto transfer_backAsync = [&](int s) {
-     cudaCheck(cudaMemcpyAsync(forStream(outtrk, s), forStream(outtrk_dev, s), chunkSize(s)*sizeof(MPTRK), cudaMemcpyDeviceToHost, streams[s]));
+     hipCheck(hipMemcpyAsync(forStream(outtrk, s), forStream(outtrk_dev, s), chunkSize(s)*sizeof(MPTRK), hipMemcpyDeviceToHost, streams[s]));
    };
 
    auto doWork = [&](const char* msg, int nIters) {
+     printf("%s\n",msg);
      double wall_time = 0;
 
 #ifdef MEASURE_H2D_TRANSFER
@@ -978,7 +967,7 @@ int main (int argc, char* argv[]) {
        }
 
        for (int s = 0; s<num_streams;s++) {
-         GPUsequence<<<grid,block,0,streams[s]>>>(forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s),s);
+         hipLaunchKernelGGL(GPUsequence,grid,block,0,streams[s],forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s),s);
        }
 
 #ifdef MEASURE_D2H_TRANSFER
@@ -986,7 +975,7 @@ int main (int argc, char* argv[]) {
          transfer_backAsync(s);
        }
 #endif // MEASURE_D2H_TRANSFER
-       cudaDeviceSynchronize();
+       hipDeviceSynchronize();
        auto wall_stop = std::chrono::high_resolution_clock::now();
        wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
      }
@@ -995,11 +984,11 @@ int main (int argc, char* argv[]) {
        transferAsyncTrk(s);
        transferAsyncHit(s);
      }
-     cudaDeviceSynchronize();
+     hipDeviceSynchronize();
      for(int itr=0; itr<nIters; itr++) {
        auto wall_start = std::chrono::high_resolution_clock::now();
        for (int s = 0; s<num_streams;s++) {
-         GPUsequence<<<grid,block,0,streams[s]>>>(forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s), s);
+         hipLaunchKernelGGL(GPUsequence,grid,block,0,streams[s],forStream(trk_dev, s), forStream(hit_dev, s), forStream(outtrk_dev, s), s);
        }
 
 #ifdef MEASURE_D2H_TRANSFER
@@ -1007,7 +996,7 @@ int main (int argc, char* argv[]) {
          transfer_backAsync(s);
        }
 #endif // MEASURE_D2H_TRANSFER
-       cudaDeviceSynchronize();
+       hipDeviceSynchronize();
        auto wall_stop = std::chrono::high_resolution_clock::now();
        wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_stop-wall_start).count()) / 1e6;
      }
@@ -1017,7 +1006,7 @@ int main (int argc, char* argv[]) {
      for (int s = 0; s<num_streams;s++) {
        transfer_backAsync(s);
      }
-     cudaDeviceSynchronize();
+     hipDeviceSynchronize();
 #endif
 
      return wall_time;
@@ -1147,12 +1136,12 @@ int main (int argc, char* argv[]) {
    printf("number of tracks with nans=%i\n", nnans);
    printf("number of tracks failed=%i\n", nfail);
 
-   cudaFreeHost(trk);
-   cudaFreeHost(hit);
-   cudaFreeHost(outtrk);
-   cudaFree(trk_dev);
-   cudaFree(hit_dev);
-   cudaFree(outtrk_dev);
+   hipHostFree(trk);
+   hipHostFree(hit);
+   hipHostFree(outtrk);
+   hipFree(trk_dev);
+   hipFree(hit_dev);
+   hipFree(outtrk_dev);
 
    return 0;
 }
