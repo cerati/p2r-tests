@@ -800,7 +800,7 @@ __device__ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I
 }
 
 __device__ __constant__ int ie_range = (int) nevts/num_streams; 
-__global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int stream, const int length){
+__global__ void GPUsequence(MPTRK *trk, MPHIT *hit, MPTRK *outtrk,  const int stream, const int length){
 
    const int end = (stream < num_streams) ?
      nb*nevts / num_streams : // for "full" streams
@@ -809,15 +809,16 @@ __global__ void GPUsequence(MPTRK* trk, MPHIT* hit, MPTRK* outtrk,  const int st
     auto i = threadIdx.x + blockIdx.x * blockDim.x;
 
     while(i<length){
-        const MPTRK* btracks = &(trk[i]);
-        MPTRK* obtracks = &(outtrk[i]);
-        //MPTRK* obtracks;
-         (*obtracks) = (*btracks);
+        MPTRK obtracks;
+
+        const MPTRK btracks = (trk[i]);
+
         for (int layer=0;layer<nlayer;++layer){	
-            const MPHIT* bhits = &(hit[layer+nlayer*i]);
-            propagateToR(&(*obtracks).cov,&(*obtracks).par,&(*obtracks).q,&(*bhits).pos,& (*obtracks).cov, &(*obtracks).par);
-            KalmanUpdate(&(*obtracks).cov,&(*obtracks).par,&(*bhits).cov,&(*bhits).pos);
+            const MPHIT bhits = (hit[layer+nlayer*i]);
+            propagateToR(&(btracks).cov,&(btracks).par,&(btracks).q,&(bhits).pos,&(obtracks).cov, &(obtracks).par);
+            KalmanUpdate(&(obtracks).cov,&(obtracks).par,&(bhits).cov,&(bhits).pos);
         }
+        outtrk[i] = obtracks;
         i += gridDim.x * blockDim.x;
     }
     return;
