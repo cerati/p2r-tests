@@ -139,16 +139,7 @@ struct MPNX {
    const T& operator()(const int m, const int b) const {return data[m*bSize+b];}
    T& operator()(const int m, const int b) {return data[m*bSize+b];}
    //
-   void copy(const MPNX& src) {
-#pragma unroll
-     for (size_t it=0;it<bSize;++it) {
- #pragma unroll
-       for (size_t ip=0;ip<N;++ip) {    	
-    	 this->operator()(ip, it) = src.data[it + ip*bSize];  
-       }
-     }//
-     return;
-   }
+   auto operator=(const MPNX&) -> MPNX& = default;
 };
 
 using MP1I    = MPNX<int,   1 , bsize>;
@@ -171,9 +162,9 @@ struct MPTRK {
   MPTRK() = default;
   //
   MPTRK& operator=(const MPTRK &src){
-    par.copy(src.par);
-    cov.copy(src.cov);
-    q.copy(src.q);
+    par = src.par;
+    cov = src.cov;
+    q   = src.q;
     return *this;
   }
 };
@@ -185,8 +176,8 @@ struct MPHIT {
   MPHIT() = default;
   //
   MPHIT(const MPHIT &src) {
-    pos.copy(src.pos);
-    cov.copy(src.cov);
+    pos = src.pos;
+    cov = src.cov;
   }
 };
 
@@ -827,13 +818,15 @@ int main (int argc, char* argv[]) {
                          //  
                          MPTRK obtracks;
                          //
-                         const MPTRK btracks = btracksPtr[i];
+                         const auto& btracks = btracksPtr[i];
                          //
 			 constexpr int N = bsize;
+
+			 constexpr int layers = nlayer;
 			 //
-                         for(int layer=0; layer<nlayer; ++layer) {
+                         for(int layer = 0; layer < layers; ++layer) {
                            //
-                           const MPHIT bhits = MPHIT(bhitsPtr[layer+nlayer*i]);
+                           const auto& bhits = MPHIT(bhitsPtr[layer+layers*i]);
                            //
                            propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
                            KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);

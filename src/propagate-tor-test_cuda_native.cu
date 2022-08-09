@@ -232,14 +232,8 @@ struct MPNX {
    //basic accessors
    __device__ __host__ inline const T& operator[](const int idx) const {return data[idx];}
    __device__ __host__ inline T& operator[](const int idx) {return data[idx];}
-   
-   __device__ __host__ void copy(const MPNX& src) {
-#pragma unroll
-     for (size_t ip=0;ip<N;++ip){
-       this->data[ip] = src.data[ip];
-     }
-     return;
-   }
+ 
+   auto operator=(const MPNX&) -> MPNX& = default;
 };
 
 using MP1I    = MPNX<int,   1 >;
@@ -259,10 +253,12 @@ struct MPTRK {
   MP6x6SF cov;
   MP1I    q;
 
-  __device__ __host__ MPTRK& operator=(const MPTRK &src){
-    par.copy(src.par);
-    cov.copy(src.cov);
-    q.copy(src.q);
+  __device__ MPTRK& operator=(const MPTRK &src){
+
+    par = src.par;
+    cov = src.cov;
+    q   = src.q;
+
     return *this;
   }
 };
@@ -271,9 +267,11 @@ struct MPHIT {
   MP3F    pos;
   MP3x3SF cov;
   //
-  __device__ __host__  MPHIT& operator=(const MPHIT &src){
-    pos.copy(src.pos);
-    cov.copy(src.cov);
+  __device__ MPHIT& operator=(const MPHIT &src){
+
+    pos = src.pos;
+    cov = src.cov;
+
     return *this;
   }
 };
@@ -885,7 +883,7 @@ __device__ inline void propagateToR(const MP6x6SF &inErr_, const MP6F &inPar_, c
   return;
 }
 
-template <bool grid_stride = true>
+template <int layers, bool grid_stride = true>
 __global__ void launch_p2r_kernel(MPTRK *obtracks_, MPTRK *btracks_, MPHIT *bhits_, const int length){
    auto i = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -893,11 +891,11 @@ __global__ void launch_p2r_kernel(MPTRK *obtracks_, MPTRK *btracks_, MPHIT *bhit
      //
      MPTRK obtracks;
      //
-     const MPTRK btracks = btracks_[i];
-     
-     for(int layer=0; layer<nlayer; ++layer) {  
+     const auto& btracks = btracks_[i];
+#pragma unroll     
+     for(int layer = 0; layer < layers; ++layer) {  
        //
-       const MPHIT bhits = bhits_[layer+nlayer*i];
+       const auto& bhits = bhits_[layer+nlayer*i];
        //
        propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
        KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
@@ -983,7 +981,7 @@ int main (int argc, char* argv[]) {
        p2r_prefetch<MPHIT, MPHITAllocator>(hits,  dev_id, stream);
      }
 
-     launch_p2r_kernel<<<grid, blocks, 0, stream>>>(outtrcks.data(), trcks.data(), hits.data(), phys_length);
+     launch_p2r_kernel<nlayer><<<grid, blocks, 0, stream>>>(outtrcks.data(), trcks.data(), hits.data(), phys_length);
      //
      if constexpr (include_data_transfer) {
        p2r_prefetch<MPTRK, MPTRKAllocator>(outtrcks, host_id, stream);

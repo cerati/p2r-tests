@@ -187,6 +187,8 @@ struct MPNX_ {
    //basic accessors
    __device__ __host__ inline const T& operator[](const int idx) const {return data[idx];}
    __device__ __host__ inline T& operator[](const int idx) {return data[idx];}
+
+   //auto operator=(const MPNX_&) -> MPNX_& = default;
 };
 
 using MP1I_    = MPNX_<int,   1 >;
@@ -351,7 +353,7 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  __device__ __host__ inline const MPTRK_ load(const int tid) const {
+  __device__ __host__ inline const auto& load(const int tid) const {
     MPTRK_ dst;
 
     this->par.load(dst.par, tid, 0);
@@ -389,7 +391,7 @@ struct MPHITAccessor {
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
   
-  __device__ __host__ inline const MPHIT_ load(const int tid, const int layer = 0) const {
+  __device__ __host__ inline const auto& load(const int tid, const int layer = 0) const {
     MPHIT_ dst;
 
     this->pos.load(dst.pos, tid, layer);
@@ -1045,7 +1047,7 @@ __device__ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_,
   return;
 }
 
-template <FieldOrder order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER, bool grid_stride = true>
+template <int layers, FieldOrder order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER, bool grid_stride = true>
 __global__ void launch_p2r_kernels(MPTRKAccessor<order> &obtracksAcc, MPTRKAccessor<order> &btracksAcc, MPHITAccessor<order> &bhitsAcc, const int length){
    auto i = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -1053,11 +1055,11 @@ __global__ void launch_p2r_kernels(MPTRKAccessor<order> &obtracksAcc, MPTRKAcces
 
    while (i < length) {
      //
-     const MPTRK_ btracks = btracksAcc.load(i);
-
-     for(int layer=0; layer<nlayer; ++layer) {  
+     const auto& btracks = btracksAcc.load(i);
+#pragma unroll
+     for(int layer = 0; layer < layers; ++layer) {  
        //
-       const MPHIT_ bhits = bhitsAcc.load(i, layer);
+       const auto& bhits = bhitsAcc.load(i, layer);
        //
        propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
        KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
@@ -1153,7 +1155,7 @@ int main (int argc, char* argv[]) {
    dim3 blocks(threadsperblock, 1, 1);
    dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
    // A warmup run to migrate data on the device
-   launch_p2r_kernels<<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
+   launch_p2r_kernels<nlayer><<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
 
    cudaDeviceSynchronize();
    
@@ -1163,7 +1165,7 @@ int main (int argc, char* argv[]) {
 
    for(int itr=0; itr<NITER; itr++) {
 
-     launch_p2r_kernels<<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
+     launch_p2r_kernels<nlayer><<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
 
    } //end of itr loop
 

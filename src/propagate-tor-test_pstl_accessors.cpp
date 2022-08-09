@@ -308,7 +308,7 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  const MPTRK_ load(const int tid) const {
+  const auto& load(const int tid) const {
     MPTRK_ dst;
 
     par.load(dst.par, tid, 0);
@@ -348,7 +348,7 @@ struct MPHITAccessor {
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
   
-  const MPHIT_ load(const int tid, const int layer = 0) const {
+  const auto& load(const int tid, const int layer = 0) const {
     MPHIT_ dst;
     this->pos.load(dst.pos, tid, layer);
     this->cov.load(dst.cov, tid, layer);
@@ -1091,13 +1091,15 @@ int main (int argc, char* argv[]) {
                      //  
                      MPTRK_ obtracks;
                      //
-		     const MPTRK_ btracks = btracksAccessor.load(i);
+		     const auto& btracks = btracksAccessor.load(i);
 		     //
 		     constexpr int N = bsize;
+
+		     constexpr int layers = nlayer;
 		     //
-                     for(int layer=0; layer<nlayer; ++layer) {  
+                     for(int layer = 0; layer < layers; ++layer) {  
                        //
-                       const MPHIT_ bhits = bhitsAccessor.load(i, layer);
+                       const auto& bhits = bhitsAccessor.load(i, layer);
                        //
                        propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
                        KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);

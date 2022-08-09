@@ -137,6 +137,7 @@ struct MPTRK_ {
 struct MPHIT_ {
   MP3F_    pos;
   MP3x3SF_ cov;
+
   MPHIT_() = default;
 };
 
@@ -286,7 +287,7 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  const MPTRK_ load(const int tid) const {
+  const auto& load(const int tid) const {
     MPTRK_ dst;
 
     par.load(dst.par, tid, 0);
@@ -325,7 +326,7 @@ struct MPHITAccessor {
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
 
-  const MPHIT_ load(const int tid, const int layer = 0) const {
+  const auto& load(const int tid, const int layer = 0) const {
     MPHIT_ dst;
 
     this->pos.load(dst.pos, tid, layer);
@@ -1105,19 +1106,22 @@ int main (int argc, char* argv[]) {
    //
    std::vector<MPTRK_> outtrcks(nevts*nb);
    
+   constexpr int layers = nlayer;
+
    auto p2r_kernels= [=,&btracksAccessor    = *trcksAccPtr,
                         &bhitsAccessor      = *hitsAccPtr,
-                        &outtracksAccessor  = *outtrcksAccPtr] (const auto i) {
+                        &outtracksAccessor  = *outtrcksAccPtr](const auto i) {
                         //  
                         MPTRK_ obtracks;
                         //
-		        const MPTRK_ btracks = btracksAccessor.load(i);
+		        const auto& btracks = btracksAccessor.load(i);
 		        //
 			constexpr int N = is_cuda_kernel ? 1 : bsize;//inner loop range
 			//
-                        for(int layer=0; layer<nlayer; ++layer) {  
+#pragma unroll
+                        for(int layer = 0; layer < layers; ++layer) {  
                           //
-			  const MPHIT_ bhits = bhitsAccessor.load(i, layer);
+			  const auto& bhits = bhitsAccessor.load(i, layer);
                           //
                           propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
                           KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
