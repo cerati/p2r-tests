@@ -892,7 +892,7 @@ __global__ void launch_p2r_kernel(MPTRK *obtracks_, MPTRK *btracks_, MPHIT *bhit
      MPTRK obtracks;
      //
      const auto& btracks = btracks_[i];
-#pragma unroll     
+#pragma unroll //improved performance by 40-60 %   
      for(int layer = 0; layer < layers; ++layer) {  
        //
        const auto& bhits = bhits_[layer+nlayer*i];

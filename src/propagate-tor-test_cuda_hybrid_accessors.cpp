@@ -287,14 +287,14 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  const auto& load(const int tid) const {
+  const auto load(const int tid) const {
     MPTRK_ dst;
 
     par.load(dst.par, tid, 0);
     cov.load(dst.cov, tid, 0);
     q.load(dst.q, tid, 0);
     
-    return std::move(dst);
+    return dst;
   }
   
   void save(MPTRK_ &src, const int tid) {
@@ -326,13 +326,13 @@ struct MPHITAccessor {
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
 
-  const auto& load(const int tid, const int layer = 0) const {
+  const auto load(const int tid, const int layer = 0) const {
     MPHIT_ dst;
 
     this->pos.load(dst.pos, tid, layer);
     this->cov.load(dst.cov, tid, layer);
 
-    return std::move(dst);
+    return dst;
   }
 
 
@@ -1104,9 +1104,7 @@ int main (int argc, char* argv[]) {
    std::vector<MPHIT_> hits(nlayer*nevts*nb);
    prepareHits(hits, inputhits);
    //
-   std::vector<MPTRK_> outtrcks(nevts*nb);
-   
-   constexpr int layers = nlayer;
+   std::vector<MPTRK_> outtrcks(nevts*nb)
 
    auto p2r_kernels= [=,&btracksAccessor    = *trcksAccPtr,
                         &bhitsAccessor      = *hitsAccPtr,
@@ -1117,6 +1115,8 @@ int main (int argc, char* argv[]) {
 		        const auto& btracks = btracksAccessor.load(i);
 		        //
 			constexpr int N = is_cuda_kernel ? 1 : bsize;//inner loop range
+                        //
+                        constexpr int layers = nlayer;
 			//
 #pragma unroll
                         for(int layer = 0; layer < layers; ++layer) {  

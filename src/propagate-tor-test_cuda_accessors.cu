@@ -187,8 +187,6 @@ struct MPNX_ {
    //basic accessors
    __device__ __host__ inline const T& operator[](const int idx) const {return data[idx];}
    __device__ __host__ inline T& operator[](const int idx) {return data[idx];}
-
-   //auto operator=(const MPNX_&) -> MPNX_& = default;
 };
 
 using MP1I_    = MPNX_<int,   1 >;
@@ -353,14 +351,14 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  __device__ __host__ inline const auto& load(const int tid) const {
+  __device__ __host__ inline const auto load(const int tid) const {
     MPTRK_ dst;
 
     this->par.load(dst.par, tid, 0);
     this->cov.load(dst.cov, tid, 0);
     this->q.load(dst.q, tid, 0);
     
-    return std::move(dst);
+    return dst;
   }
   
   __device__ __host__ inline void save(MPTRK_ &src, const int tid, const int layer = 0) {
@@ -391,13 +389,13 @@ struct MPHITAccessor {
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
   
-  __device__ __host__ inline const auto& load(const int tid, const int layer = 0) const {
+  __device__ __host__ inline const auto load(const int tid, const int layer = 0) const {
     MPHIT_ dst;
 
     this->pos.load(dst.pos, tid, layer);
     this->cov.load(dst.cov, tid, layer);
     
-    return std::move(dst);
+    return dst;
   }
 };
 
@@ -1056,7 +1054,7 @@ __global__ void launch_p2r_kernels(MPTRKAccessor<order> &obtracksAcc, MPTRKAcces
    while (i < length) {
      //
      const auto& btracks = btracksAcc.load(i);
-#pragma unroll
+#pragma unroll // improved performance by factor > x2
      for(int layer = 0; layer < layers; ++layer) {  
        //
        const auto& bhits = bhitsAcc.load(i, layer);

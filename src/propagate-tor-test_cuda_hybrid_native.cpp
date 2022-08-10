@@ -1032,7 +1032,7 @@ int main (int argc, char* argv[]) {
                          //
                          const auto& btracks = btracksPtr[i];
                          //
-			 constexpr int N      = bsize;
+			 constexpr int N      = enable_cuda ? 1 : bsize;//inner loop range 
 			 constexpr int layers = nlayer;
 			 //
                          for(int layer = 0; layer < layers; ++layer) {
