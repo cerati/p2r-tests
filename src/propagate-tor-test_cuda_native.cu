@@ -993,14 +993,14 @@ int main (int argc, char* argv[]) {
 
    auto stream = streams[0];//with UVM, we use only one compute stream 
     
-   std::vector<MPTRK, MPTRKAllocator> outtrcks(nevts*ntrks);
+   std::vector<MPTRK, MPTRKAllocator> outtrcks(nevts*nb);
    // migrate output object to dev memory:
    p2r_prefetch<MPTRK, MPTRKAllocator>(outtrcks, dev_id, stream);
 
-   std::vector<MPTRK, MPTRKAllocator > trcks(nevts*ntrks); 
+   std::vector<MPTRK, MPTRKAllocator > trcks(nevts*nb); 
    prepareTracks<MPTRKAllocator>(trcks, inputtrk);
    //
-   std::vector<MPHIT, MPHITAllocator> hits(nlayer*nevts*ntrks);
+   std::vector<MPHIT, MPHITAllocator> hits(nlayer*nevts*nb);
    prepareHits<MPHITAllocator>(hits, inputhits);
    //
    if constexpr (include_data_transfer == false) {
