@@ -32,7 +32,7 @@ dpcpp -std=c++17 -O2 src/propagate-tor-test_dpl.cpp -o test-dpl.exe -Dntrks=8192
 #endif
 
 #ifndef bsize
-#define bsize 1
+#define bsize 16
 #endif
 #ifndef ntrks
 #define ntrks 8192
@@ -84,24 +84,55 @@ constexpr int iparTheta = 5;
 template <typename T, int N, int bSize>
 struct MPNX {
    sycl::marray<T,N*bSize> data;
+   
+   MPNX() = default;
+   MPNX(const MPNX<T, N, bSize> &) = default;
+   MPNX(MPNX<T, N, bSize> &&)      = default;
+   
    //basic accessors
-   const T& operator[](const int idx) const {return data[idx];}
-   T& operator[](const int idx) {return data[idx];}
-   const T& operator()(const int m, const int b) const {return data[m*bSize+b];}
-   T& operator()(const int m, const int b) {return data[m*bSize+b];}
-   //
-   void copy(const MPNX& src) {
-     for (int it=0;it<bSize;++it) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
-       for (int ip=0;ip<N;++ip) {    	
-    	 this->operator()(ip, it) = src.data[it + ip*bSize];  
-       }
-     }//
+   constexpr T &operator[](const int i) { return data[i]; }
+   constexpr const T &operator[](const int i) const { return data[i]; }
+   constexpr T& operator()(const int i, const int j) {return data[i*bSize+j];}
+   constexpr const T& operator()(const int i, const int j) const {return data[i*bSize+j];}
+
+   constexpr int size() const { return N*bSize; }
+
+   inline void load(MPNX<T, N, 1>& dst, const int b) const {
+#pragma unroll
+     for (int ip=0;ip<N;++ip) {   	
+    	dst.data[ip] = data[ip*bSize + b]; 
+     }
      
      return;
    }
+
+   inline void save(const MPNX<T, N, 1>& src, const int b) {
+#pragma unroll
+     for (int ip=0;ip<N;++ip) {    	
+    	 data[ip*bSize + b] = src.data[ip]; 
+     }
+     
+     return;
+   }  
+  
+   auto operator=(const MPNX&) -> MPNX& = default;
+   auto operator=(MPNX&&     ) -> MPNX& = default;
 };
 
+// internal data formats (coinside with external ones for x86):
+template<int bSize = 1> using MP1I_    = MPNX<int,   1 , bSize>;
+template<int bSize = 1> using MP1F_    = MPNX<float, 1 , bSize>;
+template<int bSize = 1> using MP2F_    = MPNX<float, 2 , bSize>;
+template<int bSize = 1> using MP3F_    = MPNX<float, 3 , bSize>;
+template<int bSize = 1> using MP6F_    = MPNX<float, 6 , bSize>;
+template<int bSize = 1> using MP2x2SF_ = MPNX<float, 3 , bSize>;
+template<int bSize = 1> using MP3x3SF_ = MPNX<float, 6 , bSize>;
+template<int bSize = 1> using MP6x6SF_ = MPNX<float, 21, bSize>;
+template<int bSize = 1> using MP6x6F_  = MPNX<float, 36, bSize>;
+template<int bSize = 1> using MP3x3_   = MPNX<float, 9 , bSize>;
+template<int bSize = 1> using MP3x6_   = MPNX<float, 18, bSize>;
+
+// external data formats:
 using MP1I    = MPNX<int,   1 , bsize>;
 using MP1F    = MPNX<float, 1 , bsize>;
 using MP2F    = MPNX<float, 2 , bsize>;
@@ -114,6 +145,19 @@ using MP6x6F  = MPNX<float, 36, bsize>;
 using MP3x3   = MPNX<float, 9 , bsize>;
 using MP3x6   = MPNX<float, 18, bsize>;
 
+template <int N = 1>
+struct MPTRK_ {
+  MP6F_<N>    par;
+  MP6x6SF_<N> cov;
+  MP1I_<N>    q;
+};
+
+template <int N = 1>
+struct MPHIT_ {
+  MP3F_<N>    pos;
+  MP3x3SF_<N> cov;
+};
+
 struct MPTRK {
   MP6F    par;
   MP6x6SF cov;
@@ -121,11 +165,44 @@ struct MPTRK {
 
   MPTRK() = default;
   //
-  MPTRK& operator=(const MPTRK &src){
-    par.copy(src.par);
-    cov.copy(src.cov);
-    q.copy(src.q);
-    return *this;
+  template<int S>
+  inline decltype(auto) load(const int batch_id = 0) const{
+  
+    MPTRK_<S> dst;
+
+    if constexpr (std::is_same<MP6F, MP6F_<S>>::value        
+                  and std::is_same<MP6x6SF, MP6x6SF_<S>>::value
+                  and std::is_same<MP1I, MP1I_<S>>::value)  { //just do a copy of the whole objects
+      dst.par = this->par;
+      dst.cov = this->cov;
+      dst.q   = this->q;
+      
+    } else { //ok, do manual load of the batch component instead
+      this->par.load(dst.par, batch_id);
+      this->cov.load(dst.cov, batch_id);
+      this->q.load(dst.q, batch_id);
+    }//done
+    
+    return dst;  
+  }
+  
+  template<int S>
+  inline void save(MPTRK_<S> &src, const int batch_id = 0) {
+  
+    if constexpr (std::is_same<MP6F, MP6F_<S>>::value        
+                  and std::is_same<MP6x6SF, MP6x6SF_<S>>::value
+                  and std::is_same<MP1I, MP1I_<S>>::value) { //just do a copy of the whole objects
+      this->par = src.par;
+      this->cov = src.cov;
+      this->q   = src.q;
+
+    } else { //ok, do manual load of the batch component instead
+      this->par.save(src.par, batch_id);
+      this->cov.save(src.cov, batch_id);
+      this->q.save(src.q, batch_id);
+    }//done
+    
+    return;
   }
 };
 
@@ -135,10 +212,22 @@ struct MPHIT {
   //
   MPHIT() = default;
   //
-  MPHIT(const MPHIT &src) {
-    pos.copy(src.pos);
-    cov.copy(src.cov);
+  template<int S>
+  inline decltype(auto) load(const int batch_id = 0) const {
+    MPHIT_<S> dst;
+    
+    if constexpr (std::is_same<MP3F, MP3F_<S>>::value        
+                  and std::is_same<MP3x3SF, MP3x3SF_<S>>::value) { //just do a copy of the whole object
+      dst.pos = this->pos;
+      dst.cov = this->cov;
+    } else { //ok, do manual load of the batch component instead
+      this->pos.load(dst.pos, batch_id);
+      this->cov.load(dst.cov, batch_id);
+    }//done    
+    
+    return dst;
   }
+
 };
 
 ///////////////////////////////////////
@@ -302,7 +391,7 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 ///MAIN compute kernels
 
 template<int N = 1>
-inline void MultHelixProp(const MP6x6F &a, const MP6x6SF &b, MP6x6F &c) {//ok
+inline void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> &c) {//ok
 #pragma unroll
   for (int it = 0;it < N; it++) {
     c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
@@ -348,8 +437,8 @@ inline void MultHelixProp(const MP6x6F &a, const MP6x6SF &b, MP6x6F &c) {//ok
 }
 
 template<int N = 1>
-inline void MultHelixPropTransp(const MP6x6F &a, const MP6x6F &b, MP6x6SF &c) {//
-
+inline void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6SF_<N> &c) {//
+#pragma unroll
   for (int it = 0;it < N; it++) {
     
     c[ 0*N+it] = b[ 0*N+it]*a[ 0*N+it] + b[ 1*N+it]*a[ 1*N+it] + b[ 3*N+it]*a[ 3*N+it] + b[ 4*N+it]*a[ 4*N+it];
@@ -380,11 +469,11 @@ inline void MultHelixPropTransp(const MP6x6F &a, const MP6x6F &b, MP6x6SF &c) {/
 auto hipo = [](const float x, const float y) {return std::sqrt(x*x + y*y);};
 
 template <int N = 1>
-void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3F &msP){	  
+void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitErr, const MP3F_<N> &msP){	  
   
-  MP1F    rotT00;
-  MP1F    rotT01;
-  MP2x2SF resErr_loc;
+  MP1F_<N>    rotT00;
+  MP1F_<N>    rotT01;
+  MP2x2SF_<N> resErr_loc;
   //MP3x3SF resErr_glo;
     
   for (int it = 0;it < N; ++it) {   
@@ -417,7 +506,7 @@ void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3
     resErr_loc[0*N+it]  = tmp;  
   }     
   
-  MP3x6 kGain;
+  MP3x6_<N> kGain;
   
 #pragma omp simd
   for (int it=0; it<N; ++it) {
@@ -465,7 +554,7 @@ void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3
     kGain[17*N+it] = 0;  
   }  
      
-  MP2F res_loc;   
+  MP2F_<N> res_loc;   
   for (int it = 0; it < N; ++it) {
     const auto msPX = msP(iparX, it);
     const auto msPY = msP(iparY, it);
@@ -489,7 +578,7 @@ void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3
     inPar(iparTheta,it) = inParTheta + kGain[15*N+it] * res_loc[ 0*N+it] + kGain[16*N+it] * res_loc[ 1*N+it];     
   }
 
-   MP6x6SF newErr;
+   MP6x6SF_<N> newErr;
    for (int it=0;it<N;++it)   {
 
      newErr[ 0*N+it] = kGain[ 0*N+it]*rotT00[it]*trkErr[ 0*N+it] +
@@ -569,11 +658,11 @@ constexpr float kfact= 100/(-0.299792458f*3.8112f);
 constexpr int Niter=5;
 
 template <int N = 1>
-void propagateToR(const MP6x6SF &inErr, const MP6F &inPar, const MP1I &inChg, 
-                  const MP3F &msP, MP6x6SF &outErr, MP6F &outPar) {
+void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N> &inChg, 
+                  const MP3F_<N> &msP, MP6x6SF_<N> &outErr, MP6F_<N> &outPar) {
   //aux objects  
-  MP6x6F errorProp;
-  MP6x6F temp;
+  MP6x6F_<N> errorProp;
+  MP6x6F_<N> temp;
   
   auto PosInMtrx = [=] (int i, int j, int D, int bsz = 1) constexpr {return bsz*(i*D+j);};
   
@@ -778,9 +867,13 @@ int main (int argc, char* argv[]) {
    //
 #ifdef USE_CPU
    sycl::queue cq(sycl::cpu_selector{});
+   //
+   constexpr bool enable_gpu_backend = false;
    printf("WARNING: dpc++ generated x86 backend. For Intel GPUs use -DUSE_GPU option.\n");
 #else
    sycl::queue cq(sycl::gpu_selector{});
+   //
+   constexpr bool enable_gpu_backend = true;
 #endif
    //
    cl::sycl::usm_allocator<MPTRK, cl::sycl::usm::alloc::shared> MPTRKAllocator(cq);
@@ -819,29 +912,35 @@ int main (int argc, char* argv[]) {
      std::copy(h_hits.begin(), h_hits.end(), hits.begin());
    }
 
+   const int phys_length      = nevts*nb;
+   const int outer_loop_range = phys_length*(enable_gpu_backend ? bsize : 1);//re-scale the exe domain for the cuda backend!
+
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
-                         bhitsPtr      = hits.data()] (const int i) {
-                         //    
-                         MPTRK obtracks;
+                         bhitsPtr      = hits.data()] (const int i) { 
+                         //  
+                         constexpr int N      = enable_gpu_backend ? 1 : bsize;
                          //
-                         const MPTRK btracks = btracksPtr[i];
+                         MPTRK_<N> obtracks;
                          //
-                         constexpr int N = bsize;
+                         const int tid       = enable_gpu_backend ? i / bsize : i;
+                         const int batch_id  = enable_gpu_backend ? i % bsize : 0;
                          //
-                         for(int layer=0; layer<nlayer; ++layer) {
+                         const auto& btracks = btracksPtr[tid].load<N>(batch_id);
+                         //
+                         constexpr int layers = nlayer;
+                         //
+                         for(int layer = 0; layer < layers; ++layer) {
                            //
-                           const MPHIT bhits = bhitsPtr[layer+nlayer*i];
+                           const auto& bhits = bhitsPtr[layer+layers*tid].load<N>(batch_id);
                            //
                            propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
                            KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                            //
                          }
                          //
-                         outtracksPtr[i] = obtracks;
+                         outtracksPtr[tid].save<N>(obtracks, batch_id);
                        };
-
-   const int outer_loop_range = nevts*nb;
 
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
