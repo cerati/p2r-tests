@@ -1104,7 +1104,7 @@ int main (int argc, char* argv[]) {
    std::vector<MPHIT_> hits(nlayer*nevts*nb);
    prepareHits(hits, inputhits);
    //
-   std::vector<MPTRK_> outtrcks(nevts*nb)
+   std::vector<MPTRK_> outtrcks(nevts*nb);
 
    auto p2r_kernels= [=,&btracksAccessor    = *trcksAccPtr,
                         &bhitsAccessor      = *hitsAccPtr,

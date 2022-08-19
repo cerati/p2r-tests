@@ -54,12 +54,8 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #define num_streams 1
 #endif
 
-#ifndef threadsperblockx
-#define threadsperblockx 16
-#endif
-
-#ifndef threadsperblocky
-#define threadsperblocky 2
+#ifndef threadsperblock
+#define threadsperblock 32
 #endif
 
 #ifdef __NVCOMPILER_CUDA__
@@ -67,8 +63,7 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #define __cuda_kernel__ __global__
 constexpr bool enable_cuda         = true;
 //
-static int threads_per_blockx = threadsperblockx;
-static int threads_per_blocky = threadsperblocky;
+static int threads_per_block = threadsperblock;
 #else
 #define __cuda_kernel__
 constexpr bool enable_cuda         = false;
@@ -1010,12 +1005,9 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
 
 template <int bSize, typename lambda_tp, bool grid_stride = false>
 requires (enable_cuda == true)
-__cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const int ntrks_, const int length){
+__cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const int length){
 
-  auto ib = threadIdx.x + blockIdx.x * blockDim.x;
-  auto ie = threadIdx.y + blockIdx.y * blockDim.y;
-
-  auto i = ib + ntrks_*ie;
+  auto i = threadIdx.x + blockIdx.x * blockDim.x;
   
   while (i < length) {
   
@@ -1024,7 +1016,7 @@ __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const in
 
     p2r_kernel(tid, batch_id);
 
-    if constexpr (grid_stride) { i += (gridDim.x * blockDim.x)*(gridDim.y * blockDim.y);}
+    if constexpr (grid_stride) { i += (gridDim.x * blockDim.x);}
     else  break;
   }
 
@@ -1037,16 +1029,12 @@ template <int bSize, typename stream_tp, bool is_cuda_target>
 requires CudaCompute<is_cuda_target>
 void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
 
-  const int ntrks_ = nb_ * bSize;//re-scale tracks nb domain for the cuda backend 
-  const int outer_loop_range = nevnts_*ntrks_;//re-scale exec domain for the cuda backend
+  const int outer_loop_range = nevnts_*nb_*bSize;//re-scale exec domain for the cuda backend
 
-  const int blockx = threads_per_blockx;
-  const int blocky = threads_per_blocky;
-
-  dim3 blocks(blockx, blocky, 1);
-  dim3 grid(((ntrks_ + blockx - 1)/ blockx), ((nevnts_ + blocky - 1)/ blocky),1);
+  dim3 blocks(threads_per_block, 1, 1);
+  dim3 grid(((outer_loop_range + threads_per_block - 1)/ threads_per_block), 1, 1);
   //
-  launch_p2r_cuda_kernel<bSize><<<grid, blocks, 0, stream>>>(p2r_kernel, ntrks_, outer_loop_range);
+  launch_p2r_cuda_kernel<bSize><<<grid, blocks, 0, stream>>>(p2r_kernel, outer_loop_range);
   //
   p2r_check_error<is_cuda_target>();
 
