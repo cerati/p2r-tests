@@ -30,12 +30,17 @@ technologies = {
     "cuda":{
         "cuda":['nvcc']
     },
+    "acc.v3":{
+        "cuda":['nvc++'],
+        "cpu":['nvc++']
+     },
     "pstl":{
         "cpu":['gcc'], # add other compilers
         'cuda': ['nvc++','nvc++_x86']
     },
-
-
+    "hip":{
+        "hip":['hipcc'],
+    }
     #"kokkos": {
     #  "serial": ["icc", "gcc"],
     #  "threads": ["icc", "gcc"],
@@ -44,16 +49,20 @@ technologies = {
     #}
 }
 cmds ={
-    "tbb":{"threads":["srun","-n","1",'-c','40',"numactl", "--cpunodebind=1"]},
-    #"tbb":{"threads":[]},
+    #"tbb":{"threads":["srun","-n","1",'-c','40',"numactl", "--cpunodebind=1"]},
+    "tbb":{"threads":[]},
     #"cuda":{"cuda":["srun","-n","1","-c","80","--exclusive","numactl","--cpunodebind=0"]}
     "cuda":{"cuda":["srun","-n","1"]},
     #"cuda_v2":{"cuda":["srun","-n","1","-c","80"]}
     "cuda_v2":{"cuda":["srun","-n","1"]},
     "cuda_v3":{"cuda":["srun","-n","1"]},
+    "cuda_v4":{"cuda":["srun","-n","1"]},
+    "acc.v3":{"cuda":["srun","-n","1"],
+             "cpu":["srun","-n","1"]},
     "pstl":{"cuda":["srun","-n","1"],
-            "cpu":["srun","-n","1"]}
-    "cuda_v4":{"cuda":["srun","-n","1"]}
+            "cpu":["srun","-n","1"]},
+    "cuda_v4":{"cuda":["srun","-n","1"]},
+    "hip":{"hip":[]},
 }
 # with default values
 scanParameters = [
@@ -63,23 +72,23 @@ scanParameters = [
     ("bsize", 32),
     ("nlayer", 20),
     ("nthreads", 1),
-    ("num_streams", 10),
-    ("threadsperblock", 1000),
-    ("threadsperblockx", 2),
-    ("threadsperblocky", 16),
-    ("blockspergrid", 40)
+    ("num_streams", 1),
+    #("threadsperblock", 1000),
+    ("threadsperblockx", 32),
+    #("threadsperblocky", 16),
+    #("blockspergrid", 40)
 ]
 ScanPoint = collections.namedtuple("ScanPoint", [x[0] for x in scanParameters])
 
 result_re = re.compile("done ntracks=(?P<ntracks>\d+) tot time=(?P<time>\S+) ")
 
-def compilationCommand(compiler, technology, target, source, scanPoint):
+def compilationCommand(compiler, technology, backend, target, source, scanPoint,opts):
     cmd = []
     if compiler == "gcc":
         if technology=="pstl":
             cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native", "-std=c++17","-mavx512f",'-lm',"-lgomp","-ltbb"])
         else:
-            cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native", "-std=c++17"])
+            cmd.extend(["g++", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native", "-std=c++17","-ffast-math"])
 
     if compiler == "icc":
         cmd.extend(["icc", "-Wall", "-Isrc", "-O3", "-fopenmp", "-march=native",'-xHost','-qopt-zmm-usage=high'])
@@ -91,12 +100,25 @@ def compilationCommand(compiler, technology, target, source, scanPoint):
     if compiler == "nvc++_x86":
         cmd.extend(["nvc++","-Iinclude","-O2","-std=c++17","-stdpar=multicore"])
 
+    if technology=="acc.v3":
+        if backend=="cuda":
+            cmd.extend(["nvc++","-Iinclude","-std=c++17",'-acc','-fast','-gpu=fastmath','-gpu=cc70',"-DNUM_WORKERS=8","-Msafeptr"])
+        elif backend=="cpu":
+            cmd.extend(["nvc++","-Iinclude","-std=c++17",'-acc=multicore'
+                        ,'-fast','-Mfprelaxed',"-Msafeptr",'-Mvect=simd:256',"-DNUM_WORKERS=1"])
+    if compiler == "hipcc":
+        cmd.extend(["hipcc","-Iinclude","-std=c++17"])
+
     cmd.extend(["-o", target, source])
         
     if technology == "tbb" :
         cmd.append("-ltbb")
 
     cmd.extend(["-D{}={}".format(name, getattr(scanPoint, name)) for name in ScanPoint._fields])
+    if opts.noH2D:
+        cmd.extend(["-DEXCLUDE_H2D_TRANSFER"])
+    if opts.noD2H:
+        cmd.extend(["-DEXCLUDE_D2H_TRANSFER"])
         
     return cmd
 
@@ -130,10 +152,10 @@ def execute(command, verbose):
         raise ExeException(p.returncode)
     return out
 
-def build(opts, src, compiler, technology, scanPoint):
-    target = "{}_{}_{}".format(prefix, technology, compiler)
+def build(opts, src, compiler, technology, backend, scanPoint):
+    target = "{}_{}_{}_{}".format(prefix, technology,backend, compiler)
     print("Building {} for {} with {} for {} as {}".format(src, technology, compiler, scanPoint, target))
-    cmd = compilationCommand(compiler, technology, target, src, scanPoint)
+    cmd = compilationCommand(compiler, technology,backend, target, src, scanPoint, opts)
     if opts.verbose or opts.dryRun:
         print(" ".join(cmd))
 
@@ -221,7 +243,7 @@ def main(opts):
                         print('Alread found this point in result, skipping:', scanPoint_tuple)
                         continue 
                     try:
-                        exe = build(opts, source, comp, tech, scanPoint)
+                        exe = build(opts, source, comp, tech,backend, scanPoint)
                     except ExeException as e:
                         return e.errorCode()
 
@@ -264,6 +286,10 @@ if __name__ == "__main__":
                         help="Overwrite the output JSON instead of updating it")
     parser.add_argument("--append", action="store_true",
                         help="Append new (stream, threads) results insteads of ignoring already existing point")
+    parser.add_argument("--noH2D", action="store_true",
+                        help="exclude H2D transfer in measured time")
+    parser.add_argument("--noD2H", action="store_true",
+                        help="exclude D2H transfer in measured time")
 
 
     for par, default in scanParameters:
