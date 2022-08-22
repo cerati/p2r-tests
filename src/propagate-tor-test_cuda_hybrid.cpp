@@ -28,11 +28,7 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #include <random>
 
 #ifndef bsize
-#if defined(__NVCOMPILER_CUDA__)
-#define bsize 1
-#else
-#define bsize 128
-#endif//__NVCOMPILER_CUDA__
+#define bsize 32
 #endif
 
 #ifndef ntrks
@@ -49,6 +45,7 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #ifndef NITER
 #define NITER 5
 #endif
+
 #ifndef nlayer
 #define nlayer 20
 #endif
@@ -62,13 +59,206 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #endif
 
 #ifdef __NVCOMPILER_CUDA__
-#include <nv/target>
+//#include <nv/target>
 #define __cuda_kernel__ __global__
-constexpr bool is_cuda_kernel = true;
+constexpr bool enable_cuda         = true;
+//
+static int threads_per_block = threadsperblock;
 #else
 #define __cuda_kernel__
-constexpr bool is_cuda_kernel = false;
+constexpr bool enable_cuda         = false;
 #endif
+
+constexpr int host_id = -1; /*cudaCpuDeviceId*/
+
+#ifdef include_data
+constexpr bool include_data_transfer = true;
+#else
+constexpr bool include_data_transfer = false;
+#endif
+
+static int nstreams           = num_streams;//we have only one stream, though
+
+template <bool is_cuda_target>
+concept CudaCompute = is_cuda_target == true;
+
+//Collection of helper methods
+//General helper routines:
+template <bool is_cuda_target>
+requires CudaCompute<is_cuda_target>
+void p2r_check_error(){
+  //	
+  auto error = cudaGetLastError();
+  if(error != cudaSuccess) std::cout << "Error detected, error " << error << std::endl;
+  //
+  return;
+}
+
+template <bool is_cuda_target>
+void p2r_check_error(){
+  return;
+}
+
+template <bool is_cuda_target>
+requires CudaCompute<is_cuda_target>
+int p2r_get_compute_device_id(){
+  int dev = -1;
+  cudaGetDevice(&dev);
+  cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+  return dev;
+}
+
+//default version:
+template <bool is_cuda_target>
+int p2r_get_compute_device_id(){
+  return 0;
+}
+
+template <bool is_cuda_target>
+requires CudaCompute<is_cuda_target>
+void p2r_set_compute_device(const int dev){
+  cudaSetDevice(dev);
+  cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+  return;
+}
+
+//default version:
+template <bool is_cuda_target>
+void p2r_set_compute_device(const int dev){
+  return;
+}
+
+template <bool is_cuda_target>
+requires CudaCompute<is_cuda_target>
+decltype(auto) p2r_get_streams(const int n){
+  std::vector<cudaStream_t> streams;
+  streams.reserve(n);
+  for (int i = 0; i < n; i++) {  
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    streams.push_back(stream);
+  }
+  return streams;
+}
+
+template <bool is_cuda_target>
+decltype(auto) p2r_get_streams(const int n){
+  if(n > 1) std::cout << "Number of compute streams is not supported : " << n << std::endl; 
+  std::vector<int> streams = {0};
+  return streams;
+}
+
+//CUDA specialized version:
+template <typename data_tp, bool is_cuda_target, typename stream_t, bool is_sync = false>
+requires CudaCompute<is_cuda_target>
+void p2r_prefetch(std::vector<data_tp> &v, int devId, stream_t stream) {
+  cudaMemPrefetchAsync(v.data(), v.size() * sizeof(data_tp), devId, stream);
+  //
+  if constexpr (is_sync) {cudaStreamSynchronize(stream);}
+
+  return;
+}
+
+//Default implementation
+template <typename data_tp, bool is_cuda_target, typename stream_t, bool is_sync = false>
+void p2r_prefetch(std::vector<data_tp> &v, int dev_id, stream_t stream) {
+  return;
+}
+
+
+//CUDA specialized version:
+template <bool is_cuda_target>
+requires CudaCompute<is_cuda_target>
+void p2r_wait() { 
+  cudaDeviceSynchronize(); 
+  return; 
+}
+
+template <bool is_cuda_target>
+void p2r_wait() { 
+  return; 
+}
+
+//used only in cuda 
+template <bool is_cuda_target, bool is_verbose = true>
+requires CudaCompute<is_cuda_target>
+void info(int device) {
+  cudaDeviceProp deviceProp;
+
+  int driver_version;
+  cudaDriverGetVersion(&driver_version);
+  if constexpr (is_verbose) { std::cout << "CUDA Driver version = " << driver_version << std::endl;}
+
+  int runtime_version;
+  cudaRuntimeGetVersion(&runtime_version);
+  if constexpr (is_verbose) { std::cout << "CUDA Runtime version = " << runtime_version << std::endl;}
+
+  cudaGetDeviceProperties(&deviceProp, device);
+
+  if constexpr (is_verbose) {
+    printf("%d - name:                    %s\n", device, deviceProp.name);
+    printf("%d - totalGlobalMem:          %lu bytes ( %.2f Gbytes)\n", device, deviceProp.totalGlobalMem,
+                   deviceProp.totalGlobalMem / (float)(1024 * 1024 * 1024));
+    printf("%d - sharedMemPerBlock:       %lu bytes ( %.2f Kbytes)\n", device, deviceProp.sharedMemPerBlock, deviceProp.sharedMemPerBlock / (float)1024);
+    printf("%d - regsPerBlock:            %d\n", device, deviceProp.regsPerBlock);
+    printf("%d - warpSize:                %d\n", device, deviceProp.warpSize);
+    printf("%d - memPitch:                %lu\n", device, deviceProp.memPitch);
+    printf("%d - maxThreadsPerBlock:      %d\n", device, deviceProp.maxThreadsPerBlock);
+    printf("%d - maxThreadsDim[0]:        %d\n", device, deviceProp.maxThreadsDim[0]);
+    printf("%d - maxThreadsDim[1]:        %d\n", device, deviceProp.maxThreadsDim[1]);
+    printf("%d - maxThreadsDim[2]:        %d\n", device, deviceProp.maxThreadsDim[2]);
+    printf("%d - maxGridSize[0]:          %d\n", device, deviceProp.maxGridSize[0]);
+    printf("%d - maxGridSize[1]:          %d\n", device, deviceProp.maxGridSize[1]);
+    printf("%d - maxGridSize[2]:          %d\n", device, deviceProp.maxGridSize[2]);
+    printf("%d - totalConstMem:           %lu bytes ( %.2f Kbytes)\n", device, deviceProp.totalConstMem,
+                   deviceProp.totalConstMem / (float)1024);
+    printf("%d - compute capability:      %d.%d\n", device, deviceProp.major, deviceProp.minor);
+    printf("%d - deviceOverlap            %s\n", device, (deviceProp.deviceOverlap ? "true" : "false"));
+    printf("%d - multiProcessorCount      %d\n", device, deviceProp.multiProcessorCount);
+    printf("%d - kernelExecTimeoutEnabled %s\n", device,
+                   (deviceProp.kernelExecTimeoutEnabled ? "true" : "false"));
+    printf("%d - integrated               %s\n", device, (deviceProp.integrated ? "true" : "false"));
+    printf("%d - canMapHostMemory         %s\n", device, (deviceProp.canMapHostMemory ? "true" : "false"));
+    switch (deviceProp.computeMode) {
+      case 0: printf("%d - computeMode              0: cudaComputeModeDefault\n", device); break;
+      case 1: printf("%d - computeMode              1: cudaComputeModeExclusive\n", device); break;
+      case 2: printf("%d - computeMode              2: cudaComputeModeProhibited\n", device); break;
+      case 3: printf("%d - computeMode              3: cudaComputeModeExclusiveProcess\n", device); break;
+      default: printf("Error: unknown deviceProp.computeMode."), exit(-1);
+    }
+    printf("%d - surfaceAlignment         %lu\n", device, deviceProp.surfaceAlignment);
+    printf("%d - concurrentKernels        %s\n", device, (deviceProp.concurrentKernels ? "true" : "false"));
+    printf("%d - ECCEnabled               %s\n", device, (deviceProp.ECCEnabled ? "true" : "false"));
+    printf("%d - pciBusID                 %d\n", device, deviceProp.pciBusID);
+    printf("%d - pciDeviceID              %d\n", device, deviceProp.pciDeviceID);
+    printf("%d - pciDomainID              %d\n", device, deviceProp.pciDomainID);
+    printf("%d - tccDriver                %s\n", device, (deviceProp.tccDriver ? "true" : "false"));
+
+    switch (deviceProp.asyncEngineCount) {
+      case 0: printf("%d - asyncEngineCount         1: host -> device only\n", device); break;
+      case 1: printf("%d - asyncEngineCount         2: host <-> device\n", device); break;
+      case 2: printf("%d - asyncEngineCount         0: not supported\n", device); break;
+      default: printf("Error: unknown deviceProp.asyncEngineCount."), exit(-1);
+    }
+    printf("%d - unifiedAddressing        %s\n", device, (deviceProp.unifiedAddressing ? "true" : "false"));
+    printf("%d - memoryClockRate          %d kilohertz\n", device, deviceProp.memoryClockRate);
+    printf("%d - memoryBusWidth           %d bits\n", device, deviceProp.memoryBusWidth);
+    printf("%d - l2CacheSize              %d bytes\n", device, deviceProp.l2CacheSize);
+    printf("%d - maxThreadsPerMultiProcessor          %d\n\n", device, deviceProp.maxThreadsPerMultiProcessor);
+
+
+  }
+
+  p2r_check_error<is_cuda_target>();
+
+  return;	  
+}
+
+template <bool is_cuda_target, bool is_verbose = true>
+void info(int device) {
+  return;
+}
+
 
 const std::array<size_t, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
 
@@ -90,41 +280,62 @@ constexpr int iparIpt   = 3;
 constexpr int iparPhi   = 4;
 constexpr int iparTheta = 5;
 
-template <typename T, int N, int bSize>
+template <typename T, int N, int bSize = 1>
 struct MPNX {
    std::array<T,N*bSize> data;
+
+   MPNX() = default;
+   MPNX(const MPNX<T, N, bSize> &) = default;
+   MPNX(MPNX<T, N, bSize> &&)      = default;
+   
    //basic accessors
-   const T& operator[](const int idx) const {return data[idx];}
-   T& operator[](const int idx) {return data[idx];}
-   const T& operator()(const int m, const int b) const {return data[m*bSize+b];}
-   T& operator()(const int m, const int b) {return data[m*bSize+b];}
+   constexpr T &operator[](const int i) { return data[i]; }
+   constexpr const T &operator[](const int i) const { return data[i]; }
+   constexpr T& operator()(const int i, const int j) {return data[i*bSize+j];}
+   constexpr const T& operator()(const int i, const int j) const {return data[i*bSize+j];}
+
+   constexpr int size() const { return N*bSize; }   
    //
-   void load(MPNX& dst) const{
-     for (size_t it=0;it<bSize;++it) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
-       for (size_t ip=0;ip<N;++ip) {    	
-    	 dst.data[it + ip*bSize] = this->operator()(ip, it);  
-       }
-     }//
+   inline void load(MPNX<T, N, 1>& dst, const int b) const {
+#pragma unroll
+     for (int ip=0;ip<N;++ip) {   	
+    	dst.data[ip] = data[ip*bSize + b]; 
+     }
      
      return;
    }
 
-   void save(const MPNX& src) {
-     for (size_t it=0;it<bSize;++it) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
-       for (size_t ip=0;ip<N;++ip) {    	
-    	 this->operator()(ip, it) = src.data[it + ip*bSize];  
-       }
-     }//
+   inline void save(const MPNX<T, N, 1>& src, const int b) {
+#pragma unroll
+     for (int ip=0;ip<N;++ip) {    	
+    	 data[ip*bSize + b] = src.data[ip]; 
+     }
      
      return;
-   }
+   }  
+
+   auto operator=(const MPNX&) -> MPNX& = default;
+   auto operator=(MPNX&&     ) -> MPNX& = default;
 };
 
+
+// internal data formats (coinside with external ones for x86):
+template<int bSize = 1> using MP1I_    = MPNX<int,   1 , bSize>;
+template<int bSize = 1> using MP1F_    = MPNX<float, 1 , bSize>;
+template<int bSize = 1> using MP2F_    = MPNX<float, 2 , bSize>;
+template<int bSize = 1> using MP3F_    = MPNX<float, 3 , bSize>;
+template<int bSize = 1> using MP6F_    = MPNX<float, 6 , bSize>;
+template<int bSize = 1> using MP2x2SF_ = MPNX<float, 3 , bSize>;
+template<int bSize = 1> using MP3x3SF_ = MPNX<float, 6 , bSize>;
+template<int bSize = 1> using MP6x6SF_ = MPNX<float, 21, bSize>;
+template<int bSize = 1> using MP6x6F_  = MPNX<float, 36, bSize>;
+template<int bSize = 1> using MP3x3_   = MPNX<float, 9 , bSize>;
+template<int bSize = 1> using MP3x6_   = MPNX<float, 18, bSize>;
+
+// external data formats:
 using MP1I    = MPNX<int,   1 , bsize>;
 using MP1F    = MPNX<float, 1 , bsize>;
-using MP2F    = MPNX<float, 3 , bsize>;
+using MP2F    = MPNX<float, 2 , bsize>;
 using MP3F    = MPNX<float, 3 , bsize>;
 using MP6F    = MPNX<float, 6 , bsize>;
 using MP2x2SF = MPNX<float, 3 , bsize>;
@@ -134,22 +345,63 @@ using MP6x6F  = MPNX<float, 36, bsize>;
 using MP3x3   = MPNX<float, 9 , bsize>;
 using MP3x6   = MPNX<float, 18, bsize>;
 
+template <int N = 1>
+struct MPTRK_ {
+  MP6F_<N>    par;
+  MP6x6SF_<N> cov;
+  MP1I_<N>    q;
+};
+
+template <int N = 1>
+struct MPHIT_ {
+  MP3F_<N>    pos;
+  MP3x3SF_<N> cov;
+};
+
 struct MPTRK {
   MP6F    par;
   MP6x6SF cov;
   MP1I    q;
 
-  //  MP22I   hitidx;
-  void load(MPTRK &dst){
-    par.load(dst.par);
-    cov.load(dst.cov);
-    q.load(dst.q);    
-    return;	  
+  MPTRK() = default;
+
+  template<int S>
+  inline decltype(auto) load(const int batch_id = 0) const{
+  
+    MPTRK_<S> dst;
+
+    if constexpr (std::is_same<MP6F, MP6F_<S>>::value        
+                  and std::is_same<MP6x6SF, MP6x6SF_<S>>::value
+                  and std::is_same<MP1I, MP1I_<S>>::value)  { //just do a copy of the whole objects
+      dst.par = this->par;
+      dst.cov = this->cov;
+      dst.q   = this->q;
+      
+    } else { //ok, do manual load of the batch component instead
+      this->par.load(dst.par, batch_id);
+      this->cov.load(dst.cov, batch_id);
+      this->q.load(dst.q, batch_id);
+    }//done
+    
+    return dst;  
   }
-  void save(const MPTRK &src){
-    par.save(src.par);
-    cov.save(src.cov);
-    q.save(src.q);
+  
+  template<int S>
+  inline void save(MPTRK_<S> &src, const int batch_id = 0) {
+  
+    if constexpr (std::is_same<MP6F, MP6F_<S>>::value        
+                  and std::is_same<MP6x6SF, MP6x6SF_<S>>::value
+                  and std::is_same<MP1I, MP1I_<S>>::value) { //just do a copy of the whole objects
+      this->par = src.par;
+      this->cov = src.cov;
+      this->q   = src.q;
+
+    } else { //ok, do manual load of the batch component instead
+      this->par.save(src.par, batch_id);
+      this->cov.save(src.cov, batch_id);
+      this->q.save(src.q, batch_id);
+    }//done
+    
     return;
   }
 };
@@ -158,18 +410,23 @@ struct MPHIT {
   MP3F    pos;
   MP3x3SF cov;
   //
-  void load(MPHIT &dst){
-    pos.load(dst.pos);
-    cov.load(dst.cov);
-    return;
-  }
-  void save(const MPHIT &src){
-    pos.save(src.pos);
-    cov.save(src.cov);
+  MPHIT() = default;
 
-    return;
+  template<int S>
+  inline decltype(auto) load(const int batch_id = 0) const {
+    MPHIT_<S> dst;
+    
+    if constexpr (std::is_same<MP3F, MP3F_<S>>::value        
+                  and std::is_same<MP3x3SF, MP3x3SF_<S>>::value) { //just do a copy of the whole object
+      dst.pos = this->pos;
+      dst.cov = this->cov;
+    } else { //ok, do manual load of the batch component instead
+      this->pos.load(dst.pos, batch_id);
+      this->cov.load(dst.cov, batch_id);
+    }//done    
+    
+    return dst;
   }
-
 };
 
 ///////////////////////////////////////
@@ -330,7 +587,7 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 ///MAIN compute kernels
 
 template<size_t N = 1>
-inline void MultHelixProp(const MP6x6F &a, const MP6x6SF &b, MP6x6F &c) {//ok
+inline void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> &c) {//ok
 #pragma unroll
   for (int it = 0;it < N; it++) {
     c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
@@ -376,8 +633,8 @@ inline void MultHelixProp(const MP6x6F &a, const MP6x6SF &b, MP6x6F &c) {//ok
 }
 
 template<size_t N = 1>
-inline void MultHelixPropTransp(const MP6x6F &a, const MP6x6F &b, MP6x6SF &c) {//
-
+inline void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6SF_<N> &c) {//
+#pragma unroll
   for (int it = 0;it < N; it++) {
     
     c[ 0*N+it] = b[ 0*N+it]*a[ 0*N+it] + b[ 1*N+it]*a[ 1*N+it] + b[ 3*N+it]*a[ 3*N+it] + b[ 4*N+it]*a[ 4*N+it];
@@ -408,11 +665,11 @@ inline void MultHelixPropTransp(const MP6x6F &a, const MP6x6F &b, MP6x6SF &c) {/
 auto hipo = [](const float x, const float y) {return std::sqrt(x*x + y*y);};
 
 template <size_t N = 1>
-void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3F &msP){	  
+void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitErr, const MP3F_<N> &msP){	  
   
-  MP1F    rotT00;
-  MP1F    rotT01;
-  MP2x2SF resErr_loc;
+  MP1F_<N>    rotT00;
+  MP1F_<N>    rotT01;
+  MP2x2SF_<N> resErr_loc;
   //MP3x3SF resErr_glo;
     
   for (size_t it = 0;it < N; ++it) {   
@@ -445,7 +702,7 @@ void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3
     resErr_loc[0*N+it]  = tmp;  
   }     
   
-  MP3x6 kGain;
+  MP3x6_<N> kGain;
   
 #pragma omp simd
   for (size_t it=0; it<N; ++it) {
@@ -486,7 +743,7 @@ void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3
     kGain[17*N+it] = 0.f;  
   }  
      
-  MP2F res_loc;   
+  MP2F_<N> res_loc;   
   for (size_t it = 0; it < N; ++it) {
     const auto msPX = msP(iparX, it);
     const auto msPY = msP(iparY, it);
@@ -510,7 +767,7 @@ void KalmanUpdate(MP6x6SF &trkErr, MP6F &inPar, const MP3x3SF &hitErr, const MP3
     inPar(iparTheta,it) = inParTheta + kGain[15*N+it] * res_loc[ 0*N+it] + kGain[16*N+it] * res_loc[ 1*N+it];     
   }
 
-   MP6x6SF newErr;
+   MP6x6SF_<N> newErr;
    for (size_t it=0;it<N;++it)   {
      const auto t0 = rotT00[it]*trkErr[ 0*N+it] + rotT01[it]*trkErr[ 1*N+it];
      const auto t1 = rotT00[it]*trkErr[ 1*N+it] + rotT01[it]*trkErr[ 2*N+it];
@@ -553,11 +810,11 @@ constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 
 template <size_t N = 1>
-void propagateToR(const MP6x6SF &inErr, const MP6F &inPar, const MP1I &inChg, 
-                  const MP3F &msP, MP6x6SF &outErr, MP6F &outPar) {
+void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N> &inChg, 
+                  const MP3F_<N> &msP, MP6x6SF_<N> &outErr, MP6F_<N> &outPar) {
   //aux objects  
-  MP6x6F errorProp;
-  MP6x6F temp;
+  MP6x6F_<N> errorProp;
+  MP6x6F_<N> temp;
   
   auto PosInMtrx = [=] (int i, int j, int D, int block_size = 1) constexpr {return block_size*(i*D+j);};
   
@@ -746,49 +1003,51 @@ void propagateToR(const MP6x6SF &inErr, const MP6F &inPar, const MP1I &inChg,
   return;
 }
 
-template <bool is_cuda_call>
-concept cuda_concept = is_cuda_call == true;
-
-template <typename lambda_tp, bool grid_stride = false>
-requires (is_cuda_kernel == true)
-__cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const int length){
+template <int bSize, typename lambda_tp, bool grid_stride = false>
+requires (enable_cuda == true)
+__cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const int length){
 
   auto i = threadIdx.x + blockIdx.x * blockDim.x;
-   
+  
   while (i < length) {
-    p2r_kernel(i);	   
+  
+    auto tid      = i / bSize;
+    auto batch_id = i % bSize;   
 
-    if (grid_stride)  i += gridDim.x * blockDim.x; 
+    p2r_kernel(tid, batch_id);
+
+    if constexpr (grid_stride) { i += (gridDim.x * blockDim.x);}
     else  break;
   }
+
 
   return;
 }
 
 //CUDA specialized version:
-template <bool cuda_compute>
-requires cuda_concept<cuda_compute>
-void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
+template <int bSize, typename stream_tp, bool is_cuda_target>
+requires CudaCompute<is_cuda_target>
+void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
 
-  const int outer_loop_range = nevnts_*ntrks_;
+  const int outer_loop_range = nevnts_*nb_*bSize;//re-scale exec domain for the cuda backend
 
-  dim3 blocks(threadsperblock, 1, 1);
-  dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
+  dim3 blocks(threads_per_block, 1, 1);
+  dim3 grid(((outer_loop_range + threads_per_block - 1)/ threads_per_block), 1, 1);
   //
-  launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
+  launch_p2r_cuda_kernel<bSize><<<grid, blocks, 0, stream>>>(p2r_kernel, outer_loop_range);
   //
-  cudaDeviceSynchronize();
+  p2r_check_error<is_cuda_target>();
 
   return;	
 }
 
 //General (default) implementation for both x86 and nvidia accelerators:
-template <bool cuda_compute>
-void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
+template <int bSize, typename stream_tp, bool is_cuda_target>
+void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
   //	
   auto policy = std::execution::par_unseq;
   //
-  auto outer_loop_range = std::ranges::views::iota(0, ntrks_*nevnts_);
+  auto outer_loop_range = std::ranges::views::iota(0, nb_*nevnts_);
   //
   std::for_each(policy,
                 std::ranges::begin(outer_loop_range),
@@ -798,26 +1057,6 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
   return;
 }
 
-//CUDA specialized version:
-template <bool cuda_compute>
-requires cuda_concept<cuda_compute>
-void prefetch(std::vector<MPTRK> &trks, std::vector<MPHIT> &hits, std::vector<MPTRK> &outtrks) {
-  cudaMemPrefetchAsync(trks.data(), trks.size() * sizeof(MPTRK), 0, 0);	
-  //
-  cudaMemPrefetchAsync(hits.data(), hits.size() * sizeof(MPHIT), 0, 0);
-  //
-  cudaMemPrefetchAsync(outtrks.data(), outtrks.size() * sizeof(MPTRK), 0, 0);
-  //
-  cudaDeviceSynchronize();
-
-  return;
-}
-
-//Default implementation
-template <bool cuda_compute>
-void prefetch(std::vector<MPTRK> &trks, std::vector<MPHIT> &hits, std::vector<MPTRK> &outtrks) {
-  return;	
-}
 
 int main (int argc, char* argv[]) {
    #include "input_track.h"
@@ -844,41 +1083,55 @@ int main (int argc, char* argv[]) {
 
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
+   
+   auto dev_id = p2r_get_compute_device_id<enable_cuda>();
+   auto streams= p2r_get_streams<enable_cuda>(nstreams);
+
+   auto stream = streams[0];//with UVM, we use only one compute stream 
+
+   std::vector<MPTRK> outtrcks(nevts*nb);
+   // migrate output object to dev memory:
+   p2r_prefetch<MPTRK, enable_cuda>(outtrcks, dev_id, stream);
 
    std::vector<MPTRK> trcks(nevts*nb); 
    prepareTracks(trcks, inputtrk);
    //
    std::vector<MPHIT> hits(nlayer*nevts*nb);
    prepareHits(hits, inputhits);
-   //
-   std::vector<MPTRK> outtrcks(nevts*nb);
-   
+   // migrate the remaining objects if we don't measure transfers
+   if constexpr (include_data_transfer == false) {
+     p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
+     p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
+   }
+      
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
-                         bhitsPtr      = hits.data()] (const auto i) {
+                         bhitsPtr      = hits.data()] (const auto tid, const  int batch_id = 0) {
                          //  
-                         MPTRK btracks;
-                         MPTRK obtracks;
-                         MPHIT bhits;
+                         constexpr int N      = enable_cuda ? 1 : bsize;
                          //
-                         btracksPtr[i].load(btracks);
+                         MPTRK_<N> obtracks;
                          //
-                         for(int layer=0; layer<nlayer; ++layer) {
+                         const auto& btracks = btracksPtr[tid].load<N>(batch_id);
+                         //
+                         constexpr int layers = nlayer;
+                         //
+                         for(int layer = 0; layer < layers; ++layer) {
                            //
-                           bhitsPtr[layer+nlayer*i].load(bhits);
+                           const auto& bhits = bhitsPtr[layer+layers*tid].load<N>(batch_id);
                            //
-                           propagateToR<bsize>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-                           KalmanUpdate<bsize>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+                           propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                           KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                            //
                          }
                          //
-                         outtracksPtr[i].save(obtracks);
+                         outtracksPtr[tid].save<N>(obtracks, batch_id);
                        };
+   // synchronize to ensure that all needed data is on the device:
+   p2r_wait<enable_cuda>();
  
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
-
-   prefetch<is_cuda_kernel>(trcks, hits, outtrcks);
 
    printf("done preparing!\n");
 
@@ -886,16 +1139,38 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   auto wall_start = std::chrono::high_resolution_clock::now();
+   //info<enable_cuda>(dev_id);
+   double wall_time = 0.0;
 
    for(int itr=0; itr<NITER; itr++) {
-     dispatch_p2r_kernels<is_cuda_kernel>(p2r_kernels, nb, nevts);
+     auto wall_start = std::chrono::high_resolution_clock::now();
+     //
+     if constexpr (include_data_transfer) {
+       p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
+       p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
+     }
+     //
+     dispatch_p2r_kernels<bsize, decltype(stream), enable_cuda>(p2r_kernels, stream, nb, nevts);
+     
+     if constexpr (include_data_transfer) {  
+       p2r_prefetch<MPTRK, enable_cuda>(outtrcks, host_id, stream); 
+     }
+     //
+     p2r_wait<enable_cuda>();
+     //
+     auto wall_stop = std::chrono::high_resolution_clock::now();
+     //
+     auto wall_diff = wall_stop - wall_start;
+     //
+     wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
+     // reset initial states (don't need if we won't measure data migrations):
+     if constexpr (include_data_transfer) {
+       p2r_prefetch<MPTRK, enable_cuda>(trcks, host_id, stream);
+       p2r_prefetch<MPHIT, enable_cuda>(hits,  host_id, stream);
+       //
+       p2r_prefetch<MPTRK, enable_cuda, decltype(stream), true>(outtrcks, dev_id, stream);
+     }
    } //end of itr loop
-
-   auto wall_stop = std::chrono::high_resolution_clock::now();
-
-   auto wall_diff = wall_stop - wall_start;
-   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;   
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
