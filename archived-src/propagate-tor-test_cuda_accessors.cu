@@ -1,7 +1,5 @@
 /*
-nvc++ -O2 -std=c++17 -stdpar=gpu -gpu=cc75 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll  src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
-nvc++ -O2 -std=c++17 -stdpar=multicore src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl 
-g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_pstl
+nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream per-thread -std=c++17 ./propagate-tor-test_cuda_accessors.cu -L -lcudart   -o ./"propagate_nvcc_cuda"
 */
 
 #include <stdio.h>
@@ -193,7 +191,7 @@ struct MPNX_ {
 
 using MP1I_    = MPNX_<int,   1 >;
 using MP1F_    = MPNX_<float, 1 >;
-using MP2F_    = MPNX_<float, 3 >;
+using MP2F_    = MPNX_<float, 2 >;
 using MP3F_    = MPNX_<float, 3 >;
 using MP6F_    = MPNX_<float, 6 >;
 using MP2x2SF_ = MPNX_<float, 3 >;
@@ -353,12 +351,14 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  __device__ __host__ inline void load(MPTRK_ &dst, const int tid, const int layer = 0) const {
-    this->par.load(dst.par, tid, layer);
-    this->cov.load(dst.cov, tid, layer);
-    this->q.load(dst.q, tid, layer);
+  __device__ __host__ inline const auto load(const int tid) const {
+    MPTRK_ dst;
+
+    this->par.load(dst.par, tid, 0);
+    this->cov.load(dst.cov, tid, 0);
+    this->q.load(dst.q, tid, 0);
     
-    return;
+    return dst;
   }
   
   __device__ __host__ inline void save(MPTRK_ &src, const int tid, const int layer = 0) {
@@ -389,24 +389,19 @@ struct MPHITAccessor {
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
   
-  __device__ __host__ void load(MPHIT_ &dst, const int tid, const int layer = 0) const {
+  __device__ __host__ inline const auto load(const int tid, const int layer = 0) const {
+    MPHIT_ dst;
+
     this->pos.load(dst.pos, tid, layer);
     this->cov.load(dst.cov, tid, layer);
     
-    return;
+    return dst;
   }
-  
-  __device__ __host__ void save(MPHIT_ &src, const int tid, const int layer = 0) {
-    this->pos.save(src.pos, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    
-    return;
-  } 
 };
 
 
-template<FieldOrder order, typename MPTRKAllocator, ConversionType convers_tp>
-void convertTracks(std::vector<MPTRK_, MPTRKAllocator> &external_order_data, MPTRK* internal_order_data) {
+template<FieldOrder order, ConversionType convers_tp>
+void convertTracks(std::vector<MPTRK_> &external_order_data, MPTRK* internal_order_data) {
   //create an accessor field:
   std::unique_ptr<MPTRKAccessor<order>> ind(new MPTRKAccessor<order>(*internal_order_data));
   // store in element order for bunches of bsize matrices (a la matriplex)
@@ -443,8 +438,8 @@ void convertTracks(std::vector<MPTRK_, MPTRKAllocator> &external_order_data, MPT
 }
 
 
-template<FieldOrder order, typename MPHITAllocator, ConversionType convers_tp>
-void convertHits(std::vector<MPHIT_, MPHITAllocator> &external_order_data, MPHIT* internal_oder_data) {
+template<FieldOrder order, ConversionType convers_tp>
+void convertHits(std::vector<MPHIT_> &external_order_data, MPHIT* internal_oder_data) {
   //create an accessor field:
   std::unique_ptr<MPHITAccessor<order>> ind(new MPHITAccessor<order>(*internal_oder_data));
   // store in element order for bunches of bsize matrices (a la matriplex)
@@ -501,8 +496,7 @@ float randn(float mu, float sigma) {
 }
 
 
-template<typename MPTRKAllocator>
-void prepareTracks(std::vector<MPTRK_, MPTRKAllocator> &trcks, ATRK &inputtrk) {
+void prepareTracks(std::vector<MPTRK_> &trcks, ATRK &inputtrk) {
   //
   for (int ie=0;ie<nevts;++ie) {
     for (int ib=0;ib<ntrks;++ib) {
@@ -524,8 +518,7 @@ void prepareTracks(std::vector<MPTRK_, MPTRKAllocator> &trcks, ATRK &inputtrk) {
   return;
 }
 
-template<typename MPHITAllocator>
-void prepareHits(std::vector<MPHIT_, MPHITAllocator> &hits, std::vector<AHIT>& inputhits) {
+void prepareHits(std::vector<MPHIT_> &hits, std::vector<AHIT>& inputhits) {
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (int lay=0;lay<nlayer;++lay) {
 
@@ -1052,20 +1045,19 @@ __device__ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_,
   return;
 }
 
-template <FieldOrder order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER, bool grid_stride = true>
+template <int layers, FieldOrder order = FieldOrder::P2R_TRACKBLK_EVENT_LAYER_MATIDX_ORDER, bool grid_stride = true>
 __global__ void launch_p2r_kernels(MPTRKAccessor<order> &obtracksAcc, MPTRKAccessor<order> &btracksAcc, MPHITAccessor<order> &bhitsAcc, const int length){
    auto i = threadIdx.x + blockIdx.x * blockDim.x;
 
-   MPTRK_ btracks;
    MPTRK_ obtracks;
-   MPHIT_ bhits;
 
    while (i < length) {
      //
-     btracksAcc.load(btracks, i);
-     for(int layer=0; layer<nlayer; ++layer) {  
+     const auto& btracks = btracksAcc.load(i);
+#pragma unroll // improved performance by factor > x2
+     for(int layer = 0; layer < layers; ++layer) {  
        //
-       bhitsAcc.load(bhits, i, layer);
+       const auto& bhits = bhitsAcc.load(i, layer);
        //
        propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
        KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
@@ -1074,14 +1066,19 @@ __global__ void launch_p2r_kernels(MPTRKAccessor<order> &obtracksAcc, MPTRKAcces
      //
      obtracksAcc.save(obtracks, i);
      
-     if (grid_stride)
-       i += gridDim.x * blockDim.x;
-     else
-       break;
+     if constexpr (grid_stride) i += gridDim.x * blockDim.x;
+     else break;
   }
   return;
 }
 
+void p2r_check_error(){
+  //	
+  auto error = cudaGetLastError();
+  if(error != cudaSuccess) std::cout << "Error detected, error " << error << std::endl;
+  //
+  return;
+}
 
 int main (int argc, char* argv[]) {
 
@@ -1126,21 +1123,18 @@ int main (int argc, char* argv[]) {
    //
    std::unique_ptr<MPTRK> outtrcksPtr(new MPTRK(ntrks, nevts));
    auto outtrcksAccPtr = std::allocate_shared<MPTRKAccessorTp>(mptrk_uvm_alloc, *outtrcksPtr);
-   //
-   using hostmptrk_allocator = std::allocator<MPTRK_>;
-   using hostmphit_allocator = std::allocator<MPHIT_>;
 
-   std::vector<MPTRK_, hostmptrk_allocator > trcks(nevts*ntrks); 
-   prepareTracks<hostmptrk_allocator>(trcks, inputtrk);
+   std::vector<MPTRK_> trcks(nevts*ntrks); 
+   prepareTracks(trcks, inputtrk);
    //
-   std::vector<MPHIT_, hostmphit_allocator> hits(nlayer*nevts*ntrks);
-   prepareHits<hostmphit_allocator>(hits, inputhits);
+   std::vector<MPHIT_> hits(nlayer*nevts*ntrks);
+   prepareHits(hits, inputhits);
    //
-   std::vector<MPTRK_, hostmptrk_allocator> outtrcks(nevts*ntrks);
+   std::vector<MPTRK_> outtrcks(nevts*ntrks);
    
-   convertHits<order, hostmphit_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(hits,     hitsPtr.get());
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(trcks,    trcksPtr.get());
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
+   convertHits<order,   ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(hits,     hitsPtr.get());
+   convertTracks<order, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(trcks,    trcksPtr.get());
+   convertTracks<order, ConversionType::P2R_CONVERT_TO_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
 
    cudaDeviceSynchronize();
 
@@ -1159,19 +1153,23 @@ int main (int argc, char* argv[]) {
    dim3 blocks(threadsperblock, 1, 1);
    dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
    // A warmup run to migrate data on the device
-   launch_p2r_kernels<<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
+   launch_p2r_kernels<nlayer><<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
 
    cudaDeviceSynchronize();
+   
+   p2r_check_error();
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(int itr=0; itr<NITER; itr++) {
 
-     launch_p2r_kernels<<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
+     launch_p2r_kernels<nlayer><<<grid, blocks>>>(*outtrcksAccPtr, *trcksAccPtr, *hitsAccPtr, phys_length);
 
    } //end of itr loop
 
    cudaDeviceSynchronize();
+   
+   p2r_check_error();
 
    auto wall_stop = std::chrono::high_resolution_clock::now();
 
@@ -1182,7 +1180,7 @@ int main (int argc, char* argv[]) {
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, 1, ntrks, wall_time, (setup_stop-setup_start)*0.001, -1);
 
-   convertTracks<order, hostmptrk_allocator, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
+   convertTracks<order, ConversionType::P2R_CONVERT_FROM_INTERNAL_ORDER>(outtrcks, outtrcksPtr.get());
    auto outtrk = outtrcks.data();
 
    int nnans = 0, nfail = 0;

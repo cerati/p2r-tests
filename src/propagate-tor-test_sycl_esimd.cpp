@@ -72,43 +72,19 @@ constexpr int iparTheta = 5;
 
 template <typename T, int N, int bSize_>
 struct MPNX {
-   std::array<T,N*bSize_> data;
+   sycl::marray<T,N*bSize_> data;
    //basic accessors
    const T& operator[](const int idx) const {return data[idx];}
    T& operator[](const int idx) {return data[idx];}
    const T& operator()(const int m, const int b) const {return data[m*bSize+b];}
    T& operator()(const int m, const int b) {return data[m*bSize+b];}
    //
-   //std::enable_if_t<std::is_arithmetic_v<T>,void> load(MPNX& dst) const{
-   void load(MPNX& dst) const{
-     for (int it=0;it<bSize_;++it) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
-       for (int ip=0;ip<N;++ip) {    	
-    	 dst.data[it + ip*bSize_] = this->operator()(ip, it);  
-       }
-     }//
-     
-     return;
-   }
-   
    [[intel::sycl_explicit_simd]] void simd_load(MPNX<simd<T, bSize_>, N, 1>& dst){
      //
      {
-     //const int l = it+ib*bsize+ie*nb*bsize;
+#pragma unroll
        for (int ip=0;ip<N;++ip) {    	
     	 dst.data[ip] = block_load<T, bSize_>(&data[ip*bSize_]); //this->operator()(ip, 0);  
-       }
-     }//
-     
-     return;
-   }
-
-   //std::enable_if_t<std::is_arithmetic_v<T>,void> save(const MPNX& src) {
-   void save(const MPNX& src) {
-     for (int it=0;it<bSize_;++it) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
-       for (int ip=0;ip<N;++ip) {    	
-    	 this->operator()(ip, it) = src.data[it + ip*bSize_];  
        }
      }//
      
@@ -117,7 +93,7 @@ struct MPNX {
 //
    [[intel::sycl_explicit_simd]] void simd_save(const MPNX<simd<T, bSize_>, N, 1>& src) {
      {
-     //const int l = it+ib*bsize+ie*nb*bsize;
+#pragma unroll
        for (int ip=0;ip<N;++ip) {    	
     	 block_store<T, bSize_>(&data[ip*bSize_], src.data[ip]); 
        }
@@ -130,7 +106,7 @@ struct MPNX {
 
 using MP1I    = MPNX<int,   1 , bSize>;
 using MP1F    = MPNX<float, 1 , bSize>;
-using MP2F    = MPNX<float, 3 , bSize>;
+using MP2F    = MPNX<float, 2 , bSize>;
 using MP3F    = MPNX<float, 3 , bSize>;
 using MP6F    = MPNX<float, 6 , bSize>;
 using MP2x2SF = MPNX<float, 3 , bSize>;
@@ -143,7 +119,7 @@ using MP3x6   = MPNX<float, 18, bSize>;
 // Native fields:
 using MP1I_    = MPNX<simd<int, bSize>,   1 , 1>;
 using MP1F_    = MPNX<simd<float, bSize>, 1 , 1>;
-using MP2F_    = MPNX<simd<float, bSize>, 3 , 1>;
+using MP2F_    = MPNX<simd<float, bSize>, 2 , 1>;
 using MP3F_    = MPNX<simd<float, bSize>, 3 , 1>;
 using MP6F_    = MPNX<simd<float, bSize>, 6 , 1>;
 using MP2x2SF_ = MPNX<simd<float, bSize>, 3 , 1>;
@@ -162,7 +138,6 @@ struct MPTRK_ {
 struct MPHIT_ {
   MP3F_    pos;
   MP3x3SF_ cov;
-
 };
 
 
@@ -171,28 +146,17 @@ struct MPTRK {
   MP6x6SF cov;
   MP1I    q;
 
-  //  MP22I   hitidx;
-  void load(MPTRK &dst){
-    par.load(dst.par);
-    cov.load(dst.cov);
-    q.load(dst.q);    
-    return;	  
-  }
+  MPTRK() = default; 
   //
-  void simd_load(MPTRK_ &dst){
+  const MPTRK_ simd_load(){
+  
+    MPTRK_ dst;
     //
     par.simd_load(dst.par);
     cov.simd_load(dst.cov);
     q.simd_load(dst.q);
     //   
-    return;	  
-  }
-  //
-  void save(const MPTRK &src){
-    par.save(src.par);
-    cov.save(src.cov);
-    q.save(src.q);
-    return;
+    return std::move(dst);	  
   }
   //
   void simd_save(const MPTRK_ &src){
@@ -209,35 +173,17 @@ struct MPHIT {
   MP3F    pos;
   MP3x3SF cov;
   //
-  void load(MPHIT &dst){
-    pos.load(dst.pos);
-    cov.load(dst.cov);
-    return;
-  }
+  MPHIT() = default;
   
-  void simd_load(MPHIT_ &dst){
+  const MPHIT_ simd_load(){
+    //
+    MPHIT_ dst;
     //
     pos.simd_load(dst.pos);
     cov.simd_load(dst.cov);
     //
-    return;
+    return std::move(dst);
   }
-  
-  void save(const MPHIT &src){
-    pos.save(src.pos);
-    cov.save(src.cov);
-
-    return;
-  }
-  
-  void simd_save(const MPHIT_ &src){
-    //
-    pos.simd_save(src.pos);
-    cov.simd_save(src.cov);
-    //
-    return;
-  }
-
 };
 
 
@@ -974,13 +920,13 @@ int main (int argc, char* argv[]) {
  
    constexpr unsigned outer_loop_range = nevts*ntrks;
    //  
-   constexpr unsigned GroupSize = 4;
+   constexpr unsigned group_size = 4;
    // We need that many task groups
-   cl::sycl::range<1> GroupRange{outer_loop_range / bSize};
+   cl::sycl::range<1> group_range{outer_loop_range / bSize};
    // We need that many tasks in each group
-   cl::sycl::range<1> TaskRange{GroupSize};
+   cl::sycl::range<1> task_range{group_size};
    //
-   cl::sycl::nd_range<1> Range{GroupRange, TaskRange};
+   cl::sycl::nd_range<1> exe_range{group_range, task_range};
  
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
@@ -988,18 +934,18 @@ int main (int argc, char* argv[]) {
                          //  
                          const int i = ndi.get_global_id(0);
                          //
-                         MPTRK_ btracks;
                          MPTRK_ obtracks;
-                         MPHIT_ bhits;
                          //
-                         btracksPtr[i].simd_load(btracks);
+                         const MPTRK_ btracks = btracksPtr[i].simd_load();
+                         //
+                         constexpr int N = bsize;
                          //
                          for(int layer=0; layer<nlayer; ++layer) {
                            //
-                           bhitsPtr[layer+nlayer*i].simd_load(bhits);
+                           const MPHIT_ bhits = bhitsPtr[layer+nlayer*i].simd_load();
                            //
-                           propagateToR<bSize>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-                           KalmanUpdate<bSize>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+                           propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                           KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                            //
                          }
                          //
@@ -1016,18 +962,26 @@ int main (int argc, char* argv[]) {
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
    // A warmup run to migrate data on the device:
-   cq.submit([&](sycl::handler &h){
-       h.parallel_for(Range, p2r_kernels);
+   try {
+     cq.submit([&](sycl::handler &h){
+       h.parallel_for(exe_range, p2r_kernels);
      });
+   } catch (sycl::exception const& e) {
+     std::cout << "Caught SYCL exception: " << e.what() << std::endl;      
+   }
 
    cq.wait();  
 
    auto wall_start = std::chrono::high_resolution_clock::now();
 
    for(int itr=0; itr<NITER; itr++) {
-     cq.submit([&](sycl::handler &h){
-       h.parallel_for(Range, p2r_kernels);
-     });
+     try {
+       cq.submit([&](sycl::handler &h){
+         h.parallel_for(exe_range, p2r_kernels);
+       });
+     } catch (sycl::exception const& e) {
+       std::cout << "Caught SYCL exception: " << e.what() << std::endl;      
+     }
    } //end of itr loop
 
    cq.wait();

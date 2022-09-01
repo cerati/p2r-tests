@@ -28,7 +28,7 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #endif//__NVCOMPILER_CUDA__
 #endif
 #ifndef ntrks
-#define ntrks 9600//8192
+#define ntrks 8192
 #endif
 
 #define nb    (ntrks/bsize)
@@ -137,7 +137,7 @@ struct MPNX_ {
 
 using MP1I_    = MPNX_<int,   1 , bsize>;
 using MP1F_    = MPNX_<float, 1 , bsize>;
-using MP2F_    = MPNX_<float, 3 , bsize>;
+using MP2F_    = MPNX_<float, 2 , bsize>;
 using MP3F_    = MPNX_<float, 3 , bsize>;
 using MP6F_    = MPNX_<float, 6 , bsize>;
 using MP2x2SF_ = MPNX_<float, 3 , bsize>;
@@ -152,12 +152,14 @@ struct MPTRK_ {
   MP6x6SF_ cov;
   MP1I_    q;
 
+  MPTRK_() = default;
   //  MP22I   hitidx;
 };
 
 struct MPHIT_ {
   MP3F_    pos;
   MP3x3SF_ cov;
+  MPHIT_() = default;
 };
 
 template <typename T, int n, int bSize>
@@ -306,18 +308,21 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  void load(MPTRK_ &dst, const int tid, const int layer = 0) const {
-    this->par.load(dst.par, tid, layer);
-    this->cov.load(dst.cov, tid, layer);
-    this->q.load(dst.q, tid, layer);
+  const auto load(const int tid) const {
+    MPTRK_ dst;
+
+    par.load(dst.par, tid, 0);
+    cov.load(dst.cov, tid, 0);
+    q.load(dst.q, tid, 0);
     
-    return;
+    return dst;
   }
   
-  void save(MPTRK_ &src, const int tid, const int layer = 0) {
-    this->par.save(src.par, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    this->q.save(src.q, tid, layer);
+  void save(MPTRK_ &src, const int tid) {
+
+    par.save(src.par, tid, 0);
+    cov.save(src.cov, tid, 0);
+    q.save(src.q, tid, 0);
     
     return;
   }
@@ -343,19 +348,13 @@ struct MPHITAccessor {
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
   
-  void load(MPHIT_ &dst, const int tid, const int layer = 0) const {
+  const auto load(const int tid, const int layer = 0) const {
+    MPHIT_ dst;
     this->pos.load(dst.pos, tid, layer);
     this->cov.load(dst.cov, tid, layer);
     
-    return;
+    return dst;
   }
-  
-  void save(MPHIT_ &src, const int tid, const int layer = 0) {
-    this->pos.save(src.pos, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    
-    return;
-  } 
 };
 
 
@@ -1090,18 +1089,20 @@ int main (int argc, char* argv[]) {
                       &bhitsAccessor      = *hitsAccPtr,
                       &outtracksAccessor  = *outtrcksAccPtr] (const auto i) {
                      //  
-                     MPTRK_ btracks;
                      MPTRK_ obtracks;
-                     MPHIT_ bhits;   
                      //
-		     btracksAccessor.load(btracks, i);
+		     const auto& btracks = btracksAccessor.load(i);
 		     //
-                     for(int layer=0; layer<nlayer; ++layer) {  
+		     constexpr int N = bsize;
+
+		     constexpr int layers = nlayer;
+		     //
+                     for(int layer = 0; layer < layers; ++layer) {  
                        //
-                       bhitsAccessor.load(bhits, i, layer);
+                       const auto& bhits = bhitsAccessor.load(i, layer);
                        //
-                       propagateToR<bsize>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-                       KalmanUpdate<bsize>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+                       propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                       KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                        //
                      }
 		     //

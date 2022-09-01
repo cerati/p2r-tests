@@ -1,7 +1,5 @@
 /*
-nvc++ -O2 -std=c++17 -stdpar=gpu -gpu=cc75 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll  src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl
-nvc++ -O2 -std=c++17 -stdpar=multicore src/propagate-tor-test_pstl.cpp   -o ./propagate_nvcpp_pstl 
-g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -lgomp -Lpath-to-tbb-lib -ltbb  -o ./propagate_gcc_pstl
+nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream per-thread -std=c++17 ./propagate-tor-test_cuda_native.cu -L -lcudart   -o ./"propagate_nvcc_cuda"
 */
 
 #include <stdio.h>
@@ -27,7 +25,11 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #define ntrks 8192
 #endif
 
-//#define ntrks    (ntrks/bsize)
+#ifndef bsize
+#define bsize 32
+#endif
+
+#define nb    (ntrks/bsize)
 
 #ifndef nevts
 #define nevts 100
@@ -49,26 +51,17 @@ g++ -O3 -I. -fopenmp -mavx512f -std=c++17 src/propagate-tor-test_pstl.cpp -lm -l
 #define threadsperblock 32
 #endif
 
+#ifdef include_data
+constexpr bool include_data_transfer = true;
+#else
+constexpr bool include_data_transfer = false;
+#endif
+
+static int nstreams  = num_streams;//we have only one stream, though
+
+constexpr int host_id = -1; /*cudaCpuDeviceId*/
+
 namespace impl {
-
-  /**
-     Simple array object which mimics std::array
-  */
-  template <typename T, int n> struct array {
-    using value_type = T;
-    T data[n];
-
-    constexpr T &operator[](int i) { return data[i]; }
-    constexpr const T &operator[](int i) const { return data[i]; }
-    constexpr int size() const { return n; }
-
-    array() = default;
-    array(const array<T, n> &) = default;
-    array(array<T, n> &&) = default;
-
-    array<T, n> &operator=(const array<T, n> &) = default;
-    array<T, n> &operator=(array<T, n> &&) = default;
-  };
   
   template<typename Tp>
   struct UVMAllocator {
@@ -107,55 +100,49 @@ namespace impl {
         return;
       }
     };
-    
-   template <typename IntType>
-   class counting_iterator {
-       static_assert(std::numeric_limits<IntType>::is_integer, "Cannot instantiate counting_iterator with a non-integer type");
-     public:
-       using value_type = IntType;
-       using difference_type = typename std::make_signed<IntType>::type;
-       using pointer = IntType*;
-       using reference = IntType&;
-       using iterator_category = std::random_access_iterator_tag;
-
-       counting_iterator() : value(0) { }
-       explicit counting_iterator(IntType v) : value(v) { }
-
-       value_type operator*() const { return value; }
-       value_type operator[](difference_type n) const { return value + n; }
-
-       counting_iterator& operator++() { ++value; return *this; }
-       counting_iterator operator++(int) {
-         counting_iterator result{value};
-         ++value;
-         return result;
-       }  
-       counting_iterator& operator--() { --value; return *this; }
-       counting_iterator operator--(int) {
-         counting_iterator result{value};
-         --value;
-         return result;
-       }
-       counting_iterator& operator+=(difference_type n) { value += n; return *this; }
-       counting_iterator& operator-=(difference_type n) { value -= n; return *this; }
-
-       friend counting_iterator operator+(counting_iterator const& i, difference_type n)          { return counting_iterator(i.value + n);  }
-       friend counting_iterator operator+(difference_type n, counting_iterator const& i)          { return counting_iterator(i.value + n);  }
-       friend difference_type   operator-(counting_iterator const& x, counting_iterator const& y) { return x.value - y.value;  }
-       friend counting_iterator operator-(counting_iterator const& i, difference_type n)          { return counting_iterator(i.value - n);  }
-
-       friend bool operator==(counting_iterator const& x, counting_iterator const& y) { return x.value == y.value;  }
-       friend bool operator!=(counting_iterator const& x, counting_iterator const& y) { return x.value != y.value;  }
-       friend bool operator<(counting_iterator const& x, counting_iterator const& y)  { return x.value < y.value; }
-       friend bool operator<=(counting_iterator const& x, counting_iterator const& y) { return x.value <= y.value; }
-       friend bool operator>(counting_iterator const& x, counting_iterator const& y)  { return x.value > y.value; }
-       friend bool operator>=(counting_iterator const& x, counting_iterator const& y) { return x.value >= y.value; }
-
-     private:
-       IntType value;
-   };
 
 } //impl
+
+//Collection of API functions:
+int p2r_get_compute_device_id(){
+  int dev = -1;
+  cudaGetDevice(&dev);
+  cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+  return dev;
+}
+
+void p2r_check_error(){
+  //
+  auto error = cudaGetLastError();
+  if(error != cudaSuccess) std::cout << "Error detected, error " << error << std::endl;
+  //
+  return;
+}
+
+decltype(auto) p2r_get_streams(const int n){
+  std::vector<cudaStream_t> streams;
+  streams.reserve(n);
+  for (int i = 0; i < n; i++) {
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    streams.push_back(stream);
+  }
+  return streams;
+}
+
+template <typename data_tp, typename Allocator, typename stream_t, bool is_sync = false>
+void p2r_prefetch(std::vector<data_tp, Allocator> &v, int devId, stream_t stream) {
+  cudaMemPrefetchAsync(v.data(), v.size() * sizeof(data_tp), devId, stream);
+  //
+  if constexpr (is_sync) {cudaStreamSynchronize(stream);}
+
+  return;
+}
+
+void p2r_wait() {
+  cudaDeviceSynchronize();
+  return;
+}
 
 const std::array<int, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
 
@@ -177,85 +164,121 @@ constexpr int iparIpt   = 3;
 constexpr int iparPhi   = 4;
 constexpr int iparTheta = 5;
 
-template <typename T, int N>
-struct MPNX_ {
-   impl::array<T,N> data;
-   //basic accessors
-   __device__ __host__ inline const T& operator[](const int idx) const {return data[idx];}
-   __device__ __host__ inline T& operator[](const int idx) {return data[idx];}
+template <typename T, int N, int bSize = 1>
+struct MPNX {
+   T data[N*bSize];
+
+   MPNX() = default;
+   MPNX(const MPNX<T, N, bSize> &) = default;
+   MPNX(MPNX<T, N, bSize> &&)      = default;
+
+   //basic accessors   
+   constexpr T &operator[](int i) { return data[i]; }
+   constexpr const T &operator[](int i) const { return data[i]; }
+   constexpr int size() const { return N*bSize; }   
+   //
    
-   __device__ __host__ void load(MPNX_& dst) const{
-     //const int l = it+ib*bsize+ie*nb*bsize;
-     for (size_t ip=0;ip<N;++ip) {    	
-       dst.data[ip] = this->data[ip];  
+   __device__ __host__ inline void load(MPNX<T, N, 1>& dst, const int b) const {
+#pragma unroll
+     for (int ip=0;ip<N;++ip) { //block load   	
+    	dst.data[ip] = data[ip*bSize + b]; 
      }
+     
      return;
    }
 
-   __device__ __host__ void save(const MPNX_& src) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
-     for (size_t ip=0;ip<N;++ip) {    	
-       this->data[ip] = src.data[ip];  
+   __device__ __host__ inline void save(const MPNX<T, N, 1>& src, const int b) {
+#pragma unroll
+     for (int ip=0;ip<N;++ip) {    	
+    	 data[ip*bSize + b] = src.data[ip]; 
      }
+     
      return;
-   }
-
+   }  
+   
+   auto operator=(const MPNX&) -> MPNX& = default;
+   auto operator=(MPNX&&     ) -> MPNX& = default; 
 };
 
-using MP1I_    = MPNX_<int,   1 >;
-using MP1F_    = MPNX_<float, 1 >;
-using MP2F_    = MPNX_<float, 3 >;
-using MP3F_    = MPNX_<float, 3 >;
-using MP6F_    = MPNX_<float, 6 >;
-using MP2x2SF_ = MPNX_<float, 3 >;
-using MP3x3SF_ = MPNX_<float, 6 >;
-using MP6x6SF_ = MPNX_<float, 21>;
-using MP6x6F_  = MPNX_<float, 36>;
-using MP3x3_   = MPNX_<float, 9 >;
-using MP3x6_   = MPNX_<float, 18>;
+// external data formats:
+using MP1I    = MPNX<int,   1 , bsize>;
+using MP1F    = MPNX<float, 1 , bsize>;
+using MP2F    = MPNX<float, 2 , bsize>;
+using MP3F    = MPNX<float, 3 , bsize>;
+using MP6F    = MPNX<float, 6 , bsize>;
+using MP2x2SF = MPNX<float, 3 , bsize>;
+using MP3x3SF = MPNX<float, 6 , bsize>;
+using MP6x6SF = MPNX<float, 21, bsize>;
+using MP6x6F  = MPNX<float, 36, bsize>;
+using MP3x3   = MPNX<float, 9 , bsize>;
+using MP3x6   = MPNX<float, 18, bsize>;
+
+// internal data formats:
+using MP1I_    = MPNX<int,   1 >;
+using MP1F_    = MPNX<float, 1 >;
+using MP2F_    = MPNX<float, 2 >;
+using MP3F_    = MPNX<float, 3 >;
+using MP6F_    = MPNX<float, 6 >;
+using MP2x2SF_ = MPNX<float, 3 >;
+using MP3x3SF_ = MPNX<float, 6 >;
+using MP6x6SF_ = MPNX<float, 21>;
+using MP6x6F_  = MPNX<float, 36>;
+using MP3x3_   = MPNX<float, 9 >;
+using MP3x6_   = MPNX<float, 18>;
 
 struct MPTRK_ {
   MP6F_    par;
   MP6x6SF_ cov;
   MP1I_    q;
-
-  //  MP22I   hitidx;
-  __device__ __host__ void load(MPTRK_ &dst){
-    par.load(dst.par);
-    cov.load(dst.cov);
-    q.load(dst.q);    
-    return;	  
-  }
-  __device__ __host__ void save(const MPTRK_ &src){
-    par.save(src.par);
-    cov.save(src.cov);
-    q.save(src.q);
-    return;
-  }
-
 };
 
 struct MPHIT_ {
   MP3F_    pos;
   MP3x3SF_ cov;
-  
-  //
-  __device__ __host__  void load(MPHIT_ &dst){
-    pos.load(dst.pos);
-    cov.load(dst.cov);
-    return;
-  }
-  __device__ __host__  void save(const MPHIT_ &src){
-    pos.save(src.pos);
-    cov.save(src.cov);
-
-    return;
-  }
-
 };
 
-using MPTRKAllocator = impl::UVMAllocator<MPTRK_>;
-using MPHITAllocator = impl::UVMAllocator<MPHIT_>;
+
+struct MPTRK {
+  MP6F    par;
+  MP6x6SF cov;
+  MP1I    q;
+
+  __device__ __host__ inline const auto load_component (const int batch_id) const{//b is a batch idx
+  
+    MPTRK_ dst;
+
+    this->par.load(dst.par, batch_id);
+    this->cov.load(dst.cov, batch_id);
+    this->q.load(dst.q, batch_id);
+    
+    return dst;  
+  }
+  
+  __device__ __host__ inline void save_component(MPTRK_ &src, const int batch_id) {
+    this->par.save(src.par, batch_id);
+    this->cov.save(src.cov, batch_id);
+    this->q.save(src.q, batch_id);
+    
+    return;
+  }  
+};
+
+struct MPHIT {
+  MP3F    pos;
+  MP3x3SF cov;
+  //
+  __device__ __host__ inline const auto load_component(const int batch_id) const {
+    MPHIT_ dst;
+
+    this->pos.load(dst.pos, batch_id);
+    this->cov.load(dst.cov, batch_id);
+    
+    return dst;
+  }
+};
+
+using MPTRKAllocator = impl::UVMAllocator<MPTRK>;
+using MPHITAllocator = impl::UVMAllocator<MPHIT>;
 
 ///////////////////////////////////////
 //Gen. utils
@@ -280,23 +303,23 @@ float randn(float mu, float sigma) {
   return (mu + sigma * (float) X1);
 }
 
-
 template<typename MPTRKAllocator>
-void prepareTracks(std::vector<MPTRK_, MPTRKAllocator> &trcks, ATRK &inputtrk) {
+void prepareTracks(std::vector<MPTRK, MPTRKAllocator> &trcks, ATRK &inputtrk) {
   //
-  for (int ie=0;ie<nevts;++ie) {
-    for (int ib=0;ib<ntrks;++ib) {
-      {
-	      //par
-	      for (int ip=0;ip<6;++ip) {
-	        trcks[ib + ntrks*ie].par.data[ip] = (1+smear*randn(0,1))*inputtrk.par[ip];
-	      }
-	      //cov, scale by factor 100
-	      for (int ip=0;ip<21;++ip) {
-	        trcks[ib + ntrks*ie].cov.data[ip] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
-	      }
-	      //q
-	      trcks[ib + ntrks*ie].q.data[0] = inputtrk.q;//can't really smear this or fit will be wrong
+  for (size_t ie=0;ie<nevts;++ie) {
+    for (size_t ib=0;ib<nb;++ib) {
+      for (size_t it=0;it<bsize;++it) {
+        //par
+	 for (size_t ip=0;ip<6;++ip) {
+	   trcks[ib + nb*ie].par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
+	 }
+	 //cov, scaled by factor 100 
+	 for (size_t ip=0;ip<21;++ip) {
+	   trcks[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
+	 }
+	 //q
+	 trcks[ib + nb*ie].q.data[it] = inputtrk.q;//can't really smear this or fit will be wrong
+        //if((ib + nb*ie)%10==0 ) printf("prep trk index = %i ,track = (%.3f)\n ", ib+nb*ie);
       }
     }
   }
@@ -305,28 +328,28 @@ void prepareTracks(std::vector<MPTRK_, MPTRKAllocator> &trcks, ATRK &inputtrk) {
 }
 
 template<typename MPHITAllocator>
-void prepareHits(std::vector<MPHIT_, MPHITAllocator> &hits, std::vector<AHIT>& inputhits) {
+void prepareHits(std::vector<MPHIT, MPHITAllocator> &hits, std::vector<AHIT>& inputhits) {
   // store in element order for bunches of bsize matrices (a la matriplex)
-  for (int lay=0;lay<nlayer;++lay) {
+  for (size_t lay=0;lay<nlayer;++lay) {
 
-    int mylay = lay;
+    size_t mylay = lay;
     if (lay>=inputhits.size()) {
       // int wraplay = inputhits.size()/lay;
       exit(1);
     }
     AHIT& inputhit = inputhits[mylay];
 
-    for (int ie=0;ie<nevts;++ie) {
-      for (int ib=0;ib<ntrks;++ib) {
-        {
-        	//pos
-        	for (int ip=0;ip<3;++ip) {
-        	  hits[lay+nlayer*(ib + ntrks*ie)].pos.data[ip] = (1+smear*randn(0,1))*inputhit.pos[ip];
-        	}
-        	//cov
-        	for (int ip=0;ip<6;++ip) {
-        	  hits[lay+nlayer*(ib + ntrks*ie)].cov.data[ip] = (1+smear*randn(0,1))*inputhit.cov[ip];
-        	}
+    for (size_t ie=0;ie<nevts;++ie) {
+      for (size_t ib=0;ib<nb;++ib) {
+        for (size_t it=0;it<bsize;++it) {
+          //pos
+          for (size_t ip=0;ip<3;++ip) {
+            hits[lay+nlayer*(ib + nb*ie)].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
+          }
+          //cov
+          for (size_t ip=0;ip<6;++ip) {
+            hits[lay+nlayer*(ib + nb*ie)].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
+          }
         }
       }
     }
@@ -337,82 +360,82 @@ void prepareHits(std::vector<MPHIT_, MPHITAllocator> &hits, std::vector<AHIT>& i
 
 //////////////////////////////////////////////////////////////////////////////////////
 // Aux utils 
-MPTRK_* bTk(MPTRK_* tracks, int ev, int ib) {
-  return &(tracks[ib + ntrks*ev]);
+MPTRK* bTk(MPTRK* tracks, size_t ev, size_t ib) {
+  return &(tracks[ib + nb*ev]);
 }
 
-const MPTRK_* bTk(const MPTRK_* tracks, int ev, int ib) {
-  return &(tracks[ib + ntrks*ev]);
+const MPTRK* bTk(const MPTRK* tracks, size_t ev, size_t ib) {
+  return &(tracks[ib + nb*ev]);
 }
 
-float q(const MP1I_* bq, int it){
-  return (*bq).data[0];
+float q(const MP1I* bq, size_t it){
+  return (*bq).data[it];
 }
 //
-float par(const MP6F_* bpars, int it, int ipar){
-  return (*bpars).data[it + ipar];
+float par(const MP6F* bpars, size_t it, size_t ipar){
+  return (*bpars).data[it + ipar*bsize];
 }
-float x    (const MP6F_* bpars, int it){ return par(bpars, it, 0); }
-float y    (const MP6F_* bpars, int it){ return par(bpars, it, 1); }
-float z    (const MP6F_* bpars, int it){ return par(bpars, it, 2); }
-float ipt  (const MP6F_* bpars, int it){ return par(bpars, it, 3); }
-float phi  (const MP6F_* bpars, int it){ return par(bpars, it, 4); }
-float theta(const MP6F_* bpars, int it){ return par(bpars, it, 5); }
+float x    (const MP6F* bpars, size_t it){ return par(bpars, it, 0); }
+float y    (const MP6F* bpars, size_t it){ return par(bpars, it, 1); }
+float z    (const MP6F* bpars, size_t it){ return par(bpars, it, 2); }
+float ipt  (const MP6F* bpars, size_t it){ return par(bpars, it, 3); }
+float phi  (const MP6F* bpars, size_t it){ return par(bpars, it, 4); }
+float theta(const MP6F* bpars, size_t it){ return par(bpars, it, 5); }
 //
-float par(const MPTRK_* btracks, int it, int ipar){
+float par(const MPTRK* btracks, size_t it, size_t ipar){
   return par(&(*btracks).par,it,ipar);
 }
-float x    (const MPTRK_* btracks, int it){ return par(btracks, it, 0); }
-float y    (const MPTRK_* btracks, int it){ return par(btracks, it, 1); }
-float z    (const MPTRK_* btracks, int it){ return par(btracks, it, 2); }
-float ipt  (const MPTRK_* btracks, int it){ return par(btracks, it, 3); }
-float phi  (const MPTRK_* btracks, int it){ return par(btracks, it, 4); }
-float theta(const MPTRK_* btracks, int it){ return par(btracks, it, 5); }
+float x    (const MPTRK* btracks, size_t it){ return par(btracks, it, 0); }
+float y    (const MPTRK* btracks, size_t it){ return par(btracks, it, 1); }
+float z    (const MPTRK* btracks, size_t it){ return par(btracks, it, 2); }
+float ipt  (const MPTRK* btracks, size_t it){ return par(btracks, it, 3); }
+float phi  (const MPTRK* btracks, size_t it){ return par(btracks, it, 4); }
+float theta(const MPTRK* btracks, size_t it){ return par(btracks, it, 5); }
 //
-float par(const MPTRK_* tracks, int ev, int tk, int ipar){
-  int ib = tk;
-  const MPTRK_* btracks = bTk(tracks, ev, ib);
-  int it = 0;
+float par(const MPTRK* tracks, size_t ev, size_t tk, size_t ipar){
+  size_t ib = tk/bsize;
+  const MPTRK* btracks = bTk(tracks, ev, ib);
+  size_t it = tk % bsize;
   return par(btracks, it, ipar);
 }
-float x    (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 0); }
-float y    (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 1); }
-float z    (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 2); }
-float ipt  (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 3); }
-float phi  (const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 4); }
-float theta(const MPTRK_* tracks, int ev, int tk){ return par(tracks, ev, tk, 5); }
+float x    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 0); }
+float y    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 1); }
+float z    (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 2); }
+float ipt  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 3); }
+float phi  (const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 4); }
+float theta(const MPTRK* tracks, size_t ev, size_t tk){ return par(tracks, ev, tk, 5); }
 //
 
-const MPHIT_* bHit(const MPHIT_* hits, int ev, int ib) {
-  return &(hits[ib + ntrks*ev]);
+const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib) {
+  return &(hits[ib + nb*ev]);
 }
-const MPHIT_* bHit(const MPHIT_* hits, int ev, int ib,int lay) {
-return &(hits[lay + (ib*nlayer) +(ev*nlayer*ntrks)]);
+const MPHIT* bHit(const MPHIT* hits, size_t ev, size_t ib,size_t lay) {
+return &(hits[lay + (ib*nlayer) +(ev*nlayer*nb)]);
 }
 //
-float Pos(const MP3F_* hpos, int it, int ipar){
-  return (*hpos).data[it + ipar];
+float Pos(const MP3F* hpos, size_t it, size_t ipar){
+  return (*hpos).data[it + ipar*bsize];
 }
-float x(const MP3F_* hpos, int it)    { return Pos(hpos, it, 0); }
-float y(const MP3F_* hpos, int it)    { return Pos(hpos, it, 1); }
-float z(const MP3F_* hpos, int it)    { return Pos(hpos, it, 2); }
+float x(const MP3F* hpos, size_t it)    { return Pos(hpos, it, 0); }
+float y(const MP3F* hpos, size_t it)    { return Pos(hpos, it, 1); }
+float z(const MP3F* hpos, size_t it)    { return Pos(hpos, it, 2); }
 //
-float Pos(const MPHIT_* hits, int it, int ipar){
+float Pos(const MPHIT* hits, size_t it, size_t ipar){
   return Pos(&(*hits).pos,it,ipar);
 }
-float x(const MPHIT_* hits, int it)    { return Pos(hits, it, 0); }
-float y(const MPHIT_* hits, int it)    { return Pos(hits, it, 1); }
-float z(const MPHIT_* hits, int it)    { return Pos(hits, it, 2); }
+float x(const MPHIT* hits, size_t it)    { return Pos(hits, it, 0); }
+float y(const MPHIT* hits, size_t it)    { return Pos(hits, it, 1); }
+float z(const MPHIT* hits, size_t it)    { return Pos(hits, it, 2); }
 //
-float Pos(const MPHIT_* hits, int ev, int tk, int ipar){
-  int ib = tk;
-  const MPHIT_* bhits = bHit(hits, ev, ib);
-  int it = 0;
+float Pos(const MPHIT* hits, size_t ev, size_t tk, size_t ipar){
+  size_t ib = tk/bsize;
+  const MPHIT* bhits = bHit(hits, ev, ib);
+  size_t it = tk % bsize;
   return Pos(bhits,it,ipar);
 }
-float x(const MPHIT_* hits, int ev, int tk)    { return Pos(hits, ev, tk, 0); }
-float y(const MPHIT_* hits, int ev, int tk)    { return Pos(hits, ev, tk, 1); }
-float z(const MPHIT_* hits, int ev, int tk)    { return Pos(hits, ev, tk, 2); }
+float x(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 0); }
+float y(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 1); }
+float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2); }
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -499,7 +522,7 @@ __device__ inline void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x
   MP1F_    rotT00;
   MP1F_    rotT01;
   MP2x2SF_ resErr_loc;
-  //MP3x3SF_ resErr_glo;
+  //MP3x3SF resErr_glo;
   {   
     const auto msPX = msP_[iparX];
     const auto msPY = msP_[iparY];
@@ -861,37 +884,35 @@ __device__ inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_,
   return;
 }
 
-template <bool grid_stride = true>
-__global__ void launch_p2r_kernels(MPTRK_ *obtracks_, MPTRK_ *btracks_, MPHIT_ *bhits_, const int length){
+template <int bSize, int layers, bool grid_stride = true>
+__global__ void launch_p2r_kernel(MPTRK *obtracks_, MPTRK *btracks_, MPHIT *bhits_, const int length){
    auto i = threadIdx.x + blockIdx.x * blockDim.x;
-
-   MPTRK_ btracks;
-   MPTRK_ obtracks;
-   MPHIT_ bhits;
 
    while (i < length) {
      //
-     btracks_[i].load(btracks);
-     
-     for(int layer=0; layer<nlayer; ++layer) {  
+     MPTRK_ obtracks;
+     //
+     const auto tid        = i / bSize;
+     const auto batch_id   = i % bSize;
+     //
+     const auto& btracks = btracks_[tid].load_component(batch_id);
+#pragma unroll //improved performance by 40-60 %   
+     for(int layer = 0; layer < layers; ++layer) {  
        //
-       bhits_[layer+nlayer*i].load(bhits);
+       const auto& bhits = bhits_[layer+layers*tid].load_component(batch_id);
        //
        propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
        KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
        //
      }
      //
-     obtracks_[i].save(obtracks);
+     obtracks_[tid].save_component(obtracks, batch_id);
      
-     if (grid_stride)
-       i += gridDim.x * blockDim.x;
-     else
-       break;
+     if constexpr (grid_stride) i += gridDim.x * blockDim.x;
+     else break;
   }
   return;
 }
-
 
 int main (int argc, char* argv[]) {
 
@@ -916,52 +937,83 @@ int main (int argc, char* argv[]) {
 
    long setup_start, setup_stop;
    struct timeval timecheck;
+   
+   gettimeofday(&timecheck, NULL);
+   setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
+   
+   auto dev_id = p2r_get_compute_device_id();
+   auto streams= p2r_get_streams(nstreams);
 
-   std::vector<MPTRK_, MPTRKAllocator > trcks(nevts*ntrks); 
+   auto stream = streams[0];//with UVM, we use only one compute stream 
+    
+   std::vector<MPTRK, MPTRKAllocator> outtrcks(nevts*nb);
+   // migrate output object to dev memory:
+   p2r_prefetch<MPTRK, MPTRKAllocator>(outtrcks, dev_id, stream);
+
+   std::vector<MPTRK, MPTRKAllocator > trcks(nevts*nb); 
    prepareTracks<MPTRKAllocator>(trcks, inputtrk);
    //
-   std::vector<MPHIT_, MPHITAllocator> hits(nlayer*nevts*ntrks);
+   std::vector<MPHIT, MPHITAllocator> hits(nlayer*nevts*nb);
    prepareHits<MPHITAllocator>(hits, inputhits);
    //
-   std::vector<MPTRK_, MPTRKAllocator> outtrcks(nevts*ntrks);
+   if constexpr (include_data_transfer == false) {
+     p2r_prefetch<MPTRK, MPTRKAllocator>(trcks, dev_id, stream);
+     p2r_prefetch<MPHIT, MPHITAllocator>(hits,  dev_id, stream);
+   }
+   // synchronize to ensure that all needed data is on the device:
+   p2r_wait();
    
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
    printf("done preparing!\n");
 
-   printf("Size of struct MPTRK trk[] = %ld\n", nevts*ntrks*sizeof(MPTRK_));
-   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*ntrks*sizeof(MPTRK_));
-   printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*ntrks*sizeof(MPHIT_));
+   printf("Size of struct MPTRK trk[] = %ld\n", nevts*nb*sizeof(MPTRK));
+   printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
+   printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   const int phys_length      = nevts*ntrks;
-   const int outer_loop_range = phys_length;
+   const int phys_length      = nevts*nb;
+   const int outer_loop_range = phys_length*bsize;
    //
    dim3 blocks(threadsperblock, 1, 1);
    dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
-   // A warmup run to migrate data on the device
-   launch_p2r_kernels<<<grid, blocks>>>(outtrcks.data(), trcks.data(), hits.data(), phys_length);
 
-   cudaDeviceSynchronize();
-
-   auto wall_start = std::chrono::high_resolution_clock::now();
+   double wall_time = 0.0;
 
    for(int itr=0; itr<NITER; itr++) {
+     auto wall_start = std::chrono::high_resolution_clock::now();
+     //
+     if constexpr (include_data_transfer) {
+       p2r_prefetch<MPTRK, MPTRKAllocator>(trcks, dev_id, stream);
+       p2r_prefetch<MPHIT, MPHITAllocator>(hits,  dev_id, stream);
+     }
 
-     launch_p2r_kernels<<<grid, blocks>>>(outtrcks.data(), trcks.data(), hits.data(), phys_length);
+     launch_p2r_kernel<bsize, nlayer><<<grid, blocks, 0, stream>>>(outtrcks.data(), trcks.data(), hits.data(), outer_loop_range);
+     //
+     if constexpr (include_data_transfer) {
+       p2r_prefetch<MPTRK, MPTRKAllocator>(outtrcks, host_id, stream);
+     }
+     //
+     p2r_wait();
+     //
+     auto wall_stop = std::chrono::high_resolution_clock::now();
+     //
+     auto wall_diff = wall_stop - wall_start;
+     //
+     wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
+     // reset initial states (don't need if we won't measure data migrations):
+     if constexpr (include_data_transfer) {
 
+       p2r_prefetch<MPTRK, MPTRKAllocator>(trcks, host_id, stream);
+       p2r_prefetch<MPHIT, MPHITAllocator>(hits,  host_id, stream);
+       //
+       p2r_prefetch<MPTRK, MPTRKAllocator, decltype(stream), true>(outtrcks, dev_id, stream);
+     }
    } //end of itr loop
-
-   cudaDeviceSynchronize();
-
-   auto wall_stop = std::chrono::high_resolution_clock::now();
-
-   auto wall_diff = wall_stop - wall_start;
-   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;   
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
-   printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, 1, ntrks, wall_time, (setup_stop-setup_start)*0.001, -1);
+   printf("formatted %i %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, ntrks, wall_time, (setup_stop-setup_start)*0.001, -1);
 
    auto outtrk = outtrcks.data();
 

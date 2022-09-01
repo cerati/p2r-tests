@@ -78,25 +78,14 @@ constexpr int iparTheta = 5;
 
 template <typename T, int N, int bSize>
 struct MPNX {
-   std::array<T,N*bSize> data;
+   sycl::marray<T,N*bSize> data;
    //basic accessors
    const T& operator[](const int idx) const {return data[idx];}
    T& operator[](const int idx) {return data[idx];}
    const T& operator()(const int m, const int b) const {return data[m*bSize+b];}
    T& operator()(const int m, const int b) {return data[m*bSize+b];}
    //
-   void load(MPNX& dst) const{
-     for (int it=0;it<bSize;++it) {
-     //const int l = it+ib*bsize+ie*nb*bsize;
-       for (int ip=0;ip<N;++ip) {    	
-    	 dst.data[it + ip*bSize] = this->operator()(ip, it);  
-       }
-     }//
-     
-     return;
-   }
-
-   void save(const MPNX& src) {
+   void copy(const MPNX& src) {
      for (int it=0;it<bSize;++it) {
      //const int l = it+ib*bsize+ie*nb*bsize;
        for (int ip=0;ip<N;++ip) {    	
@@ -110,7 +99,7 @@ struct MPNX {
 
 using MP1I    = MPNX<int,   1 , bsize>;
 using MP1F    = MPNX<float, 1 , bsize>;
-using MP2F    = MPNX<float, 3 , bsize>;
+using MP2F    = MPNX<float, 2 , bsize>;
 using MP3F    = MPNX<float, 3 , bsize>;
 using MP6F    = MPNX<float, 6 , bsize>;
 using MP2x2SF = MPNX<float, 3 , bsize>;
@@ -125,18 +114,13 @@ struct MPTRK {
   MP6x6SF cov;
   MP1I    q;
 
-  //  MP22I   hitidx;
-  void load(MPTRK &dst){
-    par.load(dst.par);
-    cov.load(dst.cov);
-    q.load(dst.q);    
-    return;	  
-  }
-  void save(const MPTRK &src){
-    par.save(src.par);
-    cov.save(src.cov);
-    q.save(src.q);
-    return;
+  MPTRK() = default;
+  //
+  MPTRK& operator=(const MPTRK &src){
+    par.copy(src.par);
+    cov.copy(src.cov);
+    q.copy(src.q);
+    return *this;
   }
 };
 
@@ -144,18 +128,12 @@ struct MPHIT {
   MP3F    pos;
   MP3x3SF cov;
   //
-  void load(MPHIT &dst){
-    pos.load(dst.pos);
-    cov.load(dst.cov);
-    return;
+  MPHIT() = default;
+  //
+  MPHIT(const MPHIT &src) {
+    pos.copy(src.pos);
+    cov.copy(src.cov);
   }
-  void save(const MPHIT &src){
-    pos.save(src.pos);
-    cov.save(src.cov);
-
-    return;
-  }
-
 };
 
 ///////////////////////////////////////
@@ -816,26 +794,24 @@ int main (int argc, char* argv[]) {
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
                          bhitsPtr      = hits.data()] (const int i) {
-                         //  
-                         MPTRK btracks;
-                         MPTRK obtracks;
-                         MPHIT bhits;
                          //
-                         btracksPtr[i].load(btracks);
+                         MPTRK obtracks;
+                         //
+                         const MPTRK btracks = btracksPtr[i];
+                         //
+                         constexpr int N = bsize;
                          //
                          for(int layer=0; layer<nlayer; ++layer) {
                            //
-                           bhitsPtr[layer+nlayer*i].load(bhits);
+                           const MPHIT bhits = bhitsPtr[layer+nlayer*i];
                            //
-                           propagateToR<bsize>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-                           KalmanUpdate<bsize>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+                           propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                           KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                            //
                          }
                          //
-                         outtracksPtr[i].save(obtracks);
+                         outtracksPtr[i] = obtracks;  
                        };
-
-   const int outer_loop_range = nevts*nb;
 
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
@@ -846,27 +822,35 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   // A warmup run to migrate data on the device:
-   std::for_each(policy,
-                 counting_iterator(0),
-                 counting_iterator(outer_loop_range),
-                 p2r_kernels);
-
-   auto wall_start = std::chrono::high_resolution_clock::now();
+   const int outer_loop_range = nevts*nb;
+   
+   double wall_time = 0.0;
 
    for(int itr=0; itr<NITER; itr++) {
+     //
+     auto wall_start = std::chrono::high_resolution_clock::now();
+     //not so usefull, needs asynchronous prefetchers
      oneapi::dpl::experimental::for_each_async(policy,
                                                counting_iterator(0),
                                                counting_iterator(outer_loop_range),
                                                p2r_kernels);
+     //
+     cq.wait();
+     //
+     auto wall_stop = std::chrono::high_resolution_clock::now();
+     //
+     auto wall_diff = wall_stop - wall_start;
+     //
+     wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
+     //restore initial states:
+     if constexpr (include_data_transfer) {
+        std::copy(trcks.begin(), trcks.end(), h_trcks.begin());
+        //
+        std::copy(hits.begin(), hits.end(), h_hits.begin());
+        //
+        std::copy(outtrcks.begin(), outtrcks.end(), h_outtrcks.begin());
+     }
    } //end of itr loop
-
-   cq.wait();
-
-   auto wall_stop = std::chrono::high_resolution_clock::now();
-
-   auto wall_diff = wall_stop - wall_start;
-   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;   
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));

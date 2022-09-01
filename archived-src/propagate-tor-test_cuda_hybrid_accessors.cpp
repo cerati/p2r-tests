@@ -57,14 +57,20 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #define num_streams 1
 #endif
 
-#ifndef threadsperblock
-#define threadsperblock 32
+#ifndef threadsperblockx
+#define threadsperblockx 16
+#endif
+
+#ifndef threadsperblocky
+#define threadsperblocky 2
 #endif
 
 #ifdef __NVCOMPILER_CUDA__
 #include <nv/target>
 #define __cuda_kernel__ __global__
 constexpr bool is_cuda_kernel = true;
+static int threads_per_blockx = threadsperblockx;
+static int threads_per_blocky = threadsperblocky;
 #else
 #define __cuda_kernel__
 constexpr bool is_cuda_kernel = false;
@@ -99,6 +105,8 @@ constexpr int iparTheta = 5;
 template <typename T, int N, int bSize>
 struct MPNX_ {
    std::array<T,N*bSize> data;
+
+   MPNX_() = default;
    //basic accessors
    const T& operator[](const int idx) const {return data[idx];}
    T& operator[](const int idx) {return data[idx];}
@@ -108,7 +116,7 @@ struct MPNX_ {
 
 using MP1I_    = MPNX_<int,   1 , bsize>;
 using MP1F_    = MPNX_<float, 1 , bsize>;
-using MP2F_    = MPNX_<float, 3 , bsize>;
+using MP2F_    = MPNX_<float, 2 , bsize>;
 using MP3F_    = MPNX_<float, 3 , bsize>;
 using MP6F_    = MPNX_<float, 6 , bsize>;
 using MP2x2SF_ = MPNX_<float, 3 , bsize>;
@@ -123,12 +131,14 @@ struct MPTRK_ {
   MP6x6SF_ cov;
   MP1I_    q;
 
-  //  MP22I   hitidx;
+  MPTRK_() = default;
 };
 
 struct MPHIT_ {
   MP3F_    pos;
   MP3x3SF_ cov;
+
+  MPHIT_() = default;
 };
 
 template <typename T, int n, int bSize>
@@ -277,18 +287,20 @@ struct MPTRKAccessor {
   MPTRKAccessor() : par(), cov(), q() {}
   MPTRKAccessor(const MPTRK &in) : par(in.par), cov(in.cov), q(in.q) {}
   
-  void load(MPTRK_ &dst, const int tid, const int layer = 0) const {
-    this->par.load(dst.par, tid, layer);
-    this->cov.load(dst.cov, tid, layer);
-    this->q.load(dst.q, tid, layer);
+  const auto load(const int tid) const {
+    MPTRK_ dst;
+
+    par.load(dst.par, tid, 0);
+    cov.load(dst.cov, tid, 0);
+    q.load(dst.q, tid, 0);
     
-    return;
+    return dst;
   }
   
-  void save(MPTRK_ &src, const int tid, const int layer = 0) {
-    this->par.save(src.par, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    this->q.save(src.q, tid, layer);
+  void save(MPTRK_ &src, const int tid) {
+    par.save(src.par, tid, 0);
+    cov.save(src.cov, tid, 0);
+    q.save(src.q, tid, 0);
     
     return;
   }
@@ -313,20 +325,17 @@ struct MPHITAccessor {
 
   MPHITAccessor() : pos(), cov() {}
   MPHITAccessor(const MPHIT &in) : pos(in.pos), cov(in.cov) {}
-  
-  void load(MPHIT_ &dst, const int tid, const int layer = 0) const {
+
+  const auto load(const int tid, const int layer = 0) const {
+    MPHIT_ dst;
+
     this->pos.load(dst.pos, tid, layer);
     this->cov.load(dst.cov, tid, layer);
-    
-    return;
+
+    return dst;
   }
-  
-  void save(MPHIT_ &src, const int tid, const int layer = 0) {
-    this->pos.save(src.pos, tid, layer);
-    this->cov.save(src.cov, tid, layer);
-    
-    return;
-  } 
+
+
 };
 
 
@@ -743,7 +752,7 @@ void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x3SF_ &hitErr_, con
   }
 
    MP6x6SF_ newErr;
-   for (size_t it=0;it<bsize;++it)   {
+   for (size_t it=0;it<N;++it)   {
 
      const auto t0 = rotT00[it]*trkErr_[ 0*N+it] + rotT01[it]*trkErr_[ 1*N+it];
      const auto t1 = rotT00[it]*trkErr_[ 1*N+it] + rotT01[it]*trkErr_[ 2*N+it];
@@ -987,12 +996,15 @@ template <typename lambda_tp, bool grid_stride = false>
 requires (is_cuda_kernel == true)
 __cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const int length){
 
-  auto i = threadIdx.x + blockIdx.x * blockDim.x;
+  auto ib = threadIdx.x + blockIdx.x * blockDim.x;
+  auto ie = threadIdx.y + blockIdx.y * blockDim.y;
+
+  auto i = ib + nb*ie;	
    
   while (i < length) {
     p2r_kernel(i);	   
 
-    if (grid_stride)  i += gridDim.x * blockDim.x; 
+    if constexpr (grid_stride) { i += (gridDim.x * blockDim.x)*(gridDim.y * blockDim.y);}
     else  break;
   }
 
@@ -1000,14 +1012,17 @@ __cuda_kernel__ void launch_p2r_cuda_kernels(const lambda_tp p2r_kernel, const i
 }
 
 //CUDA specialized version:
-template <bool cuda_compute>
+template <bool cuda_compute, int blockz=1>
 requires cuda_concept<cuda_compute>
 void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
 
   const int outer_loop_range = nevnts_*ntrks_;
 
-  dim3 blocks(threadsperblock, 1, 1);
-  dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
+  const int blockx = threads_per_blockx;
+  const int blocky = threads_per_blocky;
+
+  dim3 blocks(blockx, blocky, blockz);
+  dim3 grid(((ntrks_ + blockx - 1)/ blockx), ((nevnts_ + blocky - 1)/ blocky),1);
   //
   launch_p2r_cuda_kernels<<<grid, blocks>>>(p2r_kernel, outer_loop_range);
   //
@@ -1017,7 +1032,7 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_
 }
 
 //General (default) implementation for both x86 and nvidia accelerators:
-template <bool cuda_compute>
+template <bool cuda_compute, int blockz=1>
 void dispatch_p2r_kernels(auto&& p2r_kernel, const int ntrks_, const int nevnts_){
   //	
   auto policy = std::execution::par_unseq;
@@ -1090,23 +1105,26 @@ int main (int argc, char* argv[]) {
    prepareHits(hits, inputhits);
    //
    std::vector<MPTRK_> outtrcks(nevts*nb);
-   
+
    auto p2r_kernels= [=,&btracksAccessor    = *trcksAccPtr,
                         &bhitsAccessor      = *hitsAccPtr,
-                        &outtracksAccessor  = *outtrcksAccPtr] (const auto i) {
+                        &outtracksAccessor  = *outtrcksAccPtr](const auto i) {
                         //  
-                        MPTRK_ btracks;
                         MPTRK_ obtracks;
-                        MPHIT_ bhits;   
                         //
-		        btracksAccessor.load(btracks, i);
+		        const auto& btracks = btracksAccessor.load(i);
 		        //
-                        for(int layer=0; layer<nlayer; ++layer) {  
+			constexpr int N = is_cuda_kernel ? 1 : bsize;//inner loop range
                         //
-                          bhitsAccessor.load(bhits, i, layer);
+                        constexpr int layers = nlayer;
+			//
+#pragma unroll
+                        for(int layer = 0; layer < layers; ++layer) {  
                           //
-                          propagateToR<bsize>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-                          KalmanUpdate<bsize>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+			  const auto& bhits = bhitsAccessor.load(i, layer);
+                          //
+                          propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+                          KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                           //
                         }
 		        //
