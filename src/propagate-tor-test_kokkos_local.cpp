@@ -57,6 +57,19 @@ constexpr bool include_data_transfer = true;
 constexpr bool include_data_transfer = false;
 #endif
 
+#ifdef KOKKOS_ENABLE_CUDA
+using MemSpace = Kokkos::CudaSpace;
+#elif  KOKKOS_ENABLE_HIP
+using MemSpace = Kokkos::Experimental::HIPSpace;
+#elif KOKKOS_ENABLE_OPENMPTARGET
+using MemSpace = Kokkos::OpenMPTargetSpace;
+#elif KOKKOS_ENABLE_OPENMP
+using MemSpace = Kokkos::OpenMP;
+#else
+using MemSpace =Kokkos::HostSpace;
+#endif
+    
+
 static int nstreams  = num_streams;//we have only one stream, though
 
 constexpr int host_id = -1; /*cudaCpuDeviceId*/
@@ -95,7 +108,7 @@ struct MPNX {
    constexpr int size() const { return N*bSize; }   
    //
    
-   KOKKOS_FUNCTION  inline void load(MPNX<T, N, 1>& dst, const int b) const {
+   KOKKOS_INLINE_FUNCTION  void load(MPNX<T, N, 1>& dst, const int b) const {
 #pragma unroll
      for (int ip=0;ip<N;++ip) { //block load   	
     	dst.data[ip] = data[ip*bSize + b]; 
@@ -104,7 +117,7 @@ struct MPNX {
      return;
    }
 
-   KOKKOS_FUNCTION  inline void save(const MPNX<T, N, 1>& src, const int b) {
+   KOKKOS_INLINE_FUNCTION  void save(const MPNX<T, N, 1>& src, const int b) {
 #pragma unroll
      for (int ip=0;ip<N;++ip) {    	
     	 data[ip*bSize + b] = src.data[ip]; 
@@ -160,7 +173,7 @@ struct MPTRK {
   MP6x6SF cov;
   MP1I    q;
 
-  KOKKOS_FUNCTION  inline const auto load_component (const int batch_id) const{//b is a batch idx
+  KOKKOS_INLINE_FUNCTION  const auto load_component (const int batch_id) const{//b is a batch idx
   
     MPTRK_ dst;
 
@@ -171,7 +184,7 @@ struct MPTRK {
     return dst;  
   }
   
-  KOKKOS_FUNCTION  inline void save_component(MPTRK_ &src, const int batch_id) {
+  KOKKOS_INLINE_FUNCTION   void save_component(MPTRK_ &src, const int batch_id) {
     this->par.save(src.par, batch_id);
     this->cov.save(src.cov, batch_id);
     this->q.save(src.q, batch_id);
@@ -184,7 +197,7 @@ struct MPHIT {
   MP3F    pos;
   MP3x3SF cov;
   //
-  KOKKOS_FUNCTION  inline const auto load_component(const int batch_id) const {
+  KOKKOS_INLINE_FUNCTION   const auto load_component(const int batch_id) const {
     MPHIT_ dst;
 
     this->pos.load(dst.pos, batch_id);
@@ -218,7 +231,7 @@ float randn(float mu, float sigma) {
   return (mu + sigma * (float) X1);
 }
 
-Kokkos::View<MPTRK*>::HostMirror prepareTracks(ATRK inputtrk, Kokkos::View<MPTRK*> trk ) {
+Kokkos::View<MPTRK*, MemSpace>::HostMirror prepareTracks(ATRK inputtrk, Kokkos::View<MPTRK*, MemSpace> trk ) {
 
   auto result = Kokkos::create_mirror_view( trk );
 
@@ -243,7 +256,7 @@ Kokkos::View<MPTRK*>::HostMirror prepareTracks(ATRK inputtrk, Kokkos::View<MPTRK
 }
 
 
-Kokkos::View<MPHIT*>::HostMirror prepareHits(std::vector<AHIT> &inputhits, Kokkos::View<MPHIT*> hit) {
+Kokkos::View<MPHIT*, MemSpace>::HostMirror prepareHits(std::vector<AHIT> &inputhits, Kokkos::View<MPHIT*, MemSpace> hit) {
   
   auto result = Kokkos::create_mirror_view( hit );
   // store in element order for bunches of bsize matrices (a la matriplex)
@@ -358,7 +371,7 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 ////////////////////////////////////////////////////////////////////////
 ///MAIN compute kernels
 
-KOKKOS_FUNCTION inline void MultHelixProp(const MP6x6F_ &a, const MP6x6SF_ &b, MP6x6F_ &c) {//ok
+KOKKOS_INLINE_FUNCTION  void MultHelixProp(const MP6x6F_ &a, const MP6x6SF_ &b, MP6x6F_ &c) {//ok
 
   {
     c[ 0] = a[ 0]*b[ 0] + a[ 1]*b[ 1] + a[ 3]*b[ 6] + a[ 4]*b[10];
@@ -403,7 +416,7 @@ KOKKOS_FUNCTION inline void MultHelixProp(const MP6x6F_ &a, const MP6x6SF_ &b, M
   return;
 }
 
-KOKKOS_FUNCTION inline void MultHelixPropTransp(const MP6x6F_ &a, const MP6x6F_ &b, MP6x6SF_ &c) {//
+KOKKOS_INLINE_FUNCTION  void MultHelixPropTransp(const MP6x6F_ &a, const MP6x6F_ &b, MP6x6SF_ &c) {//
 
   {
     
@@ -432,9 +445,9 @@ KOKKOS_FUNCTION inline void MultHelixPropTransp(const MP6x6F_ &a, const MP6x6F_ 
   return;  
 }
 
-KOKKOS_FUNCTION inline float hipo(const float x, const float y) {return std::sqrt(x*x + y*y);}
+KOKKOS_INLINE_FUNCTION  float hipo(const float x, const float y) {return std::sqrt(x*x + y*y);}
 
-KOKKOS_FUNCTION inline void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x3SF_ &hitErr_, const MP3F_ &msP_){	  
+KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const MP3x3SF_ &hitErr_, const MP3F_ &msP_){	  
   
   MP1F_    rotT00;
   MP1F_    rotT01;
@@ -620,7 +633,7 @@ KOKKOS_FUNCTION inline void KalmanUpdate(MP6x6SF_ &trkErr_, MP6F_ &inPar_, const
 constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 
-KOKKOS_FUNCTION inline void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I_ &inChg_, 
+KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_ &inErr_, const MP6F_ &inPar_, const MP1I_ &inChg_, 
                   const MP3F_ &msP_, MP6x6SF_ &outErr_, MP6F_ &outPar_) {
   //aux objects  
   MP6x6F_ errorProp;
@@ -855,22 +868,6 @@ int main (int argc, char* argv[]) {
    Kokkos::initialize(argc, argv);
    {
 
-   #ifdef KOKKOS_ENABLE_CUDA
-   #define MemSpace Kokkos::CudaSpace
-   #endif
-   #ifdef KOKKOS_ENABLE_HIP
-   #define MemSpace Kokkos::Experimental::HIPSpace
-   #endif
-   #ifdef KOKKOS_ENABLE_OPENMPTARGET
-   #define MemSpace Kokkos::OpenMPTargetSpace
-   #endif
-   #ifdef KOKKOS_ENABLE_OPENMP
-   #define MemSpace Kokkos::OpenMP
-   #endif
-
-   #ifndef MemSpace
-   #define MemSpace Kokkos::HostSpace
-   #endif
 
    printf("After kokkos::init\n");
    using ExecSpace = MemSpace::execution_space;
@@ -882,15 +879,15 @@ int main (int argc, char* argv[]) {
 
    //auto stream = streams[0];//with UVM, we use only one compute stream 
 
-   Kokkos::View<MPTRK*>             outtrcks("outtrk",nevts*nb); // device pointer
-   Kokkos::View<MPTRK*>::HostMirror h_outtrk = Kokkos::create_mirror_view( outtrcks);
+   Kokkos::View<MPTRK*, MemSpace>             outtrcks("outtrk",nevts*nb); // device pointer
+   Kokkos::View<MPTRK*, MemSpace>::HostMirror h_outtrk = Kokkos::create_mirror_view( outtrcks);
 
-   Kokkos::View<MPTRK*>            trcks("trk",nevts*nb); // device pointer
-   Kokkos::View<MPTRK*>::HostMirror h_trk = prepareTracks(inputtrk,trcks);  // host pointer
+   Kokkos::View<MPTRK*, MemSpace>            trcks("trk",nevts*nb); // device pointer
+   Kokkos::View<MPTRK*, MemSpace>::HostMirror h_trk = prepareTracks(inputtrk,trcks);  // host pointer
    Kokkos::deep_copy( trcks , h_trk);
 
-   Kokkos::View<MPHIT*>             hits("hit",nevts*nb*nlayer);
-   Kokkos::View<MPHIT*>::HostMirror  h_hit = prepareHits(inputhits,hits);
+   Kokkos::View<MPHIT*, MemSpace>             hits("hit",nevts*nb*nlayer);
+   Kokkos::View<MPHIT*, MemSpace>::HostMirror  h_hit = prepareHits(inputhits,hits);
    Kokkos::deep_copy( hits, h_hit );
    
    gettimeofday(&timecheck, NULL);
