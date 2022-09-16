@@ -818,13 +818,14 @@ public:
 
      //Global thread index
      uint32_t const i(alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0u]);
+
      MPTRK_ obtracks;
      //
      const auto tid        = i / bsize;
      const auto batch_id   = i % bsize;
      //
      const auto& btracks = btracks_[tid].load_component(batch_id);
-#pragma unroll //improved performance by 40-60 %   
+//#pragma unroll //improved performance by 40-60 %   
      for(int layer = 0; layer < nlayer; ++layer) {  
        //
        const auto& bhits = bhits_[layer+nlayer*tid].load_component(batch_id);
@@ -927,12 +928,20 @@ int main (int argc, char* argv[]) {
      false,
      alpaka::GridBlockExtentSubDivRestrictions::Unrestricted);
 
+   //printout work div
+   std::cout << workDiv <<  std::endl;
+
    // Define type for a queue with requested properties:
    // in this example we require the queue to be blocking the host side
    // while operations on the device (kernels, memory transfers) are running
    using QueueAcc = alpaka::Queue<Acc, alpaka::Blocking>;
+   //using QueueAcc = alpaka::Queue<Acc, alpaka::NonBlocking>;
    // Create a queue for the device
    QueueAcc queue(device);
+
+   //prepareForAsyncCopy(trk_bufHost);
+   //prepareForAsyncCopy(hit_bufHost);
+   //prepareForAsyncCopy(outtrk_bufHost);
 
    alpaka::memcpy(queue, trk_bufDev, trk_bufHost, MPTRKExtent);
    alpaka::memcpy(queue, hit_bufDev, hit_bufHost, MPHITExtent);
