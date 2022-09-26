@@ -482,7 +482,7 @@ void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitEr
     const auto inParX = inPar(iparX, it);
     const auto inParY = inPar(iparY, it);          
   
-    const auto r = hipo(msPX, msPY);
+    const auto r = std::sqrt(msPX*msPX + msPY*msPY);
     rotT00[it] = -(msPY + inParY) / (2*r);
     rotT01[it] =  (msPX + inParX) / (2*r);    
     
@@ -672,6 +672,7 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
     sin  = x - 0.16666667f*x*x2;
   };
 
+  auto hipo = [=](const float x, const float y) {return std::sqrt(x*x + y*y);};
   
   for (int it = 0; it < N; ++it) {
     //initialize erroProp to identity matrix
