@@ -22,7 +22,7 @@ clang++ -fsycl -O3 -std=c++17 src/propagate-toz-test_sycl_esimd.cpp -o test-sycl
 #include <CL/sycl.hpp>
 #include <sycl/ext/intel/esimd.hpp>
 
-using namespace cl::sycl;
+using namespace sycl;
 using namespace sycl::ext::intel::esimd;
 using namespace sycl::ext::intel;
 
@@ -72,7 +72,7 @@ constexpr int iparTheta = 5;
 
 template <typename T, int N, int bSize_>
 struct MPNX {
-   sycl::marray<T,N*bSize_> data;
+   std::array<T,N*bSize_> data;
    //basic accessors
    const T& operator[](const int idx) const {return data[idx];}
    T& operator[](const int idx) {return data[idx];}
@@ -867,7 +867,7 @@ auto exception_handler = [](exception_list l) {
   for (auto ep : l) {
     try {
       std::rethrow_exception(ep);
-    } catch (cl::sycl::exception &e0) {
+    } catch (sycl::exception &e0) {
       std::cout << "sycl::exception: " << e0.what() << std::endl;
     } catch (std::exception &e) {
       std::cout << "std::exception: " << e.what() << std::endl;
@@ -904,8 +904,8 @@ int main (int argc, char* argv[]) {
    //
    sycl::queue cq(ESIMDSelector{}, exception_handler); //(sycl::gpu_selector{});
    //
-   cl::sycl::usm_allocator<MPTRK, cl::sycl::usm::alloc::shared, 16u> MPTRKAllocator(cq);
-   cl::sycl::usm_allocator<MPHIT, cl::sycl::usm::alloc::shared, 16u> MPHITAllocator(cq);
+   sycl::usm_allocator<MPTRK, sycl::usm::alloc::shared, 16u> MPTRKAllocator(cq);
+   sycl::usm_allocator<MPHIT, sycl::usm::alloc::shared, 16u> MPHITAllocator(cq);
    //
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
@@ -922,11 +922,11 @@ int main (int argc, char* argv[]) {
    //  
    constexpr unsigned group_size = 4;
    // We need that many task groups
-   cl::sycl::range<1> group_range{outer_loop_range / bSize};
+   sycl::range<1> group_range{outer_loop_range / bSize};
    // We need that many tasks in each group
-   cl::sycl::range<1> task_range{group_size};
+   sycl::range<1> task_range{group_size};
    //
-   cl::sycl::nd_range<1> exe_range{group_range, task_range};
+   sycl::nd_range<1> exe_range{group_range, task_range};
  
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),

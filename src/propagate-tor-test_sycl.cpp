@@ -24,7 +24,7 @@ dpcpp -std=c++17 -O2 src/propagate-tor-test_sycl.cpp -o test-sycl.exe -Dntrks=81
 #endif
 
 #ifndef bsize
-#define bsize 1
+#define bsize 16
 #endif
 
 #ifndef ntrks
@@ -860,8 +860,8 @@ int main (int argc, char* argv[]) {
    constexpr bool enable_gpu_backend = true;
 #endif
    //
-   cl::sycl::usm_allocator<MPTRK, cl::sycl::usm::alloc::shared> MPTRKAllocator(cq);
-   cl::sycl::usm_allocator<MPHIT, cl::sycl::usm::alloc::shared> MPHITAllocator(cq);
+   sycl::usm_allocator<MPTRK, sycl::usm::alloc::shared> MPTRKAllocator(cq);
+   sycl::usm_allocator<MPHIT, sycl::usm::alloc::shared> MPHITAllocator(cq);
    //
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
