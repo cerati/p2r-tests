@@ -64,7 +64,7 @@ constexpr int host_id = -1; /*cudaCpuDeviceId*/
 
 namespace impl {
   
-  template<typename Tp>
+  template<typename Tp,bool is_host= true>
   struct UVMAllocator {
     public:
 
@@ -87,7 +87,10 @@ namespace impl {
         Tp* ptr = nullptr;
 
         //auto err = hipMallocManaged((void **)&ptr,n*sizeof(Tp));
-        auto err = hipMalloc((void **)&ptr,n*sizeof(Tp));
+        if (is_host)
+            auto err = hipHostMalloc((void **)&ptr,n*sizeof(Tp));
+        else
+            auto err = hipMalloc((void **)&ptr,n*sizeof(Tp));
 
         if( err != hipSuccess ) {
           ptr = (Tp *) NULL;
@@ -132,14 +135,16 @@ decltype(auto) p2r_get_streams(const int n){
   return streams;
 }
 
-template <typename data_tp, typename Allocator, typename stream_t, bool is_sync = false>
-void p2r_memcpyH2D(std::vector<data_tp, Allocator> &host_v,std::vector<data_tp, Allocator> &dev_v,  stream_t stream) {
+template <typename data_tp, typename Allocator, typename AllocatorDev, typename stream_t, bool is_sync = false>
+void p2r_memcpyH2D(std::vector<data_tp, Allocator> &host_v,
+                   std::vector<data_tp, AllocatorDev> &dev_v,  stream_t stream) {
   hipMemcpyAsync(dev_v.data(), host_v.data(), host_v.size() * sizeof(data_tp), hipMemcpyHostToDevice , stream);
 
   return;
 }
-template <typename data_tp, typename Allocator, typename stream_t, bool is_sync = false>
-void p2r_memcpyD2H(std::vector<data_tp, Allocator> &host_v,std::vector<data_tp, Allocator> &dev_v,  stream_t stream) {
+template <typename data_tp, typename Allocator, typename AllocatorDev, typename stream_t, bool is_sync = false>
+void p2r_memcpyD2H(std::vector<data_tp, Allocator> &host_v,
+                   std::vector<data_tp, AllocatorDev> &dev_v,  stream_t stream) {
   hipMemcpyAsync(host_v.data(), dev_v.data(), host_v.size() * sizeof(data_tp), hipMemcpyDeviceToHost , stream);
 
   return;
@@ -295,7 +300,9 @@ struct MPHIT {
 };
 
 using MPTRKAllocator = impl::UVMAllocator<MPTRK>;
+using MPTRKAllocatorDev = impl::UVMAllocator<MPTRK,false>;
 using MPHITAllocator = impl::UVMAllocator<MPHIT>;
+using MPHITAllocatorDev = impl::UVMAllocator<MPHIT,false>;
 
 ///////////////////////////////////////
 //Gen. utils
@@ -969,22 +976,22 @@ int main (int argc, char* argv[]) {
    auto stream = streams[0];//with UVM, we use only one compute stream 
     
    std::vector<MPTRK, MPTRKAllocator> outtrcks(nevts*nb);
-   std::vector<MPTRK, MPTRKAllocator> outtrcks_dev(nevts*nb);
+   std::vector<MPTRK, MPTRKAllocatorDev> outtrcks_dev(nevts*nb);
    // migrate output object to dev memory:
    //p2r_prefetch<MPTRK, MPTRKAllocator>(outtrcks, dev_id, stream);
 
    std::vector<MPTRK, MPTRKAllocator > trcks(nevts*nb); 
-   std::vector<MPTRK, MPTRKAllocator > trcks_dev(nevts*nb); //device trcks
+   std::vector<MPTRK, MPTRKAllocatorDev > trcks_dev(nevts*nb); //device trcks
    prepareTracks<MPTRKAllocator>(trcks, inputtrk);
    //
    std::vector<MPHIT, MPHITAllocator> hits(nlayer*nevts*nb);
-   std::vector<MPHIT, MPHITAllocator> hits_dev(nlayer*nevts*nb);//device hits
+   std::vector<MPHIT, MPHITAllocatorDev> hits_dev(nlayer*nevts*nb);//device hits
    prepareHits<MPHITAllocator>(hits, inputhits);
    //
    if constexpr (include_data_transfer == false) {
-       p2r_memcpyH2D<MPTRK,MPTRKAllocator>(trcks, trcks_dev, stream);
-       p2r_memcpyH2D<MPHIT,MPHITAllocator>(hits, hits_dev, stream);
-       p2r_memcpyH2D<MPTRK, MPTRKAllocator>(outtrcks, outtrcks_dev, stream);
+       p2r_memcpyH2D<MPTRK,MPTRKAllocator,MPTRKAllocatorDev>(trcks, trcks_dev, stream);
+       p2r_memcpyH2D<MPHIT,MPHITAllocator,MPHITAllocatorDev>(hits, hits_dev, stream);
+       p2r_memcpyH2D<MPTRK,MPTRKAllocator,MPTRKAllocatorDev>(outtrcks, outtrcks_dev, stream);
    }
    // synchronize to ensure that all needed data is on the device:
    p2r_wait();
@@ -1017,7 +1024,7 @@ int main (int argc, char* argv[]) {
      launch_p2r_kernel<bsize, nlayer><<<grid, blocks, 0, stream>>>(outtrcks_dev.data(), trcks_dev.data(), hits_dev.data(), outer_loop_range);
      //
      if constexpr (include_data_transfer) {
-        p2r_memcpyD2H<MPTRK,MPTRKAllocator>(outtrcks,outtrcks_dev,stream);
+        p2r_memcpyD2H<MPTRK,MPTRKAllocator,MPTRKAllocatorDev>(outtrcks,outtrcks_dev,stream);
      }
      //
      p2r_wait();
@@ -1030,7 +1037,7 @@ int main (int argc, char* argv[]) {
      // reset initial states (don't need if we won't measure data migrations):
      //transfer back to host 
    } //end of itr loop
-   p2r_memcpyD2H<MPTRK,MPTRKAllocator>(outtrcks,outtrcks_dev,stream);
+   p2r_memcpyD2H<MPTRK,MPTRKAllocator,MPTRKAllocatorDev>(outtrcks,outtrcks_dev,stream);
    p2r_wait();
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);

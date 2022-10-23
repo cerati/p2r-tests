@@ -59,15 +59,22 @@ constexpr bool include_data_transfer = false;
 
 #ifdef KOKKOS_ENABLE_CUDA
 using MemSpace = Kokkos::CudaSpace;
-#elif  KOKKOS_ENABLE_HIP
-using MemSpace = Kokkos::Experimental::HIPSpace;
-#elif KOKKOS_ENABLE_OPENMPTARGET
-using MemSpace = Kokkos::OpenMPTargetSpace;
-#elif KOKKOS_ENABLE_OPENMP
-using MemSpace = Kokkos::OpenMP;
-#else
-using MemSpace =Kokkos::HostSpace;
 #endif
+#ifdef KOKKOS_ENABLE_HIP
+using MemSpace = Kokkos::Experimental::HIP;
+#endif
+#ifdef KOKKOS_ENABLE_OPENMPTARGET
+using MemSpace = Kokkos::OpenMPTargetSpace;
+#endif
+#ifdef KOKKOS_ENABLE_OPENMP
+using MemSpace = Kokkos::OpenMP;
+#endif
+#ifdef KOKKOS_ENABLE_SYCL
+using MemSpace = Kokkos::Experimental::SYCL;
+#endif
+//#ifdef KOKKOS_ENABLE_SERIAL 
+//using MemSpace =Kokkos::HostSpace;
+//#endif
     
 
 static int nstreams  = num_streams;//we have only one stream, though
@@ -911,7 +918,7 @@ int main (int argc, char* argv[]) {
      auto wall_start = std::chrono::high_resolution_clock::now();
 
      Kokkos::parallel_for("Kernel",
-                          Kokkos::RangePolicy(0,outer_loop_range), 
+                          Kokkos::RangePolicy<ExecSpace>(0,outer_loop_range), 
                           KOKKOS_LAMBDA(const int i){
                              launch_p2r_kernel<bsize, nlayer>(outtrcks.data(), trcks.data(), hits.data(), i); // kernel for 1 track
                          });
