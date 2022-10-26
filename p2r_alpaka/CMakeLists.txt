@@ -48,8 +48,9 @@ endif()
 
 alpaka_add_executable(
     ${_TARGET_NAME}
-#    src/propagate-tor-test_alpaka_local.cpp)
-    src/propagate-tor-test_alpaka.cpp)
+    src/propagate-tor-test_alpaka_local.cpp)
+#    src/propagate-tor-test_alpaka_local_sycl.cpp)
+#    src/propagate-tor-test_alpaka.cpp)
 
 target_link_libraries(
     ${_TARGET_NAME}

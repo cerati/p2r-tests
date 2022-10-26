@@ -232,7 +232,7 @@ def main(opts):
                     compiler=comp,
                     results=[]
                 )
-                data["sysinfo"] = sysinfo(opts)
+                #data["sysinfo"] = sysinfo(opts)
                 print(comp,backend)
                 outputJson = "result_{}.json".format("_".join(filter(None,[tech,backend,comp,opts.output])))
                 alreadyExists = set()
