@@ -1008,15 +1008,13 @@ requires (enable_cuda == true)
 __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const int length){
 
   auto i = threadIdx.x + blockIdx.x * blockDim.x;
+  const auto stride = (gridDim.x * blockDim.x);
   
-  while (i < length) {
-  
-    auto tid      = i / bSize;
-    auto batch_id = i % bSize;   
+  while (i < length) {   
 
-    p2r_kernel(tid, batch_id);
+    p2r_kernel(i);
 
-    if constexpr (grid_stride) { i += (gridDim.x * blockDim.x);}
+    if constexpr (grid_stride) { i += stride;}
     else  break;
   }
 
@@ -1041,13 +1039,13 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, co
   return;	
 }
 
-//General (default) implementation for both x86 and nvidia accelerators:
+//Generic (default) implementation for both x86 and nvidia accelerators:
 template <int bSize, typename stream_tp, bool is_cuda_target>
 void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
   //	
   auto policy = std::execution::par_unseq;
   //
-  auto outer_loop_range = std::ranges::views::iota(0, nb_*nevnts_);
+  auto outer_loop_range = std::ranges::views::iota(0, nb_*nevnts_*(is_cuda_target ? bSize : 1));
   //
   std::for_each(policy,
                 std::ranges::begin(outer_loop_range),
@@ -1106,9 +1104,12 @@ int main (int argc, char* argv[]) {
       
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
-                         bhitsPtr      = hits.data()] (const auto tid, const  int batch_id = 0) {
+                         bhitsPtr      = hits.data()] (const auto i) {
                          //  
                          constexpr int N      = enable_cuda ? 1 : bsize;
+                         //
+                         const auto tid      = (enable_cuda ? i / bsize : i);
+                         const auto batch_id = (enable_cuda ? i % bsize : 0);//not used if enable_cuda = true (and N = bsize)
                          //
                          MPTRK_<N> obtracks;
                          //
