@@ -59,14 +59,29 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #endif
 
 #ifdef __NVCOMPILER_CUDA__
+
+constexpr bool enable_cuda         = true;
+
+#ifndef stdpar_launcher
+
 //#include <nv/target>
 #define __cuda_kernel__ __global__
-constexpr bool enable_cuda         = true;
-//
-static int threads_per_block = threadsperblock;
+
+constexpr bool enable_cuda_launcher = true;
+static int threads_per_block        = threadsperblock;
+
+#else
+
+#define __cuda_kernel__
+
+constexpr bool enable_cuda_launcher = false;
+
+#endif
+
 #else
 #define __cuda_kernel__
-constexpr bool enable_cuda         = false;
+constexpr bool enable_cuda          = false;
+constexpr bool enable_cuda_launcher = false;
 #endif
 
 constexpr int host_id = -1; /*cudaCpuDeviceId*/
@@ -1004,7 +1019,7 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
 }
 
 template <int bSize, typename lambda_tp, bool grid_stride = false>
-requires (enable_cuda == true)
+requires (enable_cuda_launcher == true)
 __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const int length){
 
   auto i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -1024,7 +1039,7 @@ __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const in
 
 //CUDA specialized version:
 template <int bSize, typename stream_tp, bool is_cuda_target>
-requires CudaCompute<is_cuda_target>
+requires (enable_cuda_launcher == true)
 void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
 
   const int outer_loop_range = nevnts_*nb_*bSize;//re-scale exec domain for the cuda backend
@@ -1057,6 +1072,13 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, co
 
 
 int main (int argc, char* argv[]) {
+#ifdef __NVCOMPILER_CUDA__
+#ifndef stdpar_launcher
+   std::cout << "Running CUDA backend with CUDA launcher.." << std::endl;
+#else
+   std::cout << "Running CUDA backend with stdpar launcher.." << std::endl;	
+#endif
+#endif
    #include "input_track.h"
 
    std::vector<AHIT> inputhits{inputhit21,inputhit20,inputhit19,inputhit18,inputhit17,inputhit16,inputhit15,inputhit14,
