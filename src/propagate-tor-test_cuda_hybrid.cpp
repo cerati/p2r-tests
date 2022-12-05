@@ -1018,8 +1018,8 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
   return;
 }
 
-template <int bSize, typename lambda_tp, bool grid_stride = false>
-requires (enable_cuda_launcher == true)
+template <bool is_cuda_target, typename lambda_tp, bool grid_stride = false>
+requires (CudaCompute<is_cuda_target> and (enable_cuda_launcher == true))
 __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const int length){
 
   auto i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -1039,7 +1039,7 @@ __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const in
 
 //CUDA specialized version:
 template <int bSize, typename stream_tp, bool is_cuda_target>
-requires (enable_cuda_launcher == true)
+requires (CudaCompute<is_cuda_target> and (enable_cuda_launcher == true))
 void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
 
   const int outer_loop_range = nevnts_*nb_*bSize;//re-scale exec domain for the cuda backend
@@ -1047,7 +1047,7 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, co
   dim3 blocks(threads_per_block, 1, 1);
   dim3 grid(((outer_loop_range + threads_per_block - 1)/ threads_per_block), 1, 1);
   //
-  launch_p2r_cuda_kernel<bSize><<<grid, blocks, 0, stream>>>(p2r_kernel, outer_loop_range);
+  launch_p2r_cuda_kernel<is_cuda_target><<<grid, blocks, 0, stream>>>(p2r_kernel, outer_loop_range);
   //
   p2r_check_error<is_cuda_target>();
 
