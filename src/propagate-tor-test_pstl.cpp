@@ -28,7 +28,7 @@ constexpr bool use_cuda = false;
 #endif//__NVCOMPILER_CUDA__
 
 #ifndef ntrks
-#define ntrks 9600//8192
+#define ntrks 8192//8192
 #endif
 
 #ifndef bsize

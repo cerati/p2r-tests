@@ -48,15 +48,15 @@ see README.txt for instructions
 #endif
 
 #ifndef num_streams
-#define num_streams 4 
+#define num_streams 1 
 #endif
 
 #ifndef elementsperthread 
-#define elementsperthread 1
+#define elementsperthread 32
 #endif
 
 #ifndef threadsperblockx
-#define threadsperblockx 32
+#define threadsperblockx 1
 #endif
 #ifndef blockspergrid
 #define blockspergrid (nevts*nb)
@@ -1062,6 +1062,7 @@ int main (int argc, char* argv[]) {
 
    WorkDiv const workDiv = WorkDiv(blocksPerGrid,threadsPerBlock,elementsPerThread); 
 
+   std::cout << workDiv <<  std::endl;
    // Define type for a queue with requested properties:
    // in this example we require the queue to be blocking the host side
    // while operations on the device (kernels, memory transfers) are running

@@ -170,6 +170,12 @@ def throughput(log):
             return int(m.group("ntracks"))/float(m.group("time"))
     raise Exception("No result in output")
 
+def sysinfo(opts):
+    cmd = ["perl","/global/homes/k/kkwok/PPS/PPSwork/misc/sysinfo.pl"]
+    out = execute(cmd,opts.verbose)
+    out = out.replace('"','').strip().split("\n")
+    return out 
+
 def run(opts, exe, tech, backend, scanPoint):
     print("Running {} for {}".format(exe, scanPoint))
     #cmd = ["./"+exe]
@@ -226,6 +232,7 @@ def main(opts):
                     compiler=comp,
                     results=[]
                 )
+                #data["sysinfo"] = sysinfo(opts)
                 print(comp,backend)
                 outputJson = "result_{}.json".format("_".join(filter(None,[tech,backend,comp,opts.output])))
                 alreadyExists = set()
