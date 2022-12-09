@@ -31,10 +31,8 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 //
 #include <experimental/stdexec/execution.hpp>
 #include <experimental/exec/on.hpp>
-
-#include <experimental/nvexec/detail/throw_on_cuda_error.cuh>
 #include <experimental/nvexec/stream_context.cuh>
-#include <experimental/nvexec/multi_gpu_context.cuh>
+
 
 namespace stdex = std::experimental;
 
@@ -1110,30 +1108,25 @@ namespace ex = stdexec;
 
 //c++2X implementation for nvidia accelerators:
 template <int bSize, typename stream_tp, bool is_cuda_target>
-void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_to_host, stream_tp, const int nb_, const int nevnts_){
+void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_to_host, stream_tp stream, const int nb_, const int nevnts_){
   if constexpr (enable_stdexec_launcher) {
     const auto exe_range =  nb_*nevnts_*(is_cuda_target ? bSize : 1);
 
-    nvexec::stream_context stream_cxt{};
-    //
-    nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::low);
-    //nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::high);
-
     auto compute_p2r = ex::just()
 	               | ex::then(pref_to_device)
-                       | exec::on(gpu, ex::bulk(exe_range, p2r_kernel))
+                       | exec::on(stream, ex::bulk(exe_range, p2r_kernel))
                        | ex::then(pref_to_host);
  
     stdexec::this_thread::sync_wait(std::move(compute_p2r));
 
   } else { //stdpar launcher
-    //
-    pref_to_device();
 
     auto policy = std::execution::par_unseq;
     //
     auto outer_loop_range = std::ranges::views::iota(0, nb_*nevnts_*(is_cuda_target ? bSize : 1));
     //
+    pref_to_device();    
+    
     std::for_each(policy,
                   std::ranges::begin(outer_loop_range),
                   std::ranges::end(outer_loop_range),
@@ -1147,13 +1140,13 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_
 
 int main (int argc, char* argv[]) {
 #ifdef __NVCOMPILER_CUDA__
-#ifdef cuda_launcher
-   std::cout << "Running CUDA backend with CUDA launcher.." << std::endl;
-#elif defined (stdexec_launcher)
-   std::cout << "Running CUDA backend with stdexec launcher.." << std::endl;
-#else
-   std::cout << "Running CUDA backend with stdpar launcher.." << std::endl;	
-#endif
+   if constexpr  (enable_cuda_launcher) {
+     std::cout << "Running CUDA backend with CUDA launcher.." << std::endl;
+   } else if constexpr (enable_stdexec_launcher) {
+     std::cout << "Running CUDA backend with stdexec launcher.." << std::endl;
+   } else {
+     std::cout << "Running CUDA backend with stdpar launcher.." << std::endl;	
+   }
 #endif
    #include "input_track.h"
 
@@ -1256,7 +1249,17 @@ int main (int argc, char* argv[]) {
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
    //info<enable_cuda>(dev_id);
-   dispatch_p2r_kernels<bsize, decltype(stream), enable_cuda>(p2r_kernels, prefetch_to_device, prefetch_to_host, stream, nb, nevts);
+#ifdef stdexec_launcher   
+   nvexec::stream_context stream_cxt{};
+   //
+   nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::low);
+   //nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::high);
+   const auto compute_stream = gpu;
+   
+   dispatch_p2r_kernels<bsize, decltype(compute_stream), enable_cuda>(p2r_kernels, prefetch_to_device, prefetch_to_host, compute_stream, nb, nevts);
+#else
+   const auto compute_stream = stream;
+#endif   
 
    double wall_time = 0.0;
 
@@ -1264,7 +1267,7 @@ int main (int argc, char* argv[]) {
      //	   
      auto wall_start = std::chrono::high_resolution_clock::now();
      //
-     dispatch_p2r_kernels<bsize, decltype(stream), enable_cuda>(p2r_kernels, prefetch_to_device, prefetch_to_host, stream, nb, nevts);
+     dispatch_p2r_kernels<bsize, decltype(compute_stream), enable_cuda>(p2r_kernels, prefetch_to_device, prefetch_to_host, compute_stream, nb, nevts);
      //
      auto wall_stop = std::chrono::high_resolution_clock::now();
      //
