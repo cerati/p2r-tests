@@ -28,6 +28,13 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #include <random>
 
 #include <experimental/mdspan>
+//
+#include <experimental/stdexec/execution.hpp>
+#include <experimental/exec/on.hpp>
+
+#include <experimental/nvexec/detail/throw_on_cuda_error.cuh>
+#include <experimental/nvexec/stream_context.cuh>
+#include <experimental/nvexec/multi_gpu_context.cuh>
 
 namespace stdex = std::experimental;
 
@@ -64,28 +71,37 @@ namespace stdex = std::experimental;
 
 #ifdef __NVCOMPILER_CUDA__
 
-constexpr bool enable_cuda         = true;
+constexpr bool enable_cuda             = true;
 
-#ifndef stdpar_launcher
+#ifdef cuda_launcher
 
 //#include <nv/target>
 #define __cuda_kernel__ __global__
 
-constexpr bool enable_cuda_launcher = true;
-static int threads_per_block        = threadsperblock;
+constexpr bool enable_cuda_launcher    = true;
+constexpr bool enable_stdexec_launcher = false;
+static int threads_per_block           = threadsperblock;
 
-#else
+#elif defined (stdexec_launcher)
 
 #define __cuda_kernel__
+constexpr bool enable_cuda_launcher    = false;
+constexpr bool enable_stdexec_launcher = true;
 
-constexpr bool enable_cuda_launcher = false;
+#else //running cuda backend with stdpar launcher
+
+#define __cuda_kernel__
+constexpr bool enable_cuda_launcher    = false;
+constexpr bool enable_stdexec_launcher = false;
 
 #endif
 
-#else
+#else // non-cuda targets
+
 #define __cuda_kernel__
-constexpr bool enable_cuda          = false;
-constexpr bool enable_cuda_launcher = false;
+constexpr bool enable_cuda             = false;
+constexpr bool enable_cuda_launcher    = false;
+
 #endif
 
 constexpr int host_id = -1; /*cudaCpuDeviceId*/
@@ -1072,7 +1088,9 @@ __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const in
 //CUDA specialized version:
 template <int bSize, typename stream_tp, bool is_cuda_target>
 requires (CudaCompute<is_cuda_target> and (enable_cuda_launcher == true))
-void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
+void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_to_host, stream_tp stream, const int nb_, const int nevnts_){
+
+  pref_to_device();	
 
   const int outer_loop_range = nevnts_*nb_*bSize;//re-scale exec domain for the cuda backend
 
@@ -1082,31 +1100,57 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, co
   launch_p2r_cuda_kernel<is_cuda_target><<<grid, blocks, 0, stream>>>(p2r_kernel, outer_loop_range);
   //
   p2r_check_error<is_cuda_target>();
-
-  return;	
+  //
+  pref_to_host();	
+  
+  p2r_wait<enable_cuda>();
 }
 
-//Generic (default) implementation for both x86 and nvidia accelerators:
+namespace ex = stdexec;
+
+//c++2X implementation for nvidia accelerators:
 template <int bSize, typename stream_tp, bool is_cuda_target>
-void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
-  //	
-  auto policy = std::execution::par_unseq;
-  //
-  auto outer_loop_range = std::ranges::views::iota(0, nb_*nevnts_*(is_cuda_target ? bSize : 1));
-  //
-  std::for_each(policy,
-                std::ranges::begin(outer_loop_range),
-                std::ranges::end(outer_loop_range),
-                p2r_kernel);
+void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_to_host, stream_tp, const int nb_, const int nevnts_){
+  if constexpr (enable_stdexec_launcher) {
+    const auto exe_range =  nb_*nevnts_*(is_cuda_target ? bSize : 1);
 
-  return;
+    nvexec::stream_context stream_cxt{};
+    //
+    nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::low);
+    //nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::high);
+
+    auto compute_p2r = ex::just()
+	               | ex::then(pref_to_device)
+                       | exec::on(gpu, ex::bulk(exe_range, p2r_kernel))
+                       | ex::then(pref_to_host);
+ 
+    stdexec::this_thread::sync_wait(std::move(compute_p2r));
+
+  } else { //stdpar launcher
+    //
+    pref_to_device();
+
+    auto policy = std::execution::par_unseq;
+    //
+    auto outer_loop_range = std::ranges::views::iota(0, nb_*nevnts_*(is_cuda_target ? bSize : 1));
+    //
+    std::for_each(policy,
+                  std::ranges::begin(outer_loop_range),
+                  std::ranges::end(outer_loop_range),
+                  p2r_kernel);
+
+    pref_to_host();
+  }
 }
+
 
 
 int main (int argc, char* argv[]) {
 #ifdef __NVCOMPILER_CUDA__
-#ifndef stdpar_launcher
+#ifdef cuda_launcher
    std::cout << "Running CUDA backend with CUDA launcher.." << std::endl;
+#elif defined (stdexec_launcher)
+   std::cout << "Running CUDA backend with stdexec launcher.." << std::endl;
 #else
    std::cout << "Running CUDA backend with stdpar launcher.." << std::endl;	
 #endif
@@ -1150,12 +1194,17 @@ int main (int argc, char* argv[]) {
    //
    std::vector<MPHIT> hits(nlayer*nevts*nb);
    prepareHits(hits, inputhits);
+
    // migrate the remaining objects if we don't measure transfers
    if constexpr (include_data_transfer == false) {
      p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
      p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
    }
-      
+   
+   // synchronize to ensure that all needed data is on the device:
+   p2r_wait<enable_cuda>();   
+
+   // create compute kernel
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
                          bhitsPtr      = hits.data()] (const auto i) {
@@ -1182,9 +1231,21 @@ int main (int argc, char* argv[]) {
                          //
                          outtracksPtr[tid].save<N>(obtracks, batch_id);
                        };
-   // synchronize to ensure that all needed data is on the device:
-   p2r_wait<enable_cuda>();
- 
+
+   // create prefetchers:
+   auto prefetch_to_device = [&] {
+     if constexpr (include_data_transfer) {
+       p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
+       p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
+     }
+   };
+
+   auto prefetch_to_host   = [&] {
+     if constexpr (include_data_transfer) {
+       p2r_prefetch<MPTRK, enable_cuda>(outtrcks, host_id, stream);
+     }
+   };   
+
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
@@ -1195,23 +1256,15 @@ int main (int argc, char* argv[]) {
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
    //info<enable_cuda>(dev_id);
+   dispatch_p2r_kernels<bsize, decltype(stream), enable_cuda>(p2r_kernels, prefetch_to_device, prefetch_to_host, stream, nb, nevts);
+
    double wall_time = 0.0;
 
    for(int itr=0; itr<NITER; itr++) {
+     //	   
      auto wall_start = std::chrono::high_resolution_clock::now();
      //
-     if constexpr (include_data_transfer) {
-       p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
-       p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
-     }
-     //
-     dispatch_p2r_kernels<bsize, decltype(stream), enable_cuda>(p2r_kernels, stream, nb, nevts);
-     
-     if constexpr (include_data_transfer) {  
-       p2r_prefetch<MPTRK, enable_cuda>(outtrcks, host_id, stream); 
-     }
-     //
-     p2r_wait<enable_cuda>();
+     dispatch_p2r_kernels<bsize, decltype(stream), enable_cuda>(p2r_kernels, prefetch_to_device, prefetch_to_host, stream, nb, nevts);
      //
      auto wall_stop = std::chrono::high_resolution_clock::now();
      //
