@@ -1108,13 +1108,13 @@ namespace ex = stdexec;
 
 //c++2X implementation for nvidia accelerators:
 template <int bSize, typename stream_tp, bool is_cuda_target>
-void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_to_host, stream_tp stream, const int nb_, const int nevnts_){
+void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_to_host, stream_tp compute_stream, const int nb_, const int nevnts_){
   if constexpr (enable_stdexec_launcher) {
     const auto exe_range =  nb_*nevnts_*(is_cuda_target ? bSize : 1);
 
     auto compute_p2r = ex::just()
 	               | ex::then(pref_to_device)
-                       | exec::on(stream, ex::bulk(exe_range, p2r_kernel))
+                       | exec::on(compute_stream, ex::bulk(exe_range, p2r_kernel))
                        | ex::then(pref_to_host);
  
     stdexec::this_thread::sync_wait(std::move(compute_p2r));
@@ -1134,6 +1134,8 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_
 
     pref_to_host();
   }
+
+  p2r_wait<enable_cuda>();//we still need this
 }
 
 
@@ -1177,10 +1179,19 @@ int main (int argc, char* argv[]) {
    auto streams= p2r_get_streams<enable_cuda>(nstreams);
 
    auto stream = streams[0];//with UVM, we use only one compute stream 
+ 
+#ifdef stdexec_launcher   
+   nvexec::stream_context stream_cxt{};
+   //
+   nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::low);
+   //nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::high);
+   const auto compute_stream = gpu;
+#else
+   const auto compute_stream = stream;
+#endif   
 
    std::vector<MPTRK> outtrcks(nevts*nb);
    // migrate output object to dev memory:
-   p2r_prefetch<MPTRK, enable_cuda>(outtrcks, dev_id, stream);
 
    std::vector<MPTRK> trcks(nevts*nb); 
    prepareTracks(trcks, inputtrk);
@@ -1189,13 +1200,32 @@ int main (int argc, char* argv[]) {
    prepareHits(hits, inputhits);
 
    // migrate the remaining objects if we don't measure transfers
-   if constexpr (include_data_transfer == false) {
-     p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
-     p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
-   }
-   
-   // synchronize to ensure that all needed data is on the device:
-   p2r_wait<enable_cuda>();   
+   auto init_prefetch_inp_to_device = [&] {
+     if constexpr (include_data_transfer == false) {
+       p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
+       p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
+     }
+   };
+
+   auto init_prefetch_out_to_device   = [&] {
+     p2r_prefetch<MPTRK, enable_cuda>(outtrcks, dev_id, stream);
+   };
+
+   auto p2r_barrier = [&] {
+     p2r_wait<enable_cuda>();
+   };
+
+#ifdef stdexec_launcher   
+   auto init_p2r = ex::just()
+                       | ex::then(init_prefetch_out_to_device)
+                       | ex::then(init_prefetch_inp_to_device);
+   //
+   stdexec::this_thread::sync_wait(std::move(init_p2r));
+#else
+   init_prefetch_out_to_device();
+   init_prefetch_inp_to_device();
+#endif   
+   p2r_barrier();//still needed even for stdexec
 
    // create compute kernel
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
@@ -1225,7 +1255,7 @@ int main (int argc, char* argv[]) {
                          outtracksPtr[tid].save<N>(obtracks, batch_id);
                        };
 
-   // create prefetchers:
+   // create regular prefetchers:
    auto prefetch_to_device = [&] {
      if constexpr (include_data_transfer) {
        p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
@@ -1249,17 +1279,6 @@ int main (int argc, char* argv[]) {
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
    //info<enable_cuda>(dev_id);
-#ifdef stdexec_launcher   
-   nvexec::stream_context stream_cxt{};
-   //
-   nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::low);
-   //nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::high);
-   const auto compute_stream = gpu;
-   
-   dispatch_p2r_kernels<bsize, decltype(compute_stream), enable_cuda>(p2r_kernels, prefetch_to_device, prefetch_to_host, compute_stream, nb, nevts);
-#else
-   const auto compute_stream = stream;
-#endif   
 
    double wall_time = 0.0;
 
