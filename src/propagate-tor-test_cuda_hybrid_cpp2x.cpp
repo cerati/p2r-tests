@@ -1,7 +1,7 @@
 /*
-nvc++ -cuda -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=gpu -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid_native.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
+nvc++ -O2 -std=c++23 --gcc-toolchain=path-to-gnu-compiler -stdpar=gpu -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid_native.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
 
-nvc++ -cuda -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid_native.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20
+nvc++ -O2 -std=c++23 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore -gpu=cc86 -gpu=managed -gpu=fma -gpu=fastmath -gpu=autocollapse -gpu=loadcache:L1 -gpu=unroll ./src/propagate-tor-test_cuda_hybrid_cpp23.cpp  -o ./propagate_nvcpp_cuda -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=1 -Dnlayer=20 -Dstdpar_launcher
 
 nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./src/propagate-tor-test_cuda_hybrid_native.cpp  -o ./propagate_nvcpp_x86 -Dntrks=8192 -Dnevts=100 -DNITER=5 -Dbsize=32 -Dnlayer=20
 
@@ -26,6 +26,16 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 #include <numeric>
 #include <execution>
 #include <random>
+
+#include <experimental/mdspan>
+//
+#include <experimental/stdexec/execution.hpp>
+#include <experimental/exec/on.hpp>
+#include <experimental/nvexec/stream_context.cuh>
+
+
+namespace stdex = std::experimental;
+using namespace std::ranges;
 
 #ifndef bsize
 #define bsize 32
@@ -60,28 +70,37 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 
 #ifdef __NVCOMPILER_CUDA__
 
-constexpr bool enable_cuda         = true;
+constexpr bool enable_cuda             = true;
 
-#ifndef stdpar_launcher
+#ifdef cuda_launcher
 
 //#include <nv/target>
 #define __cuda_kernel__ __global__
 
-constexpr bool enable_cuda_launcher = true;
-static int threads_per_block        = threadsperblock;
+constexpr bool enable_cuda_launcher    = true;
+constexpr bool enable_stdexec_launcher = false;
+static int threads_per_block           = threadsperblock;
 
-#else
+#elif defined (stdexec_launcher)
 
 #define __cuda_kernel__
+constexpr bool enable_cuda_launcher    = false;
+constexpr bool enable_stdexec_launcher = true;
 
-constexpr bool enable_cuda_launcher = false;
+#else //running cuda backend with stdpar launcher
+
+#define __cuda_kernel__
+constexpr bool enable_cuda_launcher    = false;
+constexpr bool enable_stdexec_launcher = false;
 
 #endif
 
-#else
+#else // non-cuda targets
+
 #define __cuda_kernel__
-constexpr bool enable_cuda          = false;
-constexpr bool enable_cuda_launcher = false;
+constexpr bool enable_cuda             = false;
+constexpr bool enable_cuda_launcher    = false;
+
 #endif
 
 constexpr int host_id = -1; /*cudaCpuDeviceId*/
@@ -93,6 +112,13 @@ constexpr bool include_data_transfer = false;
 #endif
 
 static int nstreams           = num_streams;//we have only one stream, though
+
+using indx_type = int;
+
+template<typename data_tp, int N, int B> using Right2DView        = stdex::mdspan<data_tp, stdex::extents<indx_type, N, B>, stdex::layout_right, stdex::default_accessor<data_tp>>;
+template<typename data_tp, int M, int N, int B> using Right3DView = stdex::mdspan<data_tp, stdex::extents<indx_type, M, N, B>, stdex::layout_right, stdex::default_accessor<data_tp>>;
+template<typename data_tp, int N, int B> using Right2DCView       = stdex::mdspan<const data_tp, stdex::extents<indx_type, N, B>, stdex::layout_right, stdex::default_accessor<const data_tp>>;
+
 
 template <bool is_cuda_target>
 concept CudaCompute = is_cuda_target == true;
@@ -194,87 +220,6 @@ void p2r_wait() {
   return; 
 }
 
-//used only in cuda 
-template <bool is_cuda_target, bool is_verbose = true>
-requires CudaCompute<is_cuda_target>
-void info(int device) {
-  cudaDeviceProp deviceProp;
-
-  int driver_version;
-  cudaDriverGetVersion(&driver_version);
-  if constexpr (is_verbose) { std::cout << "CUDA Driver version = " << driver_version << std::endl;}
-
-  int runtime_version;
-  cudaRuntimeGetVersion(&runtime_version);
-  if constexpr (is_verbose) { std::cout << "CUDA Runtime version = " << runtime_version << std::endl;}
-
-  cudaGetDeviceProperties(&deviceProp, device);
-
-  if constexpr (is_verbose) {
-    printf("%d - name:                    %s\n", device, deviceProp.name);
-    printf("%d - totalGlobalMem:          %lu bytes ( %.2f Gbytes)\n", device, deviceProp.totalGlobalMem,
-                   deviceProp.totalGlobalMem / (float)(1024 * 1024 * 1024));
-    printf("%d - sharedMemPerBlock:       %lu bytes ( %.2f Kbytes)\n", device, deviceProp.sharedMemPerBlock, deviceProp.sharedMemPerBlock / (float)1024);
-    printf("%d - regsPerBlock:            %d\n", device, deviceProp.regsPerBlock);
-    printf("%d - warpSize:                %d\n", device, deviceProp.warpSize);
-    printf("%d - memPitch:                %lu\n", device, deviceProp.memPitch);
-    printf("%d - maxThreadsPerBlock:      %d\n", device, deviceProp.maxThreadsPerBlock);
-    printf("%d - maxThreadsDim[0]:        %d\n", device, deviceProp.maxThreadsDim[0]);
-    printf("%d - maxThreadsDim[1]:        %d\n", device, deviceProp.maxThreadsDim[1]);
-    printf("%d - maxThreadsDim[2]:        %d\n", device, deviceProp.maxThreadsDim[2]);
-    printf("%d - maxGridSize[0]:          %d\n", device, deviceProp.maxGridSize[0]);
-    printf("%d - maxGridSize[1]:          %d\n", device, deviceProp.maxGridSize[1]);
-    printf("%d - maxGridSize[2]:          %d\n", device, deviceProp.maxGridSize[2]);
-    printf("%d - totalConstMem:           %lu bytes ( %.2f Kbytes)\n", device, deviceProp.totalConstMem,
-                   deviceProp.totalConstMem / (float)1024);
-    printf("%d - compute capability:      %d.%d\n", device, deviceProp.major, deviceProp.minor);
-    printf("%d - deviceOverlap            %s\n", device, (deviceProp.deviceOverlap ? "true" : "false"));
-    printf("%d - multiProcessorCount      %d\n", device, deviceProp.multiProcessorCount);
-    printf("%d - kernelExecTimeoutEnabled %s\n", device,
-                   (deviceProp.kernelExecTimeoutEnabled ? "true" : "false"));
-    printf("%d - integrated               %s\n", device, (deviceProp.integrated ? "true" : "false"));
-    printf("%d - canMapHostMemory         %s\n", device, (deviceProp.canMapHostMemory ? "true" : "false"));
-    switch (deviceProp.computeMode) {
-      case 0: printf("%d - computeMode              0: cudaComputeModeDefault\n", device); break;
-      case 1: printf("%d - computeMode              1: cudaComputeModeExclusive\n", device); break;
-      case 2: printf("%d - computeMode              2: cudaComputeModeProhibited\n", device); break;
-      case 3: printf("%d - computeMode              3: cudaComputeModeExclusiveProcess\n", device); break;
-      default: printf("Error: unknown deviceProp.computeMode."), exit(-1);
-    }
-    printf("%d - surfaceAlignment         %lu\n", device, deviceProp.surfaceAlignment);
-    printf("%d - concurrentKernels        %s\n", device, (deviceProp.concurrentKernels ? "true" : "false"));
-    printf("%d - ECCEnabled               %s\n", device, (deviceProp.ECCEnabled ? "true" : "false"));
-    printf("%d - pciBusID                 %d\n", device, deviceProp.pciBusID);
-    printf("%d - pciDeviceID              %d\n", device, deviceProp.pciDeviceID);
-    printf("%d - pciDomainID              %d\n", device, deviceProp.pciDomainID);
-    printf("%d - tccDriver                %s\n", device, (deviceProp.tccDriver ? "true" : "false"));
-
-    switch (deviceProp.asyncEngineCount) {
-      case 0: printf("%d - asyncEngineCount         1: host -> device only\n", device); break;
-      case 1: printf("%d - asyncEngineCount         2: host <-> device\n", device); break;
-      case 2: printf("%d - asyncEngineCount         0: not supported\n", device); break;
-      default: printf("Error: unknown deviceProp.asyncEngineCount."), exit(-1);
-    }
-    printf("%d - unifiedAddressing        %s\n", device, (deviceProp.unifiedAddressing ? "true" : "false"));
-    printf("%d - memoryClockRate          %d kilohertz\n", device, deviceProp.memoryClockRate);
-    printf("%d - memoryBusWidth           %d bits\n", device, deviceProp.memoryBusWidth);
-    printf("%d - l2CacheSize              %d bytes\n", device, deviceProp.l2CacheSize);
-    printf("%d - maxThreadsPerMultiProcessor          %d\n\n", device, deviceProp.maxThreadsPerMultiProcessor);
-
-
-  }
-
-  p2r_check_error<is_cuda_target>();
-
-  return;	  
-}
-
-template <bool is_cuda_target, bool is_verbose = true>
-void info(int device) {
-  return;
-}
-
-
 const std::array<size_t, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
 
 struct ATRK {
@@ -306,26 +251,26 @@ struct MPNX {
    //basic accessors
    constexpr T &operator[](const int i) { return data[i]; }
    constexpr const T &operator[](const int i) const { return data[i]; }
-   constexpr T& operator()(const int i, const int j) {return data[i*bSize+j];}
-   constexpr const T& operator()(const int i, const int j) const {return data[i*bSize+j];}
 
    constexpr int size() const { return N*bSize; }   
    //
    inline void load(MPNX<T, N, 1>& dst, const int b) const {
+     Right2DCView<T, N, bSize> data_view{data.data()};
 #pragma unroll
-     for (int ip=0;ip<N;++ip) {   	
-    	dst.data[ip] = data[ip*bSize + b]; 
+     for (int ip = 0;ip < data_view.extent(1);++ip) {   	
+       dst.data[ip] = data_view(ip,b); 
      }
      
      return;
    }
 
-   inline void save(const MPNX<T, N, 1>& src, const int b) {
+   inline void save(const MPNX<T, N, 1>& src, const int b) {	   
+     Right2DView<T, N, bSize> data_view{data.data()};	   
 #pragma unroll
-     for (int ip=0;ip<N;++ip) {    	
-    	 data[ip*bSize + b] = src.data[ip]; 
+     for (int ip = 0;ip < data_view.extent(1);++ip) {    	
+       data_view(ip, b) = src.data[ip]; 
      }
-     
+
      return;
    }  
 
@@ -469,53 +414,47 @@ float randn(float mu, float sigma) {
 
 void prepareTracks(std::vector<MPTRK> &trcks, ATRK &inputtrk) {
   //
-  for (size_t ie=0;ie<nevts;++ie) {
-    for (size_t ib=0;ib<nb;++ib) {
-      for (size_t it=0;it<bsize;++it) {
-	      //par
-	      for (size_t ip=0;ip<6;++ip) {
-	        trcks[ib + nb*ie].par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
-	      }
-	      //cov, scale by factor 100
-	      for (size_t ip=0;ip<21;++ip) {
-	        trcks[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
-	      }
-	      //q
-	      trcks[ib + nb*ie].q.data[it] = inputtrk.q;//can't really smear this or fit will be wrong
-      }
-    }
-  }
-  //
-  return;
+  auto fill_trck = [=, &inputtrk=inputtrk](auto&& trck) {
+
+                       for (auto&& it : views::iota(0,bsize)) {
+	                 //par
+	                 for (auto&& ip : views::iota(0,6) ) {
+	                   trck.par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
+	                 }
+	                 //cov, scale by factor 100
+	                 for (auto&& ip : views::iota(0,21)) {
+	                   trck.cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
+	                 }
+	                 //q
+	                 trck.q.data[it] = inputtrk.q;//can't really smear this or fit will be wrong
+                       }
+
+                   };
+
+  for_each(trcks, fill_trck);
 }
 
 void prepareHits(std::vector<MPHIT> &hits, std::vector<AHIT>& inputhits) {
   // store in element order for bunches of bsize matrices (a la matriplex)
-  for (size_t lay=0;lay<nlayer;++lay) {
-
-    size_t mylay = lay;
+  for (auto&& lay : iota_view{0,nlayer}) {
     if (lay>=inputhits.size()) {
-      // int wraplay = inputhits.size()/lay;
       exit(1);
     }
-    AHIT& inputhit = inputhits[mylay];
 
-    for (size_t ie=0;ie<nevts;++ie) {
-      for (size_t ib=0;ib<nb;++ib) {
-        for (size_t it=0;it<bsize;++it) {
-        	//pos
-        	for (size_t ip=0;ip<3;++ip) {
-        	  hits[lay+nlayer*(ib + nb*ie)].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
-        	}
-        	//cov
-        	for (size_t ip=0;ip<6;++ip) {
-        	  hits[lay+nlayer*(ib + nb*ie)].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
-        	}
+    for_each(views::iota(0, nevts*nb), [=, &inputhit = inputhits[lay], &hits = hits] (auto&& evtrk) {
+      for (auto&& it : views::iota(0,bsize)) {
+        //pos
+        for (auto&& ip : views::iota(0,3)) {
+          hits[lay+nlayer*evtrk].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
+        }
+        //cov
+        for (auto&& ip : views::iota(0,6)) {
+          hits[lay+nlayer*evtrk].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
         }
       }
-    }
+    }); 
   }
-  return;
+
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -602,77 +541,82 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 ///MAIN compute kernels
 
 template<size_t N = 1>
-inline void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> &c) {//ok
+inline void MultHelixProp(const MP6x6F_<N> &a_, const MP6x6SF_<N> &b_, MP6x6F_<N> &c_) {//ok
+  Right2DCView<float, 36, N> a{a_.data.data()};
+  Right2DCView<float, 21, N> b{b_.data.data()};
+  Right2DView<float, 36, N>  c{c_.data.data()};
 #pragma unroll
   for (int it = 0;it < N; it++) {
-    c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
-    c[ 1*N+it] = a[ 0*N+it]*b[ 1*N+it] + a[ 1*N+it]*b[ 2*N+it] + a[ 3*N+it]*b[ 7*N+it] + a[ 4*N+it]*b[11*N+it];
-    c[ 2*N+it] = a[ 0*N+it]*b[ 3*N+it] + a[ 1*N+it]*b[ 4*N+it] + a[ 3*N+it]*b[ 8*N+it] + a[ 4*N+it]*b[12*N+it];
-    c[ 3*N+it] = a[ 0*N+it]*b[ 6*N+it] + a[ 1*N+it]*b[ 7*N+it] + a[ 3*N+it]*b[ 9*N+it] + a[ 4*N+it]*b[13*N+it];
-    c[ 4*N+it] = a[ 0*N+it]*b[10*N+it] + a[ 1*N+it]*b[11*N+it] + a[ 3*N+it]*b[13*N+it] + a[ 4*N+it]*b[14*N+it];
-    c[ 5*N+it] = a[ 0*N+it]*b[15*N+it] + a[ 1*N+it]*b[16*N+it] + a[ 3*N+it]*b[18*N+it] + a[ 4*N+it]*b[19*N+it];
-    c[ 6*N+it] = a[ 6*N+it]*b[ 0*N+it] + a[ 7*N+it]*b[ 1*N+it] + a[ 9*N+it]*b[ 6*N+it] + a[10*N+it]*b[10*N+it];
-    c[ 7*N+it] = a[ 6*N+it]*b[ 1*N+it] + a[ 7*N+it]*b[ 2*N+it] + a[ 9*N+it]*b[ 7*N+it] + a[10*N+it]*b[11*N+it];
-    c[ 8*N+it] = a[ 6*N+it]*b[ 3*N+it] + a[ 7*N+it]*b[ 4*N+it] + a[ 9*N+it]*b[ 8*N+it] + a[10*N+it]*b[12*N+it];
-    c[ 9*N+it] = a[ 6*N+it]*b[ 6*N+it] + a[ 7*N+it]*b[ 7*N+it] + a[ 9*N+it]*b[ 9*N+it] + a[10*N+it]*b[13*N+it];
-    c[10*N+it] = a[ 6*N+it]*b[10*N+it] + a[ 7*N+it]*b[11*N+it] + a[ 9*N+it]*b[13*N+it] + a[10*N+it]*b[14*N+it];
-    c[11*N+it] = a[ 6*N+it]*b[15*N+it] + a[ 7*N+it]*b[16*N+it] + a[ 9*N+it]*b[18*N+it] + a[10*N+it]*b[19*N+it];
+    c( 0, it) = a( 0, it)*b( 0, it) + a( 1, it)*b( 1, it) + a( 3, it)*b( 6, it) + a( 4, it)*b(10, it);
+    c( 1, it) = a( 0, it)*b( 1, it) + a( 1, it)*b( 2, it) + a( 3, it)*b( 7, it) + a( 4, it)*b(11, it);
+    c( 2, it) = a( 0, it)*b( 3, it) + a( 1, it)*b( 4, it) + a( 3, it)*b( 8, it) + a( 4, it)*b(12, it);
+    c( 3, it) = a( 0, it)*b( 6, it) + a( 1, it)*b( 7, it) + a( 3, it)*b( 9, it) + a( 4, it)*b(13, it);
+    c( 4, it) = a( 0, it)*b(10, it) + a( 1, it)*b(11, it) + a( 3, it)*b(13, it) + a( 4, it)*b(14, it);
+    c( 5, it) = a( 0, it)*b(15, it) + a( 1, it)*b(16, it) + a( 3, it)*b(18, it) + a( 4, it)*b(19, it);
+    c( 6, it) = a( 6, it)*b( 0, it) + a( 7, it)*b( 1, it) + a( 9, it)*b( 6, it) + a(10, it)*b(10, it);
+    c( 7, it) = a( 6, it)*b( 1, it) + a( 7, it)*b( 2, it) + a( 9, it)*b( 7, it) + a(10, it)*b(11, it);
+    c( 8, it) = a( 6, it)*b( 3, it) + a( 7, it)*b( 4, it) + a( 9, it)*b( 8, it) + a(10, it)*b(12, it);
+    c( 9, it) = a( 6, it)*b( 6, it) + a( 7, it)*b( 7, it) + a( 9, it)*b( 9, it) + a(10, it)*b(13, it);
+    c(10, it) = a( 6, it)*b(10, it) + a( 7, it)*b(11, it) + a( 9, it)*b(13, it) + a(10, it)*b(14, it);
+    c(11, it) = a( 6, it)*b(15, it) + a( 7, it)*b(16, it) + a( 9, it)*b(18, it) + a(10, it)*b(19, it);
     
-    c[12*N+it] = a[12*N+it]*b[ 0*N+it] + a[13*N+it]*b[ 1*N+it] + b[ 3*N+it] + a[15*N+it]*b[ 6*N+it] + a[16*N+it]*b[10*N+it] + a[17*N+it]*b[15*N+it];
-    c[13*N+it] = a[12*N+it]*b[ 1*N+it] + a[13*N+it]*b[ 2*N+it] + b[ 4*N+it] + a[15*N+it]*b[ 7*N+it] + a[16*N+it]*b[11*N+it] + a[17*N+it]*b[16*N+it];
-    c[14*N+it] = a[12*N+it]*b[ 3*N+it] + a[13*N+it]*b[ 4*N+it] + b[ 5*N+it] + a[15*N+it]*b[ 8*N+it] + a[16*N+it]*b[12*N+it] + a[17*N+it]*b[17*N+it];
-    c[15*N+it] = a[12*N+it]*b[ 6*N+it] + a[13*N+it]*b[ 7*N+it] + b[ 8*N+it] + a[15*N+it]*b[ 9*N+it] + a[16*N+it]*b[13*N+it] + a[17*N+it]*b[18*N+it];
-    c[16*N+it] = a[12*N+it]*b[10*N+it] + a[13*N+it]*b[11*N+it] + b[12*N+it] + a[15*N+it]*b[13*N+it] + a[16*N+it]*b[14*N+it] + a[17*N+it]*b[19*N+it];
-    c[17*N+it] = a[12*N+it]*b[15*N+it] + a[13*N+it]*b[16*N+it] + b[17*N+it] + a[15*N+it]*b[18*N+it] + a[16*N+it]*b[19*N+it] + a[17*N+it]*b[20*N+it];
+    c(12, it) = a(12, it)*b( 0, it) + a(13, it)*b( 1, it) + b( 3, it) + a(15, it)*b( 6, it) + a(16, it)*b(10, it) + a(17, it)*b(15, it);
+    c(13, it) = a(12, it)*b( 1, it) + a(13, it)*b( 2, it) + b( 4, it) + a(15, it)*b( 7, it) + a(16, it)*b(11, it) + a(17, it)*b(16, it);
+    c(14, it) = a(12, it)*b( 3, it) + a(13, it)*b( 4, it) + b( 5, it) + a(15, it)*b( 8, it) + a(16, it)*b(12, it) + a(17, it)*b(17, it);
+    c(15, it) = a(12, it)*b( 6, it) + a(13, it)*b( 7, it) + b( 8, it) + a(15, it)*b( 9, it) + a(16, it)*b(13, it) + a(17, it)*b(18, it);
+    c(16, it) = a(12, it)*b(10, it) + a(13, it)*b(11, it) + b(12, it) + a(15, it)*b(13, it) + a(16, it)*b(14, it) + a(17, it)*b(19, it);
+    c(17, it) = a(12, it)*b(15, it) + a(13, it)*b(16, it) + b(17, it) + a(15, it)*b(18, it) + a(16, it)*b(19, it) + a(17, it)*b(20, it);
     
-    c[18*N+it] = a[18*N+it]*b[ 0*N+it] + a[19*N+it]*b[ 1*N+it] + a[21*N+it]*b[ 6*N+it] + a[22*N+it]*b[10*N+it];
-    c[19*N+it] = a[18*N+it]*b[ 1*N+it] + a[19*N+it]*b[ 2*N+it] + a[21*N+it]*b[ 7*N+it] + a[22*N+it]*b[11*N+it];
-    c[20*N+it] = a[18*N+it]*b[ 3*N+it] + a[19*N+it]*b[ 4*N+it] + a[21*N+it]*b[ 8*N+it] + a[22*N+it]*b[12*N+it];
-    c[21*N+it] = a[18*N+it]*b[ 6*N+it] + a[19*N+it]*b[ 7*N+it] + a[21*N+it]*b[ 9*N+it] + a[22*N+it]*b[13*N+it];
-    c[22*N+it] = a[18*N+it]*b[10*N+it] + a[19*N+it]*b[11*N+it] + a[21*N+it]*b[13*N+it] + a[22*N+it]*b[14*N+it];
-    c[23*N+it] = a[18*N+it]*b[15*N+it] + a[19*N+it]*b[16*N+it] + a[21*N+it]*b[18*N+it] + a[22*N+it]*b[19*N+it];
-    c[24*N+it] = a[24*N+it]*b[ 0*N+it] + a[25*N+it]*b[ 1*N+it] + a[27*N+it]*b[ 6*N+it] + a[28*N+it]*b[10*N+it];
-    c[25*N+it] = a[24*N+it]*b[ 1*N+it] + a[25*N+it]*b[ 2*N+it] + a[27*N+it]*b[ 7*N+it] + a[28*N+it]*b[11*N+it];
-    c[26*N+it] = a[24*N+it]*b[ 3*N+it] + a[25*N+it]*b[ 4*N+it] + a[27*N+it]*b[ 8*N+it] + a[28*N+it]*b[12*N+it];
-    c[27*N+it] = a[24*N+it]*b[ 6*N+it] + a[25*N+it]*b[ 7*N+it] + a[27*N+it]*b[ 9*N+it] + a[28*N+it]*b[13*N+it];
-    c[28*N+it] = a[24*N+it]*b[10*N+it] + a[25*N+it]*b[11*N+it] + a[27*N+it]*b[13*N+it] + a[28*N+it]*b[14*N+it];
-    c[29*N+it] = a[24*N+it]*b[15*N+it] + a[25*N+it]*b[16*N+it] + a[27*N+it]*b[18*N+it] + a[28*N+it]*b[19*N+it];
-    c[30*N+it] = b[15*N+it];
-    c[31*N+it] = b[16*N+it];
-    c[32*N+it] = b[17*N+it];
-    c[33*N+it] = b[18*N+it];
-    c[34*N+it] = b[19*N+it];
-    c[35*N+it] = b[20*N+it];    
+    c(18, it) = a(18, it)*b( 0, it) + a(19, it)*b( 1, it) + a(21, it)*b( 6, it) + a(22, it)*b(10, it);
+    c(19, it) = a(18, it)*b( 1, it) + a(19, it)*b( 2, it) + a(21, it)*b( 7, it) + a(22, it)*b(11, it);
+    c(20, it) = a(18, it)*b( 3, it) + a(19, it)*b( 4, it) + a(21, it)*b( 8, it) + a(22, it)*b(12, it);
+    c(21, it) = a(18, it)*b( 6, it) + a(19, it)*b( 7, it) + a(21, it)*b( 9, it) + a(22, it)*b(13, it);
+    c(22, it) = a(18, it)*b(10, it) + a(19, it)*b(11, it) + a(21, it)*b(13, it) + a(22, it)*b(14, it);
+    c(23, it) = a(18, it)*b(15, it) + a(19, it)*b(16, it) + a(21, it)*b(18, it) + a(22, it)*b(19, it);
+    c(24, it) = a(24, it)*b( 0, it) + a(25, it)*b( 1, it) + a(27, it)*b( 6, it) + a(28, it)*b(10, it);
+    c(25, it) = a(24, it)*b( 1, it) + a(25, it)*b( 2, it) + a(27, it)*b( 7, it) + a(28, it)*b(11, it);
+    c(26, it) = a(24, it)*b( 3, it) + a(25, it)*b( 4, it) + a(27, it)*b( 8, it) + a(28, it)*b(12, it);
+    c(27, it) = a(24, it)*b( 6, it) + a(25, it)*b( 7, it) + a(27, it)*b( 9, it) + a(28, it)*b(13, it);
+    c(28, it) = a(24, it)*b(10, it) + a(25, it)*b(11, it) + a(27, it)*b(13, it) + a(28, it)*b(14, it);
+    c(29, it) = a(24, it)*b(15, it) + a(25, it)*b(16, it) + a(27, it)*b(18, it) + a(28, it)*b(19, it);
+    c(30, it) = b(15, it);
+    c(31, it) = b(16, it);
+    c(32, it) = b(17, it);
+    c(33, it) = b(18, it);
+    c(34, it) = b(19, it);
+    c(35, it) = b(20, it);  
   }
   return;
 }
 
 template<size_t N = 1>
-inline void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6SF_<N> &c) {//
+inline void MultHelixPropTransp(const MP6x6F_<N> &a_, const MP6x6F_<N> &b_, MP6x6SF_<N> &c_) {//
+  Right2DCView<float, 36, N> a{a_.data.data()};
+  Right2DCView<float, 36, N> b{b_.data.data()};
+  Right2DView<float, 21, N>  c{c_.data.data()};
 #pragma unroll
   for (int it = 0;it < N; it++) {
-    
-    c[ 0*N+it] = b[ 0*N+it]*a[ 0*N+it] + b[ 1*N+it]*a[ 1*N+it] + b[ 3*N+it]*a[ 3*N+it] + b[ 4*N+it]*a[ 4*N+it];
-    c[ 1*N+it] = b[ 6*N+it]*a[ 0*N+it] + b[ 7*N+it]*a[ 1*N+it] + b[ 9*N+it]*a[ 3*N+it] + b[10*N+it]*a[ 4*N+it];
-    c[ 2*N+it] = b[ 6*N+it]*a[ 6*N+it] + b[ 7*N+it]*a[ 7*N+it] + b[ 9*N+it]*a[ 9*N+it] + b[10*N+it]*a[10*N+it];
-    c[ 3*N+it] = b[12*N+it]*a[ 0*N+it] + b[13*N+it]*a[ 1*N+it] + b[15*N+it]*a[ 3*N+it] + b[16*N+it]*a[ 4*N+it];
-    c[ 4*N+it] = b[12*N+it]*a[ 6*N+it] + b[13*N+it]*a[ 7*N+it] + b[15*N+it]*a[ 9*N+it] + b[16*N+it]*a[10*N+it];
-    c[ 5*N+it] = b[12*N+it]*a[12*N+it] + b[13*N+it]*a[13*N+it] + b[14*N+it] + b[15*N+it]*a[15*N+it] + b[16*N+it]*a[16*N+it] + b[17*N+it]*a[17*N+it];
-    c[ 6*N+it] = b[18*N+it]*a[ 0*N+it] + b[19*N+it]*a[ 1*N+it] + b[21*N+it]*a[ 3*N+it] + b[22*N+it]*a[ 4*N+it];
-    c[ 7*N+it] = b[18*N+it]*a[ 6*N+it] + b[19*N+it]*a[ 7*N+it] + b[21*N+it]*a[ 9*N+it] + b[22*N+it]*a[10*N+it];
-    c[ 8*N+it] = b[18*N+it]*a[12*N+it] + b[19*N+it]*a[13*N+it] + b[20*N+it] + b[21*N+it]*a[15*N+it] + b[22*N+it]*a[16*N+it] + b[23*N+it]*a[17*N+it];
-    c[ 9*N+it] = b[18*N+it]*a[18*N+it] + b[19*N+it]*a[19*N+it] + b[21*N+it]*a[21*N+it] + b[22*N+it]*a[22*N+it];
-    c[10*N+it] = b[24*N+it]*a[ 0*N+it] + b[25*N+it]*a[ 1*N+it] + b[27*N+it]*a[ 3*N+it] + b[28*N+it]*a[ 4*N+it];
-    c[11*N+it] = b[24*N+it]*a[ 6*N+it] + b[25*N+it]*a[ 7*N+it] + b[27*N+it]*a[ 9*N+it] + b[28*N+it]*a[10*N+it];
-    c[12*N+it] = b[24*N+it]*a[12*N+it] + b[25*N+it]*a[13*N+it] + b[26*N+it] + b[27*N+it]*a[15*N+it] + b[28*N+it]*a[16*N+it] + b[29*N+it]*a[17*N+it];
-    c[13*N+it] = b[24*N+it]*a[18*N+it] + b[25*N+it]*a[19*N+it] + b[27*N+it]*a[21*N+it] + b[28*N+it]*a[22*N+it];
-    c[14*N+it] = b[24*N+it]*a[24*N+it] + b[25*N+it]*a[25*N+it] + b[27*N+it]*a[27*N+it] + b[28*N+it]*a[28*N+it];
-    c[15*N+it] = b[30*N+it]*a[ 0*N+it] + b[31*N+it]*a[ 1*N+it] + b[33*N+it]*a[ 3*N+it] + b[34*N+it]*a[ 4*N+it];
-    c[16*N+it] = b[30*N+it]*a[ 6*N+it] + b[31*N+it]*a[ 7*N+it] + b[33*N+it]*a[ 9*N+it] + b[34*N+it]*a[10*N+it];
-    c[17*N+it] = b[30*N+it]*a[12*N+it] + b[31*N+it]*a[13*N+it] + b[32*N+it] + b[33*N+it]*a[15*N+it] + b[34*N+it]*a[16*N+it] + b[35*N+it]*a[17*N+it];
-    c[18*N+it] = b[30*N+it]*a[18*N+it] + b[31*N+it]*a[19*N+it] + b[33*N+it]*a[21*N+it] + b[34*N+it]*a[22*N+it];
-    c[19*N+it] = b[30*N+it]*a[24*N+it] + b[31*N+it]*a[25*N+it] + b[33*N+it]*a[27*N+it] + b[34*N+it]*a[28*N+it];
-    c[20*N+it] = b[35*N+it];
+    c( 0, it) = b( 0, it)*a( 0, it) + b( 1, it)*a( 1, it) + b( 3, it)*a( 3, it) + b( 4, it)*a( 4, it);
+    c( 1, it) = b( 6, it)*a( 0, it) + b( 7, it)*a( 1, it) + b( 9, it)*a( 3, it) + b(10, it)*a( 4, it);
+    c( 2, it) = b( 6, it)*a( 6, it) + b( 7, it)*a( 7, it) + b( 9, it)*a( 9, it) + b(10, it)*a(10, it);
+    c( 3, it) = b(12, it)*a( 0, it) + b(13, it)*a( 1, it) + b(15, it)*a( 3, it) + b(16, it)*a( 4, it);
+    c( 4, it) = b(12, it)*a( 6, it) + b(13, it)*a( 7, it) + b(15, it)*a( 9, it) + b(16, it)*a(10, it);
+    c( 5, it) = b(12, it)*a(12, it) + b(13, it)*a(13, it) + b(14, it) + b(15, it)*a(15, it) + b(16, it)*a(16, it) + b(17, it)*a(17, it);
+    c( 6, it) = b(18, it)*a( 0, it) + b(19, it)*a( 1, it) + b(21, it)*a( 3, it) + b(22, it)*a( 4, it);
+    c( 7, it) = b(18, it)*a( 6, it) + b(19, it)*a( 7, it) + b(21, it)*a( 9, it) + b(22, it)*a(10, it);
+    c( 8, it) = b(18, it)*a(12, it) + b(19, it)*a(13, it) + b(20, it) + b(21, it)*a(15, it) + b(22, it)*a(16, it) + b(23, it)*a(17, it);
+    c( 9, it) = b(18, it)*a(18, it) + b(19, it)*a(19, it) + b(21, it)*a(21, it) + b(22, it)*a(22, it);
+    c(10, it) = b(24, it)*a( 0, it) + b(25, it)*a( 1, it) + b(27, it)*a( 3, it) + b(28, it)*a( 4, it);
+    c(11, it) = b(24, it)*a( 6, it) + b(25, it)*a( 7, it) + b(27, it)*a( 9, it) + b(28, it)*a(10, it);
+    c(12, it) = b(24, it)*a(12, it) + b(25, it)*a(13, it) + b(26, it) + b(27, it)*a(15, it) + b(28, it)*a(16, it) + b(29, it)*a(17, it);
+    c(13, it) = b(24, it)*a(18, it) + b(25, it)*a(19, it) + b(27, it)*a(21, it) + b(28, it)*a(22, it);
+    c(14, it) = b(24, it)*a(24, it) + b(25, it)*a(25, it) + b(27, it)*a(27, it) + b(28, it)*a(28, it);
+    c(15, it) = b(30, it)*a( 0, it) + b(31, it)*a( 1, it) + b(33, it)*a( 3, it) + b(34, it)*a( 4, it);
+    c(16, it) = b(30, it)*a( 6, it) + b(31, it)*a( 7, it) + b(33, it)*a( 9, it) + b(34, it)*a(10, it);
+    c(17, it) = b(30, it)*a(12, it) + b(31, it)*a(13, it) + b(32, it) + b(33, it)*a(15, it) + b(34, it)*a(16, it) + b(35, it)*a(17, it);
+    c(18, it) = b(30, it)*a(18, it) + b(31, it)*a(19, it) + b(33, it)*a(21, it) + b(34, it)*a(22, it);
+    c(19, it) = b(30, it)*a(24, it) + b(31, it)*a(25, it) + b(33, it)*a(27, it) + b(34, it)*a(28, it);
+    c(20, it) = b(35, it);    
   }
   return;  
 }
@@ -680,13 +624,20 @@ inline void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6S
 auto hipo = [](const float x, const float y) {return std::sqrt(x*x + y*y);};
 
 template <size_t N = 1>
-void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitErr, const MP3F_<N> &msP){	  
+void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_, const MP3x3SF_<N> &hitErr_, const MP3F_<N> &msP_){
+  //	  
+  Right2DView<float,21, N>   trkErr{trkErr_.data.data()};
+  Right2DView<float, 6, N>   inPar{inPar_.data.data()};
+  //
+  Right2DCView<float, 6, N>   hitErr{hitErr_.data.data()};
+  Right2DCView<float, 3, N>   msP{msP_.data.data()};
   
   MP1F_<N>    rotT00;
   MP1F_<N>    rotT01;
-  MP2x2SF_<N> resErr_loc;
+  MP2x2SF_<N> resErr_loc_;
   //MP3x3SF resErr_glo;
-    
+  Right2DView<float, 3, N> resErr_loc{resErr_loc_.data.data()};
+ 
   for (size_t it = 0;it < N; ++it) {   
     const auto msPX = msP(iparX, it);
     const auto msPY = msP(iparY, it);
@@ -697,68 +648,71 @@ void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitEr
     rotT00[it] = -(msPY + inParY) / (2*r);
     rotT01[it] =  (msPX + inParX) / (2*r);    
     
-    resErr_loc[ 0*N+it] = (rotT00[it]*(trkErr[0*N+it] + hitErr[0*N+it]) +
-                                    rotT01[it]*(trkErr[1*N+it] + hitErr[1*N+it]))*rotT00[it] +
-                                   (rotT00[it]*(trkErr[1*N+it] + hitErr[1*N+it]) +
-                                    rotT01[it]*(trkErr[2*N+it] + hitErr[2*N+it]))*rotT01[it];
-    resErr_loc[ 1*N+it] = (trkErr[3*N+it] + hitErr[3*N+it])*rotT00[it] +
-                                   (trkErr[4*N+it] + hitErr[4*N+it])*rotT01[it];
-    resErr_loc[ 2*N+it] = (trkErr[5*N+it] + hitErr[5*N+it]);
-  } 
+    resErr_loc( 0, it) = (rotT00[it]*(trkErr(0, it) + hitErr(0, it)) +
+                                    rotT01[it]*(trkErr(1, it) + hitErr(1, it)))*rotT00[it] +
+                                   (rotT00[it]*(trkErr(1, it) + hitErr(1, it)) +
+                                    rotT01[it]*(trkErr(2, it) + hitErr(2, it)))*rotT01[it];
+    resErr_loc( 1, it) = (trkErr(3, it) + hitErr(3, it))*rotT00[it] +
+                                   (trkErr(4, it) + hitErr(4, it))*rotT01[it];
+    resErr_loc( 2, it) = (trkErr(5, it) + hitErr(5, it));
+  }
   
   for (size_t it=0;it<N;++it) {
   
-    const double det = (double)resErr_loc[0*N+it] * resErr_loc[2*N+it] -
-                       (double)resErr_loc[1*N+it] * resErr_loc[1*N+it];
+    const double det = (double)resErr_loc(0, it) * resErr_loc(2, it) -
+                       (double)resErr_loc(1, it) * resErr_loc(1, it);
     const float s   = 1.f / det;
-    const float tmp = s * resErr_loc[2*N+it];
-    resErr_loc[1*N+it] *= -s;
-    resErr_loc[2*N+it]  = s * resErr_loc[0*N+it];
-    resErr_loc[0*N+it]  = tmp;  
+    const float tmp = s * resErr_loc(2, it);
+    resErr_loc(1, it) *= -s;
+    resErr_loc(2, it)  = s * resErr_loc(0, it);
+    resErr_loc(0, it)  = tmp; 
   }     
   
-  MP3x6_<N> kGain;
+  MP3x6_<N> kGain_;
+  Right2DView<float, 18, N> kGain{kGain_.data.data()};
   
 #pragma omp simd
   for (size_t it=0; it<N; ++it) {
-    const auto t00 = rotT00[it]*resErr_loc[ 0*N+it];
-    const auto t01 = rotT01[it]*resErr_loc[ 0*N+it];
-    const auto t10 = rotT00[it]*resErr_loc[ 1*N+it];
-    const auto t11 = rotT01[it]*resErr_loc[ 1*N+it];
+    const auto t00 = rotT00[it]*resErr_loc( 0, it);
+    const auto t01 = rotT01[it]*resErr_loc( 0, it);
+    const auto t10 = rotT00[it]*resErr_loc( 1, it);
+    const auto t11 = rotT01[it]*resErr_loc( 1, it);
 
-    kGain[ 0*N+it] = trkErr[ 0*N+it]*t00 + trkErr[ 1*N+it]*t01 +
-	                        trkErr[ 3*N+it]*resErr_loc[ 1*N+it];
-    kGain[ 1*N+it] = trkErr[ 0*N+it]*t10 + trkErr[ 1*N+it]*t11 +
-	                        trkErr[ 3*N+it]*resErr_loc[ 2*N+it];
-    kGain[ 2*N+it] = 0.f;
-    kGain[ 3*N+it] = trkErr[ 1*N+it]*t00 + trkErr[ 2*N+it]*t01 +
-	                        trkErr[ 4*N+it]*resErr_loc[ 1*N+it];
-    kGain[ 4*N+it] = trkErr[ 1*N+it]*t10 + trkErr[ 2*N+it]*t11 +
-	                        trkErr[ 4*N+it]*resErr_loc[ 2*N+it];
-    kGain[ 5*N+it] = 0.f;
-    kGain[ 6*N+it] = trkErr[ 3*N+it]*t00 + trkErr[ 4*N+it]*t01 +
-	                        trkErr[ 5*N+it]*resErr_loc[ 1*N+it];
-    kGain[ 7*N+it] = trkErr[ 3*N+it]*t10 + trkErr[ 4*N+it]*t11 +
-	                        trkErr[ 5*N+it]*resErr_loc[ 2*N+it];
-    kGain[ 8*N+it] = 0.f;
-    kGain[ 9*N+it] = trkErr[ 6*N+it]*t00 + trkErr[ 7*N+it]*t01 +
-	                        trkErr[ 8*N+it]*resErr_loc[ 1*N+it];
-    kGain[10*N+it] = trkErr[ 6*N+it]*t10 + trkErr[ 7*N+it]*t11 +
-	                        trkErr[ 8*N+it]*resErr_loc[ 2*N+it];
-    kGain[11*N+it] = 0.f;
-    kGain[12*N+it] = trkErr[10*N+it]*t00 + trkErr[11*N+it]*t01 +
-	                        trkErr[12*N+it]*resErr_loc[ 1*N+it];
-    kGain[13*N+it] = trkErr[10*N+it]*t10 + trkErr[11*N+it]*t11 +
-	                        trkErr[12*N+it]*resErr_loc[ 2*N+it];
-    kGain[14*N+it] = 0.f;
-    kGain[15*N+it] = trkErr[15*N+it]*t00 + trkErr[16*N+it]*t01 +
-	                        trkErr[17*N+it]*resErr_loc[ 1*N+it];
-    kGain[16*N+it] = trkErr[15*N+it]*t10 + trkErr[16*N+it]*t11 +
-	                        trkErr[17*N+it]*resErr_loc[ 2*N+it];
-    kGain[17*N+it] = 0.f;  
+    kGain( 0, it) = trkErr( 0, it)*t00 + trkErr( 1, it)*t01 +
+	                        trkErr( 3, it)*resErr_loc( 1, it);
+    kGain( 1, it) = trkErr( 0, it)*t10 + trkErr( 1, it)*t11 +
+	                        trkErr( 3, it)*resErr_loc( 2, it);
+    kGain( 2, it) = 0.f;
+    kGain( 3, it) = trkErr( 1, it)*t00 + trkErr( 2, it)*t01 +
+	                        trkErr( 4, it)*resErr_loc( 1, it);
+    kGain( 4, it) = trkErr( 1, it)*t10 + trkErr( 2, it)*t11 +
+	                        trkErr( 4, it)*resErr_loc( 2, it);
+    kGain( 5, it) = 0.f;
+    kGain( 6, it) = trkErr( 3, it)*t00 + trkErr( 4, it)*t01 +
+	                        trkErr( 5, it)*resErr_loc( 1, it);
+    kGain( 7, it) = trkErr( 3, it)*t10 + trkErr( 4, it)*t11 +
+	                        trkErr( 5, it)*resErr_loc( 2, it);
+    kGain( 8, it) = 0.f;
+    kGain( 9, it) = trkErr( 6, it)*t00 + trkErr( 7, it)*t01 +
+	                        trkErr( 8, it)*resErr_loc( 1, it);
+    kGain(10, it) = trkErr( 6, it)*t10 + trkErr( 7, it)*t11 +
+	                        trkErr( 8, it)*resErr_loc( 2, it);
+    kGain(11, it) = 0.f;
+    kGain(12, it) = trkErr(10, it)*t00 + trkErr(11, it)*t01 +
+	                        trkErr(12, it)*resErr_loc( 1, it);
+    kGain(13, it) = trkErr(10, it)*t10 + trkErr(11, it)*t11 +
+	                        trkErr(12, it)*resErr_loc( 2, it);
+    kGain(14, it) = 0.f;
+    kGain(15, it) = trkErr(15, it)*t00 + trkErr(16, it)*t01 +
+	                        trkErr(17, it)*resErr_loc( 1, it);
+    kGain(16, it) = trkErr(15, it)*t10 + trkErr(16, it)*t11 +
+	                        trkErr(17, it)*resErr_loc( 2, it);
+    kGain(17, it) = 0.f;  
   }  
      
-  MP2F_<N> res_loc;   
+  MP2F_<N> res_loc_; 
+  Right2DView<float, 2, N> res_loc{res_loc_.data.data()};
+  
   for (size_t it = 0; it < N; ++it) {
     const auto msPX = msP(iparX, it);
     const auto msPY = msP(iparY, it);
@@ -771,50 +725,52 @@ void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitEr
     const auto inParPhi   = inPar(iparPhi, it);
     const auto inParTheta = inPar(iparTheta, it);            
     
-    res_loc[0*N+it] =  rotT00[it]*(msPX - inParX) + rotT01[it]*(msPY - inParY);
-    res_loc[1*N+it] =  msPZ - inParZ;
+    res_loc(0, it) =  rotT00[it]*(msPX - inParX) + rotT01[it]*(msPY - inParY);
+    res_loc(1, it) =  msPZ - inParZ;
 
-    inPar(iparX,it)     = inParX + kGain[ 0*N+it] * res_loc[ 0*N+it] + kGain[ 1*N+it] * res_loc[ 1*N+it];
-    inPar(iparY,it)     = inParY + kGain[ 3*N+it] * res_loc[ 0*N+it] + kGain[ 4*N+it] * res_loc[ 1*N+it];
-    inPar(iparZ,it)     = inParZ + kGain[ 6*N+it] * res_loc[ 0*N+it] + kGain[ 7*N+it] * res_loc[ 1*N+it];
-    inPar(iparIpt,it)   = inParIpt + kGain[ 9*N+it] * res_loc[ 0*N+it] + kGain[10*N+it] * res_loc[ 1*N+it];
-    inPar(iparPhi,it)   = inParPhi + kGain[12*N+it] * res_loc[ 0*N+it] + kGain[13*N+it] * res_loc[ 1*N+it];
-    inPar(iparTheta,it) = inParTheta + kGain[15*N+it] * res_loc[ 0*N+it] + kGain[16*N+it] * res_loc[ 1*N+it];     
+    inPar(iparX,it)     = inParX + kGain( 0, it) * res_loc( 0, it) + kGain( 1, it) * res_loc( 1, it);
+    inPar(iparY,it)     = inParY + kGain( 3, it) * res_loc( 0, it) + kGain( 4, it) * res_loc( 1, it);
+    inPar(iparZ,it)     = inParZ + kGain( 6, it) * res_loc( 0, it) + kGain( 7, it) * res_loc( 1, it);
+    inPar(iparIpt,it)   = inParIpt + kGain( 9, it) * res_loc( 0, it) + kGain(10, it) * res_loc( 1, it);
+    inPar(iparPhi,it)   = inParPhi + kGain(12, it) * res_loc( 0, it) + kGain(13, it) * res_loc( 1, it);
+    inPar(iparTheta,it) = inParTheta + kGain(15, it) * res_loc( 0, it) + kGain(16, it) * res_loc( 1, it);          
   }
 
-   MP6x6SF_<N> newErr;
+   MP6x6SF_<N> newErr_;
+   Right2DView<float,21, N>   newErr{newErr_.data.data()};
+   
    for (size_t it=0;it<N;++it)   {
-     const auto t0 = rotT00[it]*trkErr[ 0*N+it] + rotT01[it]*trkErr[ 1*N+it];
-     const auto t1 = rotT00[it]*trkErr[ 1*N+it] + rotT01[it]*trkErr[ 2*N+it];
-     const auto t2 = rotT00[it]*trkErr[ 3*N+it] + rotT01[it]*trkErr[ 4*N+it];
-     const auto t3 = rotT00[it]*trkErr[ 6*N+it] + rotT01[it]*trkErr[ 7*N+it];
-     const auto t4 = rotT00[it]*trkErr[10*N+it] + rotT01[it]*trkErr[11*N+it];
+     const auto t0 = rotT00[it]*trkErr( 0, it) + rotT01[it]*trkErr( 1, it);
+     const auto t1 = rotT00[it]*trkErr( 1, it) + rotT01[it]*trkErr( 2, it);
+     const auto t2 = rotT00[it]*trkErr( 3, it) + rotT01[it]*trkErr( 4, it);
+     const auto t3 = rotT00[it]*trkErr( 6, it) + rotT01[it]*trkErr( 7, it);
+     const auto t4 = rotT00[it]*trkErr(10, it) + rotT01[it]*trkErr(11, it);
 
-     newErr[ 0*N+it] = kGain[ 0*N+it]*t0 + kGain[ 1*N+it]*trkErr[ 3*N+it];
-     newErr[ 1*N+it] = kGain[ 3*N+it]*t0 + kGain[ 4*N+it]*trkErr[ 3*N+it];
-     newErr[ 2*N+it] = kGain[ 3*N+it]*t1 + kGain[ 4*N+it]*trkErr[ 4*N+it];
-     newErr[ 3*N+it] = kGain[ 6*N+it]*t0 + kGain[ 7*N+it]*trkErr[ 3*N+it];
-     newErr[ 4*N+it] = kGain[ 6*N+it]*t1 + kGain[ 7*N+it]*trkErr[ 4*N+it];
-     newErr[ 5*N+it] = kGain[ 6*N+it]*t2 + kGain[ 7*N+it]*trkErr[ 5*N+it];
-     newErr[ 6*N+it] = kGain[ 9*N+it]*t0 + kGain[10*N+it]*trkErr[ 3*N+it];
-     newErr[ 7*N+it] = kGain[ 9*N+it]*t1 + kGain[10*N+it]*trkErr[ 4*N+it];
-     newErr[ 8*N+it] = kGain[ 9*N+it]*t2 + kGain[10*N+it]*trkErr[ 5*N+it];
-     newErr[ 9*N+it] = kGain[ 9*N+it]*t3 + kGain[10*N+it]*trkErr[ 8*N+it];
-     newErr[10*N+it] = kGain[12*N+it]*t0 + kGain[13*N+it]*trkErr[ 3*N+it];
-     newErr[11*N+it] = kGain[12*N+it]*t1 + kGain[13*N+it]*trkErr[ 4*N+it];
-     newErr[12*N+it] = kGain[12*N+it]*t2 + kGain[13*N+it]*trkErr[ 5*N+it];
-     newErr[13*N+it] = kGain[12*N+it]*t3 + kGain[13*N+it]*trkErr[ 8*N+it];
-     newErr[14*N+it] = kGain[12*N+it]*t4 + kGain[13*N+it]*trkErr[12*N+it];
-     newErr[15*N+it] = kGain[15*N+it]*t0 + kGain[16*N+it]*trkErr[ 3*N+it];
-     newErr[16*N+it] = kGain[15*N+it]*t1 + kGain[16*N+it]*trkErr[ 4*N+it];
-     newErr[17*N+it] = kGain[15*N+it]*t2 + kGain[16*N+it]*trkErr[ 5*N+it];
-     newErr[18*N+it] = kGain[15*N+it]*t3 + kGain[16*N+it]*trkErr[ 8*N+it];
-     newErr[19*N+it] = kGain[15*N+it]*t4 + kGain[16*N+it]*trkErr[12*N+it];
-     newErr[20*N+it] = kGain[15*N+it]*(rotT00[it]*trkErr[15*N+it] + rotT01[it]*trkErr[16*N+it]) +
-                         kGain[16*N+it]*trkErr[17*N+it];     
+     newErr( 0, it) = kGain( 0, it)*t0 + kGain( 1, it)*trkErr( 3, it);
+     newErr( 1, it) = kGain( 3, it)*t0 + kGain( 4, it)*trkErr( 3, it);
+     newErr( 2, it) = kGain( 3, it)*t1 + kGain( 4, it)*trkErr( 4, it);
+     newErr( 3, it) = kGain( 6, it)*t0 + kGain( 7, it)*trkErr( 3, it);
+     newErr( 4, it) = kGain( 6, it)*t1 + kGain( 7, it)*trkErr( 4, it);
+     newErr( 5, it) = kGain( 6, it)*t2 + kGain( 7, it)*trkErr( 5, it);
+     newErr( 6, it) = kGain( 9, it)*t0 + kGain(10, it)*trkErr( 3, it);
+     newErr( 7, it) = kGain( 9, it)*t1 + kGain(10, it)*trkErr( 4, it);
+     newErr( 8, it) = kGain( 9, it)*t2 + kGain(10, it)*trkErr( 5, it);
+     newErr( 9, it) = kGain( 9, it)*t3 + kGain(10, it)*trkErr( 8, it);
+     newErr(10, it) = kGain(12, it)*t0 + kGain(13, it)*trkErr( 3, it);
+     newErr(11, it) = kGain(12, it)*t1 + kGain(13, it)*trkErr( 4, it);
+     newErr(12, it) = kGain(12, it)*t2 + kGain(13, it)*trkErr( 5, it);
+     newErr(13, it) = kGain(12, it)*t3 + kGain(13, it)*trkErr( 8, it);
+     newErr(14, it) = kGain(12, it)*t4 + kGain(13, it)*trkErr(12, it);
+     newErr(15, it) = kGain(15, it)*t0 + kGain(16, it)*trkErr( 3, it);
+     newErr(16, it) = kGain(15, it)*t1 + kGain(16, it)*trkErr( 4, it);
+     newErr(17, it) = kGain(15, it)*t2 + kGain(16, it)*trkErr( 5, it);
+     newErr(18, it) = kGain(15, it)*t3 + kGain(16, it)*trkErr( 8, it);
+     newErr(19, it) = kGain(15, it)*t4 + kGain(16, it)*trkErr(12, it);
+     newErr(20, it) = kGain(15, it)*(rotT00[it]*trkErr(15, it) + rotT01[it]*trkErr(16, it)) +
+                         kGain(16, it)*trkErr(17, it);
  #pragma unroll
      for (int i = 0; i < 21; i++){
-       trkErr[ i*N+it] = trkErr[ i*N+it] - newErr[ i*N+it];
+       trkErr( i, it) = trkErr( i, it) - newErr( i, it);
      }
    }
    //
@@ -831,7 +787,11 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
   MP6x6F_<N> errorProp;
   MP6x6F_<N> temp;
   
-  auto PosInMtrx = [=] (int i, int j, int D, int block_size = 1) constexpr {return block_size*(i*D+j);};
+  Right3DView<float, 6, 6, N> errorProp_{errorProp.data.data()};
+  //
+  Right2DCView<float, 6, N>   inPar_{inPar.data.data()};
+  Right2DCView<float, 3, N>   msP_{msP.data.data()};
+  Right2DView<float, 6, N>    outPar_{outPar.data.data()};
   
   auto sincos4 = [] (const float x, float& sin, float& cos) {
     const float x2 = x*x;
@@ -843,36 +803,36 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
   for (size_t it = 0; it < N; ++it) {
     //initialize erroProp to identity matrix
     //for (size_t i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f; 
-    errorProp[PosInMtrx(0,0,6, N) + it] = 1.0f;
-    errorProp[PosInMtrx(1,1,6, N) + it] = 1.0f;
-    errorProp[PosInMtrx(2,2,6, N) + it] = 1.0f;
-    errorProp[PosInMtrx(3,3,6, N) + it] = 1.0f;
-    errorProp[PosInMtrx(4,4,6, N) + it] = 1.0f;
-    errorProp[PosInMtrx(5,5,6, N) + it] = 1.0f;
+    errorProp_(0,0,it) = 1.0f;
+    errorProp_(1,1,it) = 1.0f;
+    errorProp_(2,2,it) = 1.0f;
+    errorProp_(3,3,it) = 1.0f;
+    errorProp_(4,4,it) = 1.0f;
+    errorProp_(5,5,it) = 1.0f;
     //
-    const auto xin = inPar(iparX, it);
-    const auto yin = inPar(iparY, it);     
-    const auto zin = inPar(iparZ, it); 
+    const auto xin = inPar_(iparX, it);
+    const auto yin = inPar_(iparY, it);     
+    const auto zin = inPar_(iparZ, it); 
     
-    const auto iptin   = inPar(iparIpt,   it);
-    const auto phiin   = inPar(iparPhi,   it);
-    const auto thetain = inPar(iparTheta, it); 
+    const auto iptin   = inPar_(iparIpt,   it);
+    const auto phiin   = inPar_(iparPhi,   it);
+    const auto thetain = inPar_(iparTheta, it); 
     //
     auto r0 = hipo(xin, yin);
     const auto k = inChg[it]*kfact;//?
     
-    const auto xmsP = msP(iparX, it);//?
-    const auto ymsP = msP(iparY, it);//?
+    const auto xmsP = msP_(iparX, it);//?
+    const auto ymsP = msP_(iparY, it);//?
     
     const auto r = hipo(xmsP, ymsP);    
     
-    outPar(iparX,it) = xin;
-    outPar(iparY,it) = yin;
-    outPar(iparZ,it) = zin;
+    outPar_(iparX,it) = xin;
+    outPar_(iparY,it) = yin;
+    outPar_(iparZ,it) = zin;
 
-    outPar(iparIpt,it)   = iptin;
-    outPar(iparPhi,it)   = phiin;
-    outPar(iparTheta,it) = thetain;
+    outPar_(iparIpt,it)   = iptin;
+    outPar_(iparPhi,it)   = phiin;
+    outPar_(iparTheta,it) = thetain;
  
     const auto kinv  = 1.f/k;
     const auto pt = 1.f/iptin;
@@ -892,8 +852,8 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
     for (int i = 0; i < Niter; ++i)
     {
      //compute distance and path for the current iteration
-      const auto xout = outPar(iparX, it);
-      const auto yout = outPar(iparY, it);     
+      const auto xout = outPar_(iparX, it);
+      const auto yout = outPar_(iparY, it);     
       
       r0 = hipo(xout, yout);
       id = (r-r0);
@@ -927,8 +887,8 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
       } 
       
       //update parameters
-      outPar(iparX,it) = xout + k*(pxin*sina - pyin*(1.f-cosa));
-      outPar(iparY,it) = yout + k*(pyin*sina + pxin*(1.f-cosa));
+      outPar_(iparX,it) = xout + k*(pxin*sina - pyin*(1.f-cosa));
+      outPar_(iparY,it) = yout + k*(pyin*sina + pxin*(1.f-cosa));
       const float pxinold = pxin;//copy before overwriting
       pxin = pxin*cosa - pyin*sina;
       pyin = pyin*cosa + pxinold*sina;
@@ -952,19 +912,19 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
     const auto t3 = (iptin*dadipt*cosa-sina)*pt;
     const auto t4 = (iptin*dadipt*sina-(1.f-cosa))*pt;
  
-    errorProp[PosInMtrx(0,0,6, N) + it] = 1.f+dadx*t1;
-    errorProp[PosInMtrx(0,1,6, N) + it] =     dady*t1;
-    errorProp[PosInMtrx(0,2,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(0,3,6, N) + it] = (kcosPorTpt*t3-ksinPorTpt*t4);
-    errorProp[PosInMtrx(0,4,6, N) + it] = (kcosPorTpt*dadphi*cosa - ksinPorTpt*dadphi*sina - ksinPorTpt*sina + kcosPorTpt*cosa - kcosPorTpt);
-    errorProp[PosInMtrx(0,5,6, N) + it] = 0.f;
+    errorProp_(0,0,it) = 1.f+dadx*t1;
+    errorProp_(0,1,it) =     dady*t1;
+    errorProp_(0,2,it) = 0.f;
+    errorProp_(0,3,it) = (kcosPorTpt*t3-ksinPorTpt*t4);
+    errorProp_(0,4,it) = (kcosPorTpt*dadphi*cosa - ksinPorTpt*dadphi*sina - ksinPorTpt*sina + kcosPorTpt*cosa - kcosPorTpt);
+    errorProp_(0,5,it) = 0.f;
 
-    errorProp[PosInMtrx(1,0,6, N) + it] =     dadx*t2;
-    errorProp[PosInMtrx(1,1,6, N) + it] = 1.f+dady*t2;
-    errorProp[PosInMtrx(1,2,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(1,3,6, N) + it] = (ksinPorTpt*t3+kcosPorTpt*t4);
-    errorProp[PosInMtrx(1,4,6, N) + it] = (ksinPorTpt*dadphi*cosa + kcosPorTpt*dadphi*sina + ksinPorTpt*cosa + kcosPorTpt*sina - ksinPorTpt);
-    errorProp[PosInMtrx(1,5,6, N) + it] = 0.f;
+    errorProp_(1,0,it) =     dadx*t2;
+    errorProp_(1,1,it) = 1.f+dady*t2;
+    errorProp_(1,2,it) = 0.f;
+    errorProp_(1,3,it) = (ksinPorTpt*t3+kcosPorTpt*t4);
+    errorProp_(1,4,it) = (ksinPorTpt*dadphi*cosa + kcosPorTpt*dadphi*sina + ksinPorTpt*cosa + kcosPorTpt*sina - ksinPorTpt);
+    errorProp_(1,5,it) = 0.f;
 
     //no trig approx here, theta can be large
     cosPorT=std::cos(thetain);
@@ -974,41 +934,41 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
 
     const auto t5 = k*cosPorT*pt*sinPorT;
 
-    outPar(iparZ,it) = zin + alpha*t5;
+    outPar_(iparZ,it) = zin + alpha*t5;
 
-    errorProp[PosInMtrx(2,0,6, N) + it] = dadx*t5;
-    errorProp[PosInMtrx(2,1,6, N) + it] = dady*t5;
-    errorProp[PosInMtrx(2,2,6, N) + it] = 1.f;
-    errorProp[PosInMtrx(2,3,6, N) + it] = t5*(iptin*dadipt-alpha)*pt;
-    errorProp[PosInMtrx(2,4,6, N) + it] = dadphi*t5;
-    errorProp[PosInMtrx(2,5,6, N) + it] =-k*alpha*pt*sinPorT*sinPorT;   
+    errorProp_(2,0, it) = dadx*t5;
+    errorProp_(2,1, it) = dady*t5;
+    errorProp_(2,2, it) = 1.f;
+    errorProp_(2,3, it) = t5*(iptin*dadipt-alpha)*pt;
+    errorProp_(2,4, it) = dadphi*t5;
+    errorProp_(2,5, it) =-k*alpha*pt*sinPorT*sinPorT;   
     //
-    outPar(iparIpt,it) = iptin;
+    outPar_(iparIpt,it) = iptin;
  
-    errorProp[PosInMtrx(3,0,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(3,1,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(3,2,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(3,3,6, N) + it] = 1.f;
-    errorProp[PosInMtrx(3,4,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(3,5,6, N) + it] = 0.f; 
+    errorProp_(3,0, it) = 0.f;
+    errorProp_(3,1, it) = 0.f;
+    errorProp_(3,2, it) = 0.f;
+    errorProp_(3,3, it) = 1.f;
+    errorProp_(3,4, it) = 0.f;
+    errorProp_(3,5, it) = 0.f; 
     
-    outPar(iparPhi,it) = phiin+alpha;
+    outPar_(iparPhi,it) = phiin+alpha;
    
-    errorProp[PosInMtrx(4,0,6, N) + it] = dadx;
-    errorProp[PosInMtrx(4,1,6, N) + it] = dady;
-    errorProp[PosInMtrx(4,2,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(4,3,6, N) + it] = dadipt;
-    errorProp[PosInMtrx(4,4,6, N) + it] = 1.f+dadphi;
-    errorProp[PosInMtrx(4,5,6, N) + it] = 0.f; 
+    errorProp_(4,0, it) = dadx;
+    errorProp_(4,1, it) = dady;
+    errorProp_(4,2, it) = 0.f;
+    errorProp_(4,3, it) = dadipt;
+    errorProp_(4,4, it) = 1.f+dadphi;
+    errorProp_(4,5, it) = 0.f; 
   
-    outPar(iparTheta,it) = thetain;        
+    outPar_(iparTheta,it) = thetain;        
 
-    errorProp[PosInMtrx(5,0,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(5,1,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(5,2,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(5,3,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(5,4,6, N) + it] = 0.f;
-    errorProp[PosInMtrx(5,5,6, N) + it] = 1.f; 
+    errorProp_(5,0, it) = 0.f;
+    errorProp_(5,1, it) = 0.f;
+    errorProp_(5,2, it) = 0.f;
+    errorProp_(5,3, it) = 0.f;
+    errorProp_(5,4, it) = 0.f;
+    errorProp_(5,5, it) = 1.f; 
                                  
   }
   
@@ -1040,7 +1000,9 @@ __cuda_kernel__ void launch_p2r_cuda_kernel(const lambda_tp p2r_kernel, const in
 //CUDA specialized version:
 template <int bSize, typename stream_tp, bool is_cuda_target>
 requires (CudaCompute<is_cuda_target> and (enable_cuda_launcher == true))
-void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
+void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_to_host, stream_tp stream, const int nb_, const int nevnts_){
+
+  pref_to_device();	
 
   const int outer_loop_range = nevnts_*nb_*bSize;//re-scale exec domain for the cuda backend
 
@@ -1050,34 +1012,57 @@ void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, co
   launch_p2r_cuda_kernel<is_cuda_target><<<grid, blocks, 0, stream>>>(p2r_kernel, outer_loop_range);
   //
   p2r_check_error<is_cuda_target>();
-
-  return;	
+  //
+  pref_to_host();	
+  
+  p2r_wait<enable_cuda>();
 }
 
-//Generic (default) implementation for both x86 and nvidia accelerators:
+namespace ex = stdexec;
+
+//c++2X implementation for nvidia accelerators:
 template <int bSize, typename stream_tp, bool is_cuda_target>
-void dispatch_p2r_kernels(auto&& p2r_kernel, stream_tp stream, const int nb_, const int nevnts_){
-  //	
-  auto policy = std::execution::par_unseq;
-  //
-  auto outer_loop_range = std::ranges::views::iota(0, nb_*nevnts_*(is_cuda_target ? bSize : 1));
-  //
-  std::for_each(policy,
-                std::ranges::begin(outer_loop_range),
-                std::ranges::end(outer_loop_range),
-                p2r_kernel);
+void dispatch_p2r_kernels(auto&& p2r_kernel, auto&& pref_to_device, auto&& pref_to_host, stream_tp compute_stream, const int nb_, const int nevnts_){
+  if constexpr (enable_stdexec_launcher) {
+    const auto exe_range =  nb_*nevnts_*(is_cuda_target ? bSize : 1);
 
-  return;
+    auto compute_p2r = ex::just()
+	               | ex::then(pref_to_device)
+                       | exec::on(compute_stream, ex::bulk(exe_range, p2r_kernel))
+                       | ex::then(pref_to_host);
+ 
+    stdexec::this_thread::sync_wait(std::move(compute_p2r));
+
+  } else { //stdpar launcher
+
+    auto policy = std::execution::par_unseq;
+    //
+    auto outer_loop_range = std::ranges::views::iota(0, nb_*nevnts_*(is_cuda_target ? bSize : 1));
+    //
+    pref_to_device();    
+    
+    std::for_each(policy,
+                  std::ranges::begin(outer_loop_range),
+                  std::ranges::end(outer_loop_range),
+                  p2r_kernel);
+
+    pref_to_host();
+  }
+
+  p2r_wait<enable_cuda>();//we still need this
 }
+
 
 
 int main (int argc, char* argv[]) {
 #ifdef __NVCOMPILER_CUDA__
-#ifndef stdpar_launcher
-   std::cout << "Running CUDA backend with CUDA launcher.." << std::endl;
-#else
-   std::cout << "Running CUDA backend with stdpar launcher.." << std::endl;	
-#endif
+   if constexpr  (enable_cuda_launcher) {
+     std::cout << "Running CUDA backend with CUDA launcher.." << std::endl;
+   } else if constexpr (enable_stdexec_launcher) {
+     std::cout << "Running CUDA backend with stdexec launcher.." << std::endl;
+   } else {
+     std::cout << "Running CUDA backend with stdpar launcher.." << std::endl;	
+   }
 #endif
    #include "input_track.h"
 
@@ -1108,22 +1093,55 @@ int main (int argc, char* argv[]) {
    auto streams= p2r_get_streams<enable_cuda>(nstreams);
 
    auto stream = streams[0];//with UVM, we use only one compute stream 
+ 
+#ifdef stdexec_launcher   
+   nvexec::stream_context stream_cxt{};
+   //
+   nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::low);
+   //nvexec::stream_scheduler gpu = stream_cxt.get_scheduler(nvexec::stream_priority::high);
+   const auto compute_stream = gpu;
+#else
+   const auto compute_stream = stream;
+#endif   
 
    std::vector<MPTRK> outtrcks(nevts*nb);
    // migrate output object to dev memory:
-   p2r_prefetch<MPTRK, enable_cuda>(outtrcks, dev_id, stream);
 
    std::vector<MPTRK> trcks(nevts*nb); 
    prepareTracks(trcks, inputtrk);
    //
    std::vector<MPHIT> hits(nlayer*nevts*nb);
    prepareHits(hits, inputhits);
+
    // migrate the remaining objects if we don't measure transfers
-   if constexpr (include_data_transfer == false) {
-     p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
-     p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
-   }
-      
+   auto init_prefetch_input_buffers = [&] {
+     if constexpr (include_data_transfer == false) {
+       p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
+       p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
+     }
+   };
+
+   auto init_prefetch_output_buffers   = [&] {
+     p2r_prefetch<MPTRK, enable_cuda>(outtrcks, dev_id, stream);
+   };
+
+   auto p2r_barrier = [&] {
+     p2r_wait<enable_cuda>();
+   };
+
+#ifdef stdexec_launcher   
+   auto init_p2r = ex::just()
+                       | ex::then(init_prefetch_output_buffers)
+                       | ex::then(init_prefetch_input_buffers);
+   //
+   stdexec::this_thread::sync_wait(std::move(init_p2r));
+#else
+   init_prefetch_output_buffers();
+   init_prefetch_input_buffers();
+#endif   
+   p2r_barrier();//still needed even for stdexec
+
+   // create compute kernel
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
                          bhitsPtr      = hits.data()] (const auto i) {
@@ -1131,7 +1149,7 @@ int main (int argc, char* argv[]) {
                          constexpr int N      = enable_cuda ? 1 : bsize;
                          //
                          const auto tid      = (enable_cuda ? i / bsize : i);
-                         const auto batch_id = (enable_cuda ? i % bsize : 0);//not used if enable_cuda = true (and N = bsize)
+                         const auto batch_id = (enable_cuda ? i % bsize : 0);
                          //
                          MPTRK_<N> obtracks;
                          //
@@ -1150,9 +1168,21 @@ int main (int argc, char* argv[]) {
                          //
                          outtracksPtr[tid].save<N>(obtracks, batch_id);
                        };
-   // synchronize to ensure that all needed data is on the device:
-   p2r_wait<enable_cuda>();
- 
+
+   // create regular prefetchers:
+   auto prefetch_to_device = [&] {
+     if constexpr (include_data_transfer) {
+       p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
+       p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
+     }
+   };
+
+   auto prefetch_to_host   = [&] {
+     if constexpr (include_data_transfer) {
+       p2r_prefetch<MPTRK, enable_cuda>(outtrcks, host_id, stream);
+     }
+   };   
+
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
@@ -1162,24 +1192,13 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   //info<enable_cuda>(dev_id);
    double wall_time = 0.0;
 
    for(int itr=0; itr<NITER; itr++) {
+     //	   
      auto wall_start = std::chrono::high_resolution_clock::now();
      //
-     if constexpr (include_data_transfer) {
-       p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
-       p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
-     }
-     //
-     dispatch_p2r_kernels<bsize, decltype(stream), enable_cuda>(p2r_kernels, stream, nb, nevts);
-     
-     if constexpr (include_data_transfer) {  
-       p2r_prefetch<MPTRK, enable_cuda>(outtrcks, host_id, stream); 
-     }
-     //
-     p2r_wait<enable_cuda>();
+     dispatch_p2r_kernels<bsize, decltype(compute_stream), enable_cuda>(p2r_kernels, prefetch_to_device, prefetch_to_host, compute_stream, nb, nevts);
      //
      auto wall_stop = std::chrono::high_resolution_clock::now();
      //
