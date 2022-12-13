@@ -35,6 +35,7 @@ nvc++ -O2 -std=c++20 --gcc-toolchain=path-to-gnu-compiler -stdpar=multicore ./sr
 
 
 namespace stdex = std::experimental;
+using namespace std::ranges;
 
 #ifndef bsize
 #define bsize 32
@@ -413,53 +414,47 @@ float randn(float mu, float sigma) {
 
 void prepareTracks(std::vector<MPTRK> &trcks, ATRK &inputtrk) {
   //
-  for (size_t ie=0;ie<nevts;++ie) {
-    for (size_t ib=0;ib<nb;++ib) {
-      for (size_t it=0;it<bsize;++it) {
-	      //par
-	      for (size_t ip=0;ip<6;++ip) {
-	        trcks[ib + nb*ie].par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
-	      }
-	      //cov, scale by factor 100
-	      for (size_t ip=0;ip<21;++ip) {
-	        trcks[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
-	      }
-	      //q
-	      trcks[ib + nb*ie].q.data[it] = inputtrk.q;//can't really smear this or fit will be wrong
-      }
-    }
-  }
-  //
-  return;
+  auto fill_trck = [=, &inputtrk=inputtrk](auto&& trck) {
+
+                       for (auto&& it : views::iota(0,bsize)) {
+	                 //par
+	                 for (auto&& ip : views::iota(0,6) ) {
+	                   trck.par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
+	                 }
+	                 //cov, scale by factor 100
+	                 for (auto&& ip : views::iota(0,21)) {
+	                   trck.cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
+	                 }
+	                 //q
+	                 trck.q.data[it] = inputtrk.q;//can't really smear this or fit will be wrong
+                       }
+
+                   };
+
+  for_each(trcks, fill_trck);
 }
 
 void prepareHits(std::vector<MPHIT> &hits, std::vector<AHIT>& inputhits) {
   // store in element order for bunches of bsize matrices (a la matriplex)
-  for (size_t lay=0;lay<nlayer;++lay) {
-
-    size_t mylay = lay;
+  for (auto&& lay : iota_view{0,nlayer}) {
     if (lay>=inputhits.size()) {
-      // int wraplay = inputhits.size()/lay;
       exit(1);
     }
-    AHIT& inputhit = inputhits[mylay];
 
-    for (size_t ie=0;ie<nevts;++ie) {
-      for (size_t ib=0;ib<nb;++ib) {
-        for (size_t it=0;it<bsize;++it) {
-        	//pos
-        	for (size_t ip=0;ip<3;++ip) {
-        	  hits[lay+nlayer*(ib + nb*ie)].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
-        	}
-        	//cov
-        	for (size_t ip=0;ip<6;++ip) {
-        	  hits[lay+nlayer*(ib + nb*ie)].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
-        	}
+    for_each(views::iota(0, nevts*nb), [=, &inputhit = inputhits[lay], &hits = hits] (auto&& evtrk) {
+      for (auto&& it : views::iota(0,bsize)) {
+        //pos
+        for (auto&& ip : views::iota(0,3)) {
+          hits[lay+nlayer*evtrk].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
+        }
+        //cov
+        for (auto&& ip : views::iota(0,6)) {
+          hits[lay+nlayer*evtrk].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
         }
       }
-    }
+    }); 
   }
-  return;
+
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
