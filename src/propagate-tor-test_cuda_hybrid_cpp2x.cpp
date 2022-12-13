@@ -219,87 +219,6 @@ void p2r_wait() {
   return; 
 }
 
-//used only in cuda 
-template <bool is_cuda_target, bool is_verbose = true>
-requires CudaCompute<is_cuda_target>
-void info(int device) {
-  cudaDeviceProp deviceProp;
-
-  int driver_version;
-  cudaDriverGetVersion(&driver_version);
-  if constexpr (is_verbose) { std::cout << "CUDA Driver version = " << driver_version << std::endl;}
-
-  int runtime_version;
-  cudaRuntimeGetVersion(&runtime_version);
-  if constexpr (is_verbose) { std::cout << "CUDA Runtime version = " << runtime_version << std::endl;}
-
-  cudaGetDeviceProperties(&deviceProp, device);
-
-  if constexpr (is_verbose) {
-    printf("%d - name:                    %s\n", device, deviceProp.name);
-    printf("%d - totalGlobalMem:          %lu bytes ( %.2f Gbytes)\n", device, deviceProp.totalGlobalMem,
-                   deviceProp.totalGlobalMem / (float)(1024 * 1024 * 1024));
-    printf("%d - sharedMemPerBlock:       %lu bytes ( %.2f Kbytes)\n", device, deviceProp.sharedMemPerBlock, deviceProp.sharedMemPerBlock / (float)1024);
-    printf("%d - regsPerBlock:            %d\n", device, deviceProp.regsPerBlock);
-    printf("%d - warpSize:                %d\n", device, deviceProp.warpSize);
-    printf("%d - memPitch:                %lu\n", device, deviceProp.memPitch);
-    printf("%d - maxThreadsPerBlock:      %d\n", device, deviceProp.maxThreadsPerBlock);
-    printf("%d - maxThreadsDim[0]:        %d\n", device, deviceProp.maxThreadsDim[0]);
-    printf("%d - maxThreadsDim[1]:        %d\n", device, deviceProp.maxThreadsDim[1]);
-    printf("%d - maxThreadsDim[2]:        %d\n", device, deviceProp.maxThreadsDim[2]);
-    printf("%d - maxGridSize[0]:          %d\n", device, deviceProp.maxGridSize[0]);
-    printf("%d - maxGridSize[1]:          %d\n", device, deviceProp.maxGridSize[1]);
-    printf("%d - maxGridSize[2]:          %d\n", device, deviceProp.maxGridSize[2]);
-    printf("%d - totalConstMem:           %lu bytes ( %.2f Kbytes)\n", device, deviceProp.totalConstMem,
-                   deviceProp.totalConstMem / (float)1024);
-    printf("%d - compute capability:      %d.%d\n", device, deviceProp.major, deviceProp.minor);
-    printf("%d - deviceOverlap            %s\n", device, (deviceProp.deviceOverlap ? "true" : "false"));
-    printf("%d - multiProcessorCount      %d\n", device, deviceProp.multiProcessorCount);
-    printf("%d - kernelExecTimeoutEnabled %s\n", device,
-                   (deviceProp.kernelExecTimeoutEnabled ? "true" : "false"));
-    printf("%d - integrated               %s\n", device, (deviceProp.integrated ? "true" : "false"));
-    printf("%d - canMapHostMemory         %s\n", device, (deviceProp.canMapHostMemory ? "true" : "false"));
-    switch (deviceProp.computeMode) {
-      case 0: printf("%d - computeMode              0: cudaComputeModeDefault\n", device); break;
-      case 1: printf("%d - computeMode              1: cudaComputeModeExclusive\n", device); break;
-      case 2: printf("%d - computeMode              2: cudaComputeModeProhibited\n", device); break;
-      case 3: printf("%d - computeMode              3: cudaComputeModeExclusiveProcess\n", device); break;
-      default: printf("Error: unknown deviceProp.computeMode."), exit(-1);
-    }
-    printf("%d - surfaceAlignment         %lu\n", device, deviceProp.surfaceAlignment);
-    printf("%d - concurrentKernels        %s\n", device, (deviceProp.concurrentKernels ? "true" : "false"));
-    printf("%d - ECCEnabled               %s\n", device, (deviceProp.ECCEnabled ? "true" : "false"));
-    printf("%d - pciBusID                 %d\n", device, deviceProp.pciBusID);
-    printf("%d - pciDeviceID              %d\n", device, deviceProp.pciDeviceID);
-    printf("%d - pciDomainID              %d\n", device, deviceProp.pciDomainID);
-    printf("%d - tccDriver                %s\n", device, (deviceProp.tccDriver ? "true" : "false"));
-
-    switch (deviceProp.asyncEngineCount) {
-      case 0: printf("%d - asyncEngineCount         1: host -> device only\n", device); break;
-      case 1: printf("%d - asyncEngineCount         2: host <-> device\n", device); break;
-      case 2: printf("%d - asyncEngineCount         0: not supported\n", device); break;
-      default: printf("Error: unknown deviceProp.asyncEngineCount."), exit(-1);
-    }
-    printf("%d - unifiedAddressing        %s\n", device, (deviceProp.unifiedAddressing ? "true" : "false"));
-    printf("%d - memoryClockRate          %d kilohertz\n", device, deviceProp.memoryClockRate);
-    printf("%d - memoryBusWidth           %d bits\n", device, deviceProp.memoryBusWidth);
-    printf("%d - l2CacheSize              %d bytes\n", device, deviceProp.l2CacheSize);
-    printf("%d - maxThreadsPerMultiProcessor          %d\n\n", device, deviceProp.maxThreadsPerMultiProcessor);
-
-
-  }
-
-  p2r_check_error<is_cuda_target>();
-
-  return;	  
-}
-
-template <bool is_cuda_target, bool is_verbose = true>
-void info(int device) {
-  return;
-}
-
-
 const std::array<size_t, 36> SymOffsets66{0, 1, 3, 6, 10, 15, 1, 2, 4, 7, 11, 16, 3, 4, 5, 8, 12, 17, 6, 7, 8, 9, 13, 18, 10, 11, 12, 13, 14, 19, 15, 16, 17, 18, 19, 20};
 
 struct ATRK {
@@ -1200,14 +1119,14 @@ int main (int argc, char* argv[]) {
    prepareHits(hits, inputhits);
 
    // migrate the remaining objects if we don't measure transfers
-   auto init_prefetch_inp_to_device = [&] {
+   auto init_prefetch_input_buffers = [&] {
      if constexpr (include_data_transfer == false) {
        p2r_prefetch<MPTRK, enable_cuda>(trcks, dev_id, stream);
        p2r_prefetch<MPHIT, enable_cuda>(hits,  dev_id, stream);
      }
    };
 
-   auto init_prefetch_out_to_device   = [&] {
+   auto init_prefetch_output_buffers   = [&] {
      p2r_prefetch<MPTRK, enable_cuda>(outtrcks, dev_id, stream);
    };
 
@@ -1217,13 +1136,13 @@ int main (int argc, char* argv[]) {
 
 #ifdef stdexec_launcher   
    auto init_p2r = ex::just()
-                       | ex::then(init_prefetch_out_to_device)
-                       | ex::then(init_prefetch_inp_to_device);
+                       | ex::then(init_prefetch_output_buffers)
+                       | ex::then(init_prefetch_input_buffers);
    //
    stdexec::this_thread::sync_wait(std::move(init_p2r));
 #else
-   init_prefetch_out_to_device();
-   init_prefetch_inp_to_device();
+   init_prefetch_output_buffers();
+   init_prefetch_input_buffers();
 #endif   
    p2r_barrier();//still needed even for stdexec
 
@@ -1277,8 +1196,6 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK trk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
-
-   //info<enable_cuda>(dev_id);
 
    double wall_time = 0.0;
 
