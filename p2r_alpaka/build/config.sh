@@ -1,4 +1,28 @@
-cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/ -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_CUDA_COMPILER=nvcc -DALPAKA_CXX_STANDARD=17     -DALPAKA_ACC_GPU_CUDA_ENABLE=on -DCMAKE_CUDA_ARCHITECTURES=70 ..
+# CUDA backend
+#cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+#       -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_CUDA_COMPILER=nvcc\
+#       -Dalpaka_ACC_GPU_CUDA_ENABLE=on -DCMAKE_CUDA_ARCHITECTURES=80 ..
+
+## HIP backend
+# JLAB config
+#cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+#       -DCMAKE_PREFIX_PATH=/soft/compilers/rocm/rocm-5.2.0/bin -Dalpaka_ACC_GPU_HIP_ENABLE=ON -DGPU_TARGETS=gfx906 ..
+
+# JLSE config
+#cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+#       -DCMAKE_PREFIX_PATH=/soft/compilers/rocm/rocm-5.1.3/hip/\
+#       -DCMAKE_CXX_COMPILER=hipcc -Dalpaka_CXX_STANDARD=17\
+#       -Dalpaka_ACC_GPU_HIP_ENABLE=ON -DGPU_TARGETS=gfx908 ..
+## HIP with nvcc compiler -- DOES NOT WORK --
+#cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+#       -DCMAKE_PREFIX_PATH=/soft/compilers/rocm/rocm-5.1.3/hip/\
+#       -DCMAKE_CXX_COMPILER=nvcc \
+#       -Dalpaka_ACC_GPU_HIP_ENABLE=ON -DCMAKE_CUDA_ARCHITECTURES=80 ..
+
+# SYCL backend
+cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+      -DCMAKE_CXX_COMPILER=/home/kkwok/sycl_workspace/llvm/build_intel/bin/clang++\
+      -Dalpaka_CXX_STANDARD=17   -Dalpaka_ACC_SYCL_ENABLE=ON -Dalpaka_SYCL_PLATFORM_ONEAPI=ON -Dalpaka_SYCL_ONEAPI_GPU=ON ..
 
 ## TBB backend
 #cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\

@@ -86,6 +86,7 @@ python build.py -t cuda_v2 --num_streams 1 -v --nevts 1 --nlayer 20 --ntrks 32,6
 Example command:
 ```
 python build.py -t cuda_v3 --num_streams 1  -v --ntrks 9600 --nevts 100 --nlayer 20 --threadsperblockx 16 --threadsperblocky 2
+python build.py -t cuda_v4 --num_streams 1  -v --noH2D --noD2H --dryRun
 ```
 ### PSTL version
 
