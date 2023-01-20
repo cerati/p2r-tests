@@ -1135,20 +1135,20 @@ int main (int argc, char* argv[]) {
                          //
                          MPTRK_<N> obtracks;
                          //
-                         const auto& btracks = btracksPtr[tid].load<N>(batch_id);
+                         const auto& btracks = btracksPtr[tid].template load<N>(batch_id);
                          //
                          constexpr int layers = nlayer;
                          //
                          for(int layer = 0; layer < layers; ++layer) {
                            //
-                           const auto& bhits = bhitsPtr[layer+layers*tid].load<N>(batch_id);
+                           const auto& bhits = bhitsPtr[layer+layers*tid].template load<N>(batch_id);
                            //
                            propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
                            KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
                            //
                          }
                          //
-                         outtracksPtr[tid].save<N>(obtracks, batch_id);
+                         outtracksPtr[tid].template save<N>(obtracks, batch_id);
                        };
    // synchronize to ensure that all needed data is on the device:
    p2r_wait<enable_cuda>();

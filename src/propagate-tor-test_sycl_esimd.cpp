@@ -156,7 +156,7 @@ struct MPTRK {
     cov.simd_load(dst.cov);
     q.simd_load(dst.q);
     //   
-    return std::move(dst);	  
+    return dst;	  
   }
   //
   void simd_save(const MPTRK_ &src){
@@ -182,7 +182,7 @@ struct MPHIT {
     pos.simd_load(dst.pos);
     cov.simd_load(dst.cov);
     //
-    return std::move(dst);
+    return dst;
   }
 };
 
