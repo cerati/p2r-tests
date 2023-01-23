@@ -439,7 +439,7 @@ template <int N = bSize>
     
     tmp1 = esimd::inv(tmp2);       
   
-    const FloatN inv_2r = 0.5*tmp1;
+    const FloatN inv_2r = 0.5f*tmp1;
 
     rotT00[0] = -(msPY + inParY) * inv_2r;
     rotT01[0] =  (msPX + inParX) * inv_2r;    
