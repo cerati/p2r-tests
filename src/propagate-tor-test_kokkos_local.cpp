@@ -37,7 +37,7 @@ nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream
 #define smear 0.00001
 
 #ifndef NITER
-#define NITER 5
+#define NITER 200
 #endif
 #ifndef nlayer
 #define nlayer 20
@@ -252,7 +252,7 @@ Kokkos::View<MPTRK*, MemSpace>::HostMirror prepareTracks(ATRK inputtrk, Kokkos::
 	      }
 	      //cov
 	      for (size_t ip=0;ip<21;++ip) {
-	        result(ib + nb*ie).cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip];
+	        result(ib + nb*ie).cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
 	      }
 	      //q
 	      result(ib + nb*ie).q.data[it] = inputtrk.q;//
@@ -908,18 +908,29 @@ int main (int argc, char* argv[]) {
 
    const int phys_length      = nevts*nb;
    const int outer_loop_range = phys_length*bsize;
+
+   typedef Kokkos::TeamPolicy<>               team_policy;
+   typedef Kokkos::TeamPolicy<>::member_type  member_type;
+   int team_policy_range = nevts*nb;  // number of teams
+   int team_size = bsize;  // team size
    //
    //dim3 blocks(threadsperblock, 1, 1);
    //dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
 
    double wall_time = 0.0;
+   
+   // sync explicitly 
+   Kokkos::fence();
 
    for(int itr=0; itr<NITER; itr++) {
      auto wall_start = std::chrono::high_resolution_clock::now();
 
      Kokkos::parallel_for("Kernel",
-                          Kokkos::RangePolicy<ExecSpace>(0,outer_loop_range), 
-                          KOKKOS_LAMBDA(const int i){
+                          //Kokkos::RangePolicy<ExecSpace>(0,outer_loop_range), 
+                          //KOKKOS_LAMBDA(const int i){
+                         team_policy(team_policy_range,team_size),
+                         KOKKOS_LAMBDA( const member_type &teamMember){
+                             int i = teamMember.league_rank () * teamMember.team_size () +teamMember.team_rank ();
                              launch_p2r_kernel<bsize, nlayer>(outtrcks.data(), trcks.data(), hits.data(), i); // kernel for 1 track
                          });
      //
