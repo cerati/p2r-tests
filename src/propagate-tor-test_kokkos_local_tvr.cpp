@@ -430,7 +430,7 @@ KOKKOS_INLINE_FUNCTION  void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N
 
   //#pragma unroll
   //for (int it =0;it<N;it++)
-  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,N),[&] (const size_t it) 
+  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it) 
   {
     //printf("league rank =  %i, team rank = %i, it =  %i, N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),it,N);
     c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
@@ -480,7 +480,7 @@ KOKKOS_INLINE_FUNCTION  void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x
 
   //#pragma unroll
   //for (int it=0;it<N;it++)
-  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,N),[&] (const size_t it) 
+  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it) 
   {
     
     c[ 0*N+it] = b[ 0*N+it]*a[ 0*N+it] + b[ 1*N+it]*a[ 1*N+it] + b[ 3*N+it]*a[ 3*N+it] + b[ 4*N+it]*a[ 4*N+it];
@@ -518,7 +518,7 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
   MP2x2SF_<N> resErr_loc;
   //MP3x3SF resErr_glo;
   //for (size_t it = 0;it < N; ++it) {    
-  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,N),[&] (const size_t it){ 
+  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
     const auto msPX = msP_(iparX,it);
     const auto msPY = msP_(iparY,it);
     const auto inParX = inPar_(iparX,it);
@@ -550,7 +550,7 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
 
   //#pragma omp simd
   //for (size_t it=0; it<N; ++it){
-  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,N),[&] (const size_t it){ 
+  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
     kGain[ 0*N+it] = trkErr_[ 0*N+it]*(rotT00[0*N+it]*resErr_loc[ 0*N+it]) +
 	                        trkErr_[ 1*N+it]*(rotT01[0*N+it]*resErr_loc[ 0*N+it]) +
 	                        trkErr_[ 3*N+it]*resErr_loc[ 1*N+it];
@@ -597,7 +597,7 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
      
   MP2F_<N> res_loc;   
   //for (size_t it=0 ;it<N ; ++it){
-  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,N),[&] (const size_t it){ 
+  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
     const auto msPX = msP_(iparX,it);
     const auto msPY = msP_(iparY,it);
     const auto msPZ = msP_(iparZ,it);    
@@ -622,7 +622,7 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
 
   MP6x6SF_<N> newErr;
   //for (size_t it=0 ;it<N ; ++it){
-  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,N),[&] (const size_t it){ 
+  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
 
      newErr[ 0*N+it] = kGain[ 0*N+it]*rotT00[0*N+it]*trkErr_[ 0*N+it] +
                          kGain[ 0*N+it]*rotT01[0*N+it]*trkErr_[ 1*N+it] +
@@ -700,7 +700,7 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
 constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 
-template <size_t N = 1,typename member_type>
+template <int N = 1,typename member_type>
 KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_<N> &inPar_, const MP1I_<N> &inChg_, 
                   const MP3F_<N> &msP_, MP6x6SF_<N> &outErr_, MP6F_<N> &outPar_,const member_type& teamMember) {
   //aux objects  
@@ -708,15 +708,17 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
   MP6x6F_<N> temp;
   
   //auto PosInMtrx = [=] (int i, int j, int D) constexpr {return (i*D+j);};
-  auto PosInMtrx = [](const size_t &&i, const size_t &&j, const size_t &&D, const size_t block_size = 1) constexpr {return block_size*(i*D+j);};
+  auto PosInMtrx = [=](const size_t &&i, const size_t &&j, const size_t &&D, const size_t block_size = 1) constexpr {return block_size*(i*D+j);};
   
   auto sincos4 = [] (const float x, float& sin, float& cos) {
     const float x2 = x*x;
     cos  = 1.f - 0.5f*x2 + 0.04166667f*x2*x2;
     sin  = x - 0.16666667f*x*x2;
   };
-  
-  Kokkos::parallel_for( Kokkos::TeamVectorRange(teamMember,N),[&] (const size_t it){ 
+  //printf("league rank =  %i, team rank = %i,  N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),N);
+ 
+  ///Thread vector range here : Loop over vector elements (1 for GPU, teamSize for CPU) 
+  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const int it){ 
   //for (size_t it = 0; it < N; ++it) 
     //initialize erroProp to identity matrix
     //for (int i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f; 
@@ -887,28 +889,29 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
 template <int bSize, int layers, typename member_type, bool grid_stride = true>
 KOKKOS_FUNCTION void launch_p2r_kernel(MPTRK *obtracks_, MPTRK *btracks_, MPHIT *bhits_, const member_type& teamMember){
 
-     int i = teamMember.league_rank () * teamMember.team_size () +teamMember.team_rank ();
-     constexpr int  N             = use_gpu ? 1 : bSize;
+     Kokkos::parallel_for(  Kokkos::TeamThreadRange(teamMember, teamMember.team_size()),[&] (const int& i){
+        //int i = teamMember.league_rank () * teamMember.team_size () +teamMember.team_rank ();
+        constexpr int  N             = use_gpu ? 1 : bSize;
 
-     const auto tid        = use_gpu ? i / bSize : i;
-     const auto batch_id   = use_gpu ? i % bSize : 0;
+        const auto tid        = use_gpu ? i / bSize : i;
+        const auto batch_id   = use_gpu ? i % bSize : 0;
 
-     MPTRK_<N> obtracks;
-     //
-     //
-     const auto& btracks = btracks_[tid].load_component<N>(batch_id);
-#pragma unroll //improved performance by 40-60 %   
-     for(int layer = 0; layer < layers; ++layer) {  
-       //
-       const auto& bhits = bhits_[layer+layers*tid].load_component<N>(batch_id);
-       //
-       propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par,teamMember);
-       KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos,teamMember);
-       //
-     }
-     //
-     obtracks_[tid].save_component<N>(obtracks, batch_id);
-     
+        MPTRK_<N> obtracks;
+        //
+        //
+        const auto& btracks = btracks_[tid].load_component<N>(batch_id);
+        #pragma unroll //improved performance by 40-60 %   
+        for(int layer = 0; layer < layers; ++layer) {  
+          //
+          const auto& bhits = bhits_[layer+layers*tid].load_component<N>(batch_id);
+          //
+          propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par,teamMember);
+          KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos,teamMember);
+          //
+        }
+        //
+        obtracks_[tid].save_component<N>(obtracks, batch_id);
+     });
   return;
 }
 
