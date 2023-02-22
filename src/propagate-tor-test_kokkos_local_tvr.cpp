@@ -715,10 +715,10 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
     cos  = 1.f - 0.5f*x2 + 0.04166667f*x2*x2;
     sin  = x - 0.16666667f*x*x2;
   };
-  //printf("league rank =  %i, team rank = %i,  N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),N);
  
   ///Thread vector range here : Loop over vector elements (1 for GPU, teamSize for CPU) 
   Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const int it){ 
+  //printf("league rank =  %i, team rank = %i,  N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),N);
   //for (size_t it = 0; it < N; ++it) 
     //initialize erroProp to identity matrix
     //for (int i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f; 
@@ -889,14 +889,15 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
 template <int bSize, int layers, typename member_type, bool grid_stride = true>
 KOKKOS_FUNCTION void launch_p2r_kernel(MPTRK *obtracks_, MPTRK *btracks_, MPHIT *bhits_, const member_type& teamMember){
 
-     Kokkos::parallel_for(  Kokkos::TeamThreadRange(teamMember, teamMember.team_size()),[&] (const int& i){
-        //int i = teamMember.league_rank () * teamMember.team_size () +teamMember.team_rank ();
+     Kokkos::parallel_for(  Kokkos::TeamThreadRange(teamMember, teamMember.team_size()),[&] (const int& i_local){
+        int i = teamMember.league_rank () * teamMember.team_size () +teamMember.team_rank ();
         constexpr int  N             = use_gpu ? 1 : bSize;
 
         const auto tid        = use_gpu ? i / bSize : i;
         const auto batch_id   = use_gpu ? i % bSize : 0;
 
         MPTRK_<N> obtracks;
+        //printf("league rank =  %i, team rank = %i, N=%i,  i= %i \n",int(teamMember.league_rank()),int(teamMember.team_rank()),N,i);
         //
         //
         const auto& btracks = btracks_[tid].load_component<N>(batch_id);
