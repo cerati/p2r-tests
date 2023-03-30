@@ -429,8 +429,9 @@ template<size_t N=1,typename member_type>
 KOKKOS_INLINE_FUNCTION  void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> &c,const member_type& teamMember) {//ok
 
   //#pragma unroll
-  //for (int it =0;it<N;it++)
-  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it) 
+  #pragma omp simd
+  for (int it =0;it<N;it++)
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it) 
   {
     //printf("league rank =  %i, team rank = %i, it =  %i, N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),it,N);
     c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
@@ -471,7 +472,8 @@ KOKKOS_INLINE_FUNCTION  void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N
     c[33*N+it] = b[18*N+it];
     c[34*N+it] = b[19*N+it];
     c[35*N+it] = b[20*N+it];    
-  });
+  //});
+  };
   return;
 }
 
@@ -479,8 +481,9 @@ template<size_t N=1,typename member_type>
 KOKKOS_INLINE_FUNCTION  void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6SF_<N> &c, const member_type& teamMember) {//
 
   //#pragma unroll
-  //for (int it=0;it<N;it++)
-  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it) 
+  #pragma omp simd
+  for (int it=0;it<N;it++)
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it) 
   {
     
     c[ 0*N+it] = b[ 0*N+it]*a[ 0*N+it] + b[ 1*N+it]*a[ 1*N+it] + b[ 3*N+it]*a[ 3*N+it] + b[ 4*N+it]*a[ 4*N+it];
@@ -504,7 +507,7 @@ KOKKOS_INLINE_FUNCTION  void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x
     c[18*N+it] = b[30*N+it]*a[18*N+it] + b[31*N+it]*a[19*N+it] + b[33*N+it]*a[21*N+it] + b[34*N+it]*a[22*N+it];
     c[19*N+it] = b[30*N+it]*a[24*N+it] + b[31*N+it]*a[25*N+it] + b[33*N+it]*a[27*N+it] + b[34*N+it]*a[28*N+it];
     c[20*N+it] = b[35*N+it];
-  });
+  };
   return;  
 }
 
@@ -517,14 +520,15 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
   MP1F_<N>    rotT01;
   MP2x2SF_<N> resErr_loc;
   //MP3x3SF resErr_glo;
-  //for (size_t it = 0;it < N; ++it) {    
-  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
-    const auto msPX = msP_(iparX,it);
-    const auto msPY = msP_(iparY,it);
-    const auto inParX = inPar_(iparX,it);
-    const auto inParY = inPar_(iparY,it);          
+  #pragma omp simd
+  for (size_t it = 0;it < N; ++it) {    
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
+    const float msPX = msP_(iparX,it);
+    const float msPY = msP_(iparY,it);
+    const float inParX = inPar_(iparX,it);
+    const float inParY = inPar_(iparY,it);          
   
-    const auto r = hipo(msPX, msPY);
+    const float r = hipo(msPX, msPY);
     rotT00[it] = -(msPY + inParY) / (2*r);
     rotT01[it] =  (msPX + inParX) / (2*r);    
     
@@ -544,13 +548,13 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
     resErr_loc[1*N+it] *= -s;
     resErr_loc[2*N+it]  = s * resErr_loc[0*N+it];
     resErr_loc[0*N+it]  = tmp;  
-  });     
+  };     
   
   MP3x6_<N> kGain;
 
-  //#pragma omp simd
-  //for (size_t it=0; it<N; ++it){
-  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
+  #pragma omp simd
+  for (size_t it=0; it<N; ++it){
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
     kGain[ 0*N+it] = trkErr_[ 0*N+it]*(rotT00[0*N+it]*resErr_loc[ 0*N+it]) +
 	                        trkErr_[ 1*N+it]*(rotT01[0*N+it]*resErr_loc[ 0*N+it]) +
 	                        trkErr_[ 3*N+it]*resErr_loc[ 1*N+it];
@@ -593,21 +597,22 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
 	                        trkErr_[16*N+it]*(rotT01[0*N+it]*resErr_loc[ 1*N+it]) +
 	                        trkErr_[17*N+it]*resErr_loc[ 2*N+it];
     kGain[17*N+it] = 0;  
-  }); 
+  }; 
      
   MP2F_<N> res_loc;   
-  //for (size_t it=0 ;it<N ; ++it){
-  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
-    const auto msPX = msP_(iparX,it);
-    const auto msPY = msP_(iparY,it);
-    const auto msPZ = msP_(iparZ,it);    
-    const auto inParX = inPar_(iparX,it);
-    const auto inParY = inPar_(iparY,it);     
-    const auto inParZ = inPar_(iparZ,it); 
+  #pragma omp simd
+  for (size_t it=0 ;it<N ; ++it){
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
+    const float msPX = msP_(iparX,it);
+    const float msPY = msP_(iparY,it);
+    const float msPZ = msP_(iparZ,it);    
+    const float inParX = inPar_(iparX,it);
+    const float inParY = inPar_(iparY,it);     
+    const float inParZ = inPar_(iparZ,it); 
     
-    const auto inParIpt   = inPar_(iparIpt,it);
-    const auto inParPhi   = inPar_(iparPhi,it);
-    const auto inParTheta = inPar_(iparTheta,it);            
+    const float inParIpt   = inPar_(iparIpt,it);
+    const float inParPhi   = inPar_(iparPhi,it);
+    const float inParTheta = inPar_(iparTheta,it);            
     
     res_loc[0*N+it] =  rotT00[0*N+it]*(msPX - inParX) + rotT01[0*N+it]*(msPY - inParY);
     res_loc[1*N+it] =  msPZ - inParZ;
@@ -618,12 +623,12 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
     inPar_(iparIpt,it)   = inParIpt + kGain[ 9*N+it] * res_loc[ 0*N+it] + kGain[10*N+it] * res_loc[ 1*N+it];
     inPar_(iparPhi,it)   = inParPhi + kGain[12*N+it] * res_loc[ 0*N+it] + kGain[13*N+it] * res_loc[ 1*N+it];
     inPar_(iparTheta,it) = inParTheta + kGain[15*N+it] * res_loc[ 0*N+it] + kGain[16*N+it] * res_loc[ 1*N+it];     
-  });
+  };
 
   MP6x6SF_<N> newErr;
-  //for (size_t it=0 ;it<N ; ++it){
-  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
-
+  #pragma omp simd
+  for (size_t it=0 ;it<N ; ++it){
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
      newErr[ 0*N+it] = kGain[ 0*N+it]*rotT00[0*N+it]*trkErr_[ 0*N+it] +
                          kGain[ 0*N+it]*rotT01[0*N+it]*trkErr_[ 1*N+it] +
                          kGain[ 1*N+it]*trkErr_[ 3*N+it];
@@ -691,7 +696,7 @@ KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_
      for (int i = 0; i < 21; i++){
        trkErr_[ i*N+it] = trkErr_[ i*N+it] - newErr[ i*N+it];
      }
-   });
+   };
    //
    return;                 
 }
@@ -716,12 +721,12 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
     sin  = x - 0.16666667f*x*x2;
   };
  
+  #pragma omp simd
+  for (size_t it = 0; it < N; ++it){ 
   ///Thread vector range here : Loop over vector elements (1 for GPU, teamSize for CPU) 
-  Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const int it){ 
-  //printf("league rank =  %i, team rank = %i,  N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),N);
-  //for (size_t it = 0; it < N; ++it) 
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const int it){ 
+    //printf("league rank =  %i, team rank = %i, it =  %i, N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),it,N);
     //initialize erroProp to identity matrix
-    //for (int i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f; 
     errorProp[PosInMtrx(0,0,6,N) + it] = 1.0f;
     errorProp[PosInMtrx(1,1,6,N) + it] = 1.0f;
     errorProp[PosInMtrx(2,2,6,N) + it] = 1.0f;
@@ -729,21 +734,21 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
     errorProp[PosInMtrx(4,4,6,N) + it] = 1.0f;
     errorProp[PosInMtrx(5,5,6,N) + it] = 1.0f;
     //
-    const auto xin = inPar_(iparX,it);
-    const auto yin = inPar_(iparY,it);     
-    const auto zin = inPar_(iparZ,it); 
+    const float xin = inPar_(iparX,it);
+    const float yin = inPar_(iparY,it);     
+    const float zin = inPar_(iparZ,it); 
     
-    const auto iptin   = inPar_(iparIpt,it);
-    const auto phiin   = inPar_(iparPhi,it);
-    const auto thetain = inPar_(iparTheta,it); 
+    const float iptin   = inPar_(iparIpt,it);
+    const float phiin   = inPar_(iparPhi,it);
+    const float thetain = inPar_(iparTheta,it); 
     //
-    auto r0 = hipo(xin, yin);
-    const auto k = inChg_[it]*kfact;//?
+    float r0 = hipo(xin, yin);
+    const float k = inChg_[it]*kfact;//?
     
-    const auto xmsP = msP_(iparX,it);//?
-    const auto ymsP = msP_(iparY,it);//?
+    const float xmsP = msP_(iparX,it);//?
+    const float ymsP = msP_(iparY,it);//?
     
-    const auto r = hipo(xmsP, ymsP);    
+    const float r = hipo(xmsP, ymsP);    
     
     outPar_(iparX,it) = xin;
     outPar_(iparY,it) = yin;
@@ -753,26 +758,26 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
     outPar_(iparPhi,it)   = phiin;
     outPar_(iparTheta,it) = thetain;
  
-    const auto kinv  = 1.f/k;
-    const auto pt = 1.f/iptin;
+    const float kinv  = 1.f/k;
+    const float pt = 1.f/iptin;
 
-    auto D = 0.f, cosa = 0.f, sina = 0.f, id = 0.f;
+    float D = 0.f, cosa = 0.f, sina = 0.f, id = 0.f;
     //no trig approx here, phi can be large
-    auto cosPorT = std::cos(phiin), sinPorT = std::sin(phiin);
-    auto pxin = cosPorT*pt;
-    auto pyin = sinPorT*pt;
+    float cosPorT = std::cos(phiin), sinPorT = std::sin(phiin);
+    float pxin = cosPorT*pt;
+    float pyin = sinPorT*pt;
 
     //derivatives initialized to value for first iteration, i.e. distance = r-r0in
-    auto dDdx = r0 > 0.f ? -xin/r0 : 0.f;
-    auto dDdy = r0 > 0.f ? -yin/r0 : 0.f;
-    auto dDdipt = 0.;
-    auto dDdphi = 0.;  
-#pragma unroll    
+    float dDdx = r0 > 0.f ? -xin/r0 : 0.f;
+    float dDdy = r0 > 0.f ? -yin/r0 : 0.f;
+    float dDdipt = 0.;
+    float dDdphi = 0.;  
+    #pragma unroll    
     for (int i = 0; i < Niter; ++i)
     {
      //compute distance and path for the current iteration
-      const auto xout = outPar_(iparX,it);
-      const auto yout = outPar_(iparY,it);     
+      const float xout = outPar_(iparX,it);
+      const float yout = outPar_(iparY,it);     
       
       r0 = hipo(xout, yout);
       id = (r-r0);
@@ -782,19 +787,19 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
       //update derivatives on total distance
       if (i+1 != Niter) {
 
-	const auto oor0 = (r0>0.f && std::abs(r-r0)<0.0001f) ? 1.f/r0 : 0.f;
+	const float oor0 = (r0>0.f && std::abs(r-r0)<0.0001f) ? 1.f/r0 : 0.f;
 
-	const auto dadipt = id*kinv;
+	const float dadipt = id*kinv;
 
-	const auto dadx = -xout*iptin*kinv*oor0;
-	const auto dady = -yout*iptin*kinv*oor0;
+	const float dadx = -xout*iptin*kinv*oor0;
+	const float dady = -yout*iptin*kinv*oor0;
 
-	const auto pxca = pxin*cosa;
-	const auto pxsa = pxin*sina;
-	const auto pyca = pyin*cosa;
-	const auto pysa = pyin*sina;
+	const float pxca = pxin*cosa;
+	const float pxsa = pxin*sina;
+	const float pyca = pyin*cosa;
+	const float pysa = pyin*sina;
 
-	auto tmp = k*dadx;
+	float tmp = k*dadx;
 	dDdx   -= ( xout*(1.f + tmp*(pxca - pysa)) + yout*tmp*(pyca + pxsa) )*oor0;
 	tmp = k*dady;
 	dDdy   -= ( xout*tmp*(pxca - pysa) + yout*(1.f + tmp*(pyca + pxsa)) )*oor0;
@@ -814,11 +819,11 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
   
     }
     //
-    const auto alpha  = D*iptin*kinv;
-    const auto dadx   = dDdx*iptin*kinv;
-    const auto dady   = dDdy*iptin*kinv;
-    const auto dadipt = (iptin*dDdipt + D)*kinv;
-    const auto dadphi = dDdphi*iptin*kinv;
+    const float alpha  = D*iptin*kinv;
+    const float dadx   = dDdx*iptin*kinv;
+    const float dady   = dDdy*iptin*kinv;
+    const float dadipt = (iptin*dDdipt + D)*kinv;
+    const float dadphi = dDdphi*iptin*kinv;
 
     sincos4(alpha, sina, cosa);
  
@@ -878,7 +883,7 @@ KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_
     errorProp[PosInMtrx(5,4,6, N) + it] = 0.f;
     errorProp[PosInMtrx(5,5,6, N) + it] = 1.f; 
                                  
-  });
+  };
   
   MultHelixProp<N>(errorProp, inErr_, temp, teamMember);
   MultHelixPropTransp<N>(errorProp, temp, outErr_, teamMember);  
@@ -890,26 +895,26 @@ template <int bSize, int layers, typename member_type, bool grid_stride = true>
 KOKKOS_FUNCTION void launch_p2r_kernel(MPTRK *obtracks_, MPTRK *btracks_, MPHIT *bhits_, const member_type& teamMember){
 
      Kokkos::parallel_for(  Kokkos::TeamThreadRange(teamMember, teamMember.team_size()),[&] (const int& i_local){
-        int i = teamMember.league_rank () * teamMember.team_size () +teamMember.team_rank ();
-        constexpr int  N             = use_gpu ? 1 : bSize;
+     int i = teamMember.league_rank () * teamMember.team_size () + i_local;
+     constexpr int  N             = use_gpu ? 1 : bSize;
 
-        const auto tid        = use_gpu ? i / bSize : i;
-        const auto batch_id   = use_gpu ? i % bSize : 0;
+     const int tid        = use_gpu ? i / bSize : i;
+     const int batch_id   = use_gpu ? i % bSize : 0;
 
-        MPTRK_<N> obtracks;
-        //printf("league rank =  %i, team rank = %i, N=%i,  i= %i \n",int(teamMember.league_rank()),int(teamMember.team_rank()),N,i);
-        //
-        //
-        const auto& btracks = btracks_[tid].load_component<N>(batch_id);
-        #pragma unroll //improved performance by 40-60 %   
-        for(int layer = 0; layer < layers; ++layer) {  
-          //
-          const auto& bhits = bhits_[layer+layers*tid].load_component<N>(batch_id);
-          //
-          propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par,teamMember);
-          KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos,teamMember);
-          //
-        }
+     MPTRK_<N> obtracks;
+     //printf("league rank =  %i, team rank = %i, N=%i,  i= %i \n",int(teamMember.league_rank()),int(teamMember.team_rank()),N,i);
+     //
+     //
+     const auto& btracks = btracks_[tid].load_component<N>(batch_id);
+     #pragma unroll //improved performance by 40-60 %   
+     for(int layer = 0; layer < layers; ++layer) {  
+       //
+       const auto& bhits = bhits_[layer+layers*tid].load_component<N>(batch_id);
+       //
+       propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par,teamMember);
+       KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos,teamMember);
+       //
+     }
         //
         obtracks_[tid].save_component<N>(obtracks, batch_id);
      });
