@@ -48,8 +48,12 @@ nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream
 #define num_streams 1
 #endif
 
+#ifndef elementsperthread 
+#define elementsperthread 32
+#endif
+
 #ifndef threadsperblock
-#define threadsperblock 32
+#define threadsperblock 1
 #endif
 
 #ifdef include_data
@@ -232,7 +236,7 @@ MPTRK* prepareTracks(ATRK inputtrk,MPTRK* result) {
 	      }
 	      //cov
 	      for (size_t ip=0;ip<21;++ip) {
-	        result[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip];
+	        result[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
 	      }
 	      //q
 	      result[ib + nb*ie].q.data[it] = inputtrk.q;//
@@ -825,7 +829,7 @@ public:
      const auto batch_id   = i % bsize;
      //
      const auto& btracks = btracks_[tid].load_component(batch_id);
-//#pragma unroll //improved performance by 40-60 %   
+#pragma unroll //improved performance by 40-60 %   
      for(int layer = 0; layer < nlayer; ++layer) {  
        //
        const auto& bhits = bhits_[layer+nlayer*tid].load_component(batch_id);
@@ -915,18 +919,18 @@ int main (int argc, char* argv[]) {
    MPTRK* outtrk_dev(alpaka::getPtrNative(outtrk_bufDev));
 
    //work div
-   Vec const elementsPerThread(Vec::all(static_cast<Idx>(1)));
-   Vec const globalThreadExtent(Vec::all(static_cast<Idx>(nevts*nb*bsize)));
-   //Vec const blocksPerGrid(Vec::all(static_cast<Idx>((nevts*nb))));
-   //Vec const threadsPerBlock(Vec::all(static_cast<Idx>(bsize)));
+   //Vec const globalThreadExtent(Vec::all(static_cast<Idx>(nevts*nb*bsize)));
+   Vec const elementsPerThread(Vec::all(static_cast<Idx>(elementsperthread)));
+   Vec const blocksPerGrid(Vec::all(static_cast<Idx>((nevts*nb))));
+   Vec const threadsPerBlock(Vec::all(static_cast<Idx>(threadsperblock)));
 
-   //WorkDiv const workDiv = WorkDiv(blocksPerGrid,threadsPerBlock,elementsPerThread); 
+   WorkDiv const workDiv = WorkDiv(blocksPerGrid,threadsPerBlock,elementsPerThread); 
 
-   auto workDiv = alpaka::getValidWorkDiv<Acc>(
-     device,
-     globalThreadExtent, elementsPerThread,
-     false,
-     alpaka::GridBlockExtentSubDivRestrictions::Unrestricted);
+   //auto workDiv = alpaka::getValidWorkDiv<Acc>(
+   //  device,
+   //  globalThreadExtent, elementsPerThread,
+   //  false,
+   //  alpaka::GridBlockExtentSubDivRestrictions::Unrestricted);
 
    //printout work div
    std::cout << workDiv <<  std::endl;
@@ -971,6 +975,8 @@ int main (int argc, char* argv[]) {
    //
    double wall_time = 0.0;
 
+   //sync 
+   alpaka::wait(queue);
    for(int itr=0; itr<NITER; itr++) {
      auto wall_start = std::chrono::high_resolution_clock::now();
 
