@@ -1,5 +1,30 @@
 # p2r-tests
 
+## Build instructions on JLSE
+
+### Kokkos versions with CUDA backend:
+ - Clone Kokkos as a sub-module inside the main directory of the `p2r-tests` repo:
+ 
+   `git clone git@github.com:kokkos/kokkos.git`
+   
+   Set the environment var `Kokkos_source` to the kokkos directory
+   
+ - Load CUDA modules:
+  
+   `module loda cuda/11.6.2`
+
+ - Configure CMake with: 
+ ```
+ cd ./p2r-tests/bin
+ cmake ../ -DCMAKE_CXX_COMPILER=$Kokkos_source/bin/nvcc_wrapper\
+     -DKokkos_ENABLE_CUDA=ON -DKokkos_ENABLE_CUDA_CONSTEXPR=On -DKokkos_ENABLE_CUDA_LAMBDA=On -DKokkos_CXX_STANDARD=17 -DKokkos_ARCH_AMPERE80=On
+ ```
+ for A-100 GPU architecture
+     
+ - Build with `make`
+ - Run with `./p2r_kokkos`
+ - For other backends, see `bin/config.sh` for examples
+ 
 ## instructions to compile and run p2r on apollo@cs.uoregon.edu
 
 ```
