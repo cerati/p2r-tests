@@ -38,7 +38,7 @@ nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream
 #define smear 0.00001
 
 #ifndef NITER
-#define NITER 5
+#define NITER 200
 #endif
 #ifndef nlayer
 #define nlayer 20
@@ -97,6 +97,8 @@ struct MPNX {
    //basic accessors   
    constexpr T &operator[](int i) { return data[i]; }
    constexpr const T &operator[](int i) const { return data[i]; }
+   constexpr T& operator()(const int i, const int j) {return data[i*bSize+j];}
+   constexpr const T& operator()(const int i, const int j) const {return data[i*bSize+j];}
    constexpr int size() const { return N*bSize; }   
    //
    
@@ -190,7 +192,7 @@ struct MPTRK {
 
   
   template<int S>
-  ALPAKA_FN_ACC  ALPAKA_FN_INLINE void save_component(MPTRK_ &src, const int batch_id) {
+  ALPAKA_FN_ACC  ALPAKA_FN_INLINE void save_component(MPTRK_<S> &src, const int batch_id) {
     if constexpr (std::is_same<MP6F, MP6F_<S>>::value
                   and std::is_same<MP6x6SF, MP6x6SF_<S>>::value
                   and std::is_same<MP1I, MP1I_<S>>::value) { //just do a copy of the whole objects
@@ -392,7 +394,7 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 ////////////////////////////////////////////////////////////////////////
 ///MAIN compute kernels
 template<int N=1>
-ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixProp(const MP6x6F_ &a, const MP6x6SF_ &b, MP6x6F_ &c) {//ok
+ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> &c) {//ok
 
   #pragma omp simd
   for (int it =0;it<N;it++)
@@ -410,12 +412,12 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixProp(const MP6x6F_ &a, const MP6x6S
     c[10*N+it] = a[ 6*N+it]*b[10*N+it] + a[ 7*N+it]*b[11*N+it] + a[ 9*N+it]*b[13*N+it] + a[10*N+it]*b[14*N+it];
     c[11*N+it] = a[ 6*N+it]*b[15*N+it] + a[ 7*N+it]*b[16*N+it] + a[ 9*N+it]*b[18*N+it] + a[10*N+it]*b[19*N+it];
                                                                                                   
-    c[12*N+it] = a[12*N+it]*b[ 0*N+it] + a[13*N+it]*b[ 1*N+it] + b[ 3*N+it] + a[*N+it15]*b[ 6*N+it] + a[16*N+it]*b[10*N+it] + a[17*N+it]*b[15*N+it];
-    c[13*N+it] = a[12*N+it]*b[ 1*N+it] + a[13*N+it]*b[ 2*N+it] + b[ 4*N+it] + a[*N+it15]*b[ 7*N+it] + a[16*N+it]*b[11*N+it] + a[17*N+it]*b[16*N+it];
-    c[14*N+it] = a[12*N+it]*b[ 3*N+it] + a[13*N+it]*b[ 4*N+it] + b[ 5*N+it] + a[*N+it15]*b[ 8*N+it] + a[16*N+it]*b[12*N+it] + a[17*N+it]*b[17*N+it];
-    c[15*N+it] = a[12*N+it]*b[ 6*N+it] + a[13*N+it]*b[ 7*N+it] + b[ 8*N+it] + a[*N+it15]*b[ 9*N+it] + a[16*N+it]*b[13*N+it] + a[17*N+it]*b[18*N+it];
-    c[16*N+it] = a[12*N+it]*b[10*N+it] + a[13*N+it]*b[11*N+it] + b[12*N+it] + a[*N+it15]*b[13*N+it] + a[16*N+it]*b[14*N+it] + a[17*N+it]*b[19*N+it];
-    c[17*N+it] = a[12*N+it]*b[15*N+it] + a[13*N+it]*b[16*N+it] + b[17*N+it] + a[*N+it15]*b[18*N+it] + a[16*N+it]*b[19*N+it] + a[17*N+it]*b[20*N+it];
+    c[12*N+it] = a[12*N+it]*b[ 0*N+it] + a[13*N+it]*b[ 1*N+it] + b[ 3*N+it] + a[15*N+it]*b[ 6*N+it] + a[16*N+it]*b[10*N+it] + a[17*N+it]*b[15*N+it];
+    c[13*N+it] = a[12*N+it]*b[ 1*N+it] + a[13*N+it]*b[ 2*N+it] + b[ 4*N+it] + a[15*N+it]*b[ 7*N+it] + a[16*N+it]*b[11*N+it] + a[17*N+it]*b[16*N+it];
+    c[14*N+it] = a[12*N+it]*b[ 3*N+it] + a[13*N+it]*b[ 4*N+it] + b[ 5*N+it] + a[15*N+it]*b[ 8*N+it] + a[16*N+it]*b[12*N+it] + a[17*N+it]*b[17*N+it];
+    c[15*N+it] = a[12*N+it]*b[ 6*N+it] + a[13*N+it]*b[ 7*N+it] + b[ 8*N+it] + a[15*N+it]*b[ 9*N+it] + a[16*N+it]*b[13*N+it] + a[17*N+it]*b[18*N+it];
+    c[16*N+it] = a[12*N+it]*b[10*N+it] + a[13*N+it]*b[11*N+it] + b[12*N+it] + a[15*N+it]*b[13*N+it] + a[16*N+it]*b[14*N+it] + a[17*N+it]*b[19*N+it];
+    c[17*N+it] = a[12*N+it]*b[15*N+it] + a[13*N+it]*b[16*N+it] + b[17*N+it] + a[15*N+it]*b[18*N+it] + a[16*N+it]*b[19*N+it] + a[17*N+it]*b[20*N+it];
                                                                                                   
     c[18*N+it] = a[18*N+it]*b[ 0*N+it] + a[19*N+it]*b[ 1*N+it] + a[21*N+it]*b[ 6*N+it] + a[22*N+it]*b[10*N+it];
     c[19*N+it] = a[18*N+it]*b[ 1*N+it] + a[19*N+it]*b[ 2*N+it] + a[21*N+it]*b[ 7*N+it] + a[22*N+it]*b[11*N+it];
@@ -440,7 +442,7 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixProp(const MP6x6F_ &a, const MP6x6S
 }
 
 template<int N=1>
-ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixPropTransp(const MP6x6F_ &a, const MP6x6F_ &b, MP6x6SF_ &c) {//
+ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6SF_<N> &c) {//
 
   #pragma omp simd
   for (int it=0;it<N;it++)
@@ -863,19 +865,23 @@ public:
      //Global thread index
      uint32_t const i(alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0u]);
 
-     MPTRK_ obtracks;
+     // TODO: defin use_gpu based on accelerator
+     const bool use_gpu = false;
      //
-     const auto tid        = i / bsize;
-     const auto batch_id   = i % bsize;
+     constexpr int  N             = use_gpu ? 1 : bsize;
+     const int tid        = use_gpu ? i / bsize : i;
+     const int batch_id   = use_gpu ? i % bsize : 0;
      //
-     const auto& btracks = btracks_[tid].load_component(batch_id);
-#pragma unroll //improved performance by 40-60 %   
+     MPTRK_<N> obtracks;
+
+     const auto& btracks = btracks_[tid].load_component<N>(batch_id);
+     #pragma unroll //improved performance by 40-60 %   
      for(int layer = 0; layer < nlayer; ++layer) {  
        //
-       const auto& bhits = bhits_[layer+nlayer*tid].load_component(batch_id);
+       const auto& bhits = bhits_[layer+nlayer*tid].load_component<N>(batch_id);
        //
-       propagateToR(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-       KalmanUpdate(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+       propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
+       KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
        //
      }
      //

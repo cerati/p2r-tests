@@ -20,16 +20,22 @@
 #       -Dalpaka_ACC_GPU_HIP_ENABLE=ON -DCMAKE_CUDA_ARCHITECTURES=80 ..
 
 # SYCL backend
-cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
-      -DCMAKE_CXX_COMPILER=/home/kkwok/sycl_workspace/llvm/build_intel/bin/clang++\
-      -Dalpaka_CXX_STANDARD=17   -Dalpaka_ACC_SYCL_ENABLE=ON -Dalpaka_SYCL_PLATFORM_ONEAPI=ON -Dalpaka_SYCL_ONEAPI_GPU=ON ..
-
-## TBB backend
 #cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
-#    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -DALPAKA_ACC_CPU_B_TBB_T_SEQ_ENABLE=on -DALPAKA_CXX_STANDARD=17\
+#      -DCMAKE_CXX_COMPILER=/home/kkwok/sycl_workspace/llvm/build_intel/bin/clang++\
+#      -Dalpaka_CXX_STANDARD=17   -Dalpaka_ACC_SYCL_ENABLE=ON -Dalpaka_SYCL_PLATFORM_ONEAPI=ON -Dalpaka_SYCL_ONEAPI_GPU=ON ..
+
+# TBB backend 
+cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -Dalpaka_ACC_CPU_B_TBB_T_SEQ_ENABLE=on\
 #    -DTBB_DIR="~/PPS/pixeltrack-standalone/external/tbb/lib/cmake/TBB/" ..
 
+# OMP5 host backend
+#cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+#    -DCMAKE_CXX_COMPILER=g++  -DOpenMP_CXX_VERSION=5 -Dalpaka_ACC_ANY_BT_OMP5_ENABLE=on\
+#    -DCMAKE_CXX_FLAGS="-foffload=disable -fno-lto"\
+#    -DALPAKA_CXX_STANDARD=17 ..\
 
+#################Cori configs################################################
 # C++ serial backend
 #cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
 #    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -DALPAKA_ACC_CPU_B_SEQ_T_SEQ_ENABLE=on -DALPAKA_CXX_STANDARD=17 ..
@@ -41,6 +47,11 @@ cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
 ## C++ BoostFiber backend
 #cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
 #    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -DALPAKA_ACC_CPU_B_SEQ_T_FIBERS_ENABLE=on -DALPAKA_CXX_STANDARD=17 ..
+
+## TBB backend
+#cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
+#    -DCMAKE_CXX_COMPILER=g++  -DCMAKE_C_COMPILER=gcc -DALPAKA_ACC_CPU_B_TBB_T_SEQ_ENABLE=on -DALPAKA_CXX_STANDARD=17\
+#    -DTBB_DIR="~/PPS/pixeltrack-standalone/external/tbb/lib/cmake/TBB/" ..
 
 ## OMP2 blockthread backend
 #cmake -DCMAKE_BUILD_TYPE=Release -Dalpaka_ROOT=~/PPS/p2r-tests/alpaka/install/\
