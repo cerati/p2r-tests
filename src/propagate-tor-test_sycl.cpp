@@ -827,6 +827,11 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
 }
 
 
+void PrintTargetInfo(sycl::queue& q) {
+  auto device = q.get_device();
+  std::cout<< " Running on " << device.get_info<sycl::info::device::name>()<<"\n";
+}
+
 int main (int argc, char* argv[]) {
 
    #include "input_track.h"
@@ -852,12 +857,15 @@ int main (int argc, char* argv[]) {
    struct timeval timecheck;
    //
 #ifdef USE_CPU
-   sycl::queue cq(sycl::cpu_selector{});
    printf("WARNING: dpc++ generated x86 backend. For Intel GPUs use -DUSE_GPU option.\n");
+   sycl::queue cq(sycl::cpu_selector{});
+   PrintTargetInfo(cq);
+   //sycl::queue cq(sycl::cpu_selector_v());
    constexpr bool enable_gpu_backend = false;
 #else
    sycl::queue cq(sycl::gpu_selector{});
    //sycl::queue cq(sycl::gpu_selector_v);
+   PrintTargetInfo(cq);
    constexpr bool enable_gpu_backend = true;
 #endif
    //
