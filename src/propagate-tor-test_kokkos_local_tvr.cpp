@@ -37,7 +37,7 @@ nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream
 #define smear 0.00001
 
 #ifndef NITER
-#define NITER 5 
+#define NITER 200 
 #endif
 #ifndef nlayer
 #define nlayer 20
