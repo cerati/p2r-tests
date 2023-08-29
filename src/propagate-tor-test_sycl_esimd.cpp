@@ -156,7 +156,7 @@ struct MPTRK {
     cov.simd_load(dst.cov);
     q.simd_load(dst.q);
     //   
-    return std::move(dst);	  
+    return dst;	  
   }
   //
   void simd_save(const MPTRK_ &src){
@@ -182,7 +182,7 @@ struct MPHIT {
     pos.simd_load(dst.pos);
     cov.simd_load(dst.cov);
     //
-    return std::move(dst);
+    return dst;
   }
 };
 
@@ -439,7 +439,7 @@ template <int N = bSize>
     
     tmp1 = esimd::inv(tmp2);       
   
-    const FloatN inv_2r = 0.5*tmp1;
+    const FloatN inv_2r = 0.5f*tmp1;
 
     rotT00[0] = -(msPY + inParY) * inv_2r;
     rotT01[0] =  (msPX + inParX) * inv_2r;    
