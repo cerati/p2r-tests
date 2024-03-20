@@ -19,8 +19,7 @@ nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream
 #include <numeric>
 #include <random>
 
-#include <alpaka/alpaka.hpp>
-#include <alpaka/example/ExampleDefaultAcc.hpp>
+#include <Kokkos_Core.hpp>
 
 #ifndef ntrks
 #define ntrks 8192
@@ -38,7 +37,7 @@ nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream
 #define smear 0.00001
 
 #ifndef NITER
-#define NITER 200
+#define NITER 200 
 #endif
 #ifndef nlayer
 #define nlayer 20
@@ -48,12 +47,8 @@ nvcc -arch=sm_86 -O3 --extended-lambda --expt-relaxed-constexpr --default-stream
 #define num_streams 1
 #endif
 
-#ifndef elementsperthread 
-#define elementsperthread 32
-#endif
-
 #ifndef threadsperblock
-#define threadsperblock 1
+#define threadsperblock 32
 #endif
 
 #ifdef include_data
@@ -61,6 +56,42 @@ constexpr bool include_data_transfer = true;
 #else
 constexpr bool include_data_transfer = false;
 #endif
+
+#ifdef KOKKOS_ENABLE_CUDA
+using MemSpace = Kokkos::CudaSpace;
+constexpr bool use_gpu = true;
+#else
+#ifdef KOKKOS_ENABLE_HIP
+using MemSpace = Kokkos::Experimental::HIP;
+constexpr bool use_gpu = true;
+#else
+#ifdef KOKKOS_ENABLE_OPENMPTARGET
+using MemSpace = Kokkos::OpenMPTargetSpace;
+constexpr bool use_gpu = true;
+#else
+#ifdef KOKKOS_ENABLE_OPENMP
+using MemSpace = Kokkos::OpenMP;
+constexpr bool use_gpu = false;
+#else
+#ifdef KOKKOS_ENABLE_SYCL
+using MemSpace = Kokkos::Experimental::SYCL;
+constexpr bool use_gpu = true;
+#else
+#ifdef KOKKOS_ENABLE_THREADS
+using MemSpace = Kokkos::HostSpace;
+constexpr bool use_gpu = false;
+#else
+#ifdef KOKKOS_ENABLE_SERIAL 
+using MemSpace =Kokkos::HostSpace;
+constexpr bool use_gpu = false;
+#endif
+#endif
+#endif
+#endif
+#endif
+#endif
+#endif
+    
 
 static int nstreams  = num_streams;//we have only one stream, though
 
@@ -102,7 +133,7 @@ struct MPNX {
    constexpr int size() const { return N*bSize; }   
    //
    
-   ALPAKA_FN_ACC  ALPAKA_FN_INLINE void load(MPNX<T, N, 1>& dst, const int b) const {
+   KOKKOS_INLINE_FUNCTION  void load(MPNX<T, N, 1>& dst, const int b) const {
 #pragma unroll
      for (int ip=0;ip<N;++ip) { //block load   	
     	dst.data[ip] = data[ip*bSize + b]; 
@@ -111,7 +142,7 @@ struct MPNX {
      return;
    }
 
-   ALPAKA_FN_ACC  ALPAKA_FN_INLINE void save(const MPNX<T, N, 1>& src, const int b) {
+   KOKKOS_INLINE_FUNCTION  void save(const MPNX<T, N, 1>& src, const int b) {
 #pragma unroll
      for (int ip=0;ip<N;++ip) {    	
     	 data[ip*bSize + b] = src.data[ip]; 
@@ -170,7 +201,7 @@ struct MPTRK {
   MP1I    q;
 
   template<int S>
-  ALPAKA_FN_ACC  ALPAKA_FN_INLINE const auto load_component (const int batch_id) const{//b is a batch idx
+  KOKKOS_INLINE_FUNCTION  const auto load_component (const int batch_id) const{//b is a batch idx
   
     MPTRK_<S> dst;
 
@@ -189,10 +220,10 @@ struct MPTRK {
     
     return dst;  
   }
-
   
   template<int S>
-  ALPAKA_FN_ACC  ALPAKA_FN_INLINE void save_component(MPTRK_<S> &src, const int batch_id) {
+  KOKKOS_INLINE_FUNCTION   void save_component(MPTRK_<S> &src, const int batch_id) {
+
     if constexpr (std::is_same<MP6F, MP6F_<S>>::value
                   and std::is_same<MP6x6SF, MP6x6SF_<S>>::value
                   and std::is_same<MP1I, MP1I_<S>>::value) { //just do a copy of the whole objects
@@ -216,10 +247,10 @@ struct MPHIT {
   MP3x3SF cov;
   //
   template<int S>
-  ALPAKA_FN_ACC  ALPAKA_FN_INLINE const auto load_component(const int batch_id) const {
+  KOKKOS_INLINE_FUNCTION   const auto load_component(const int batch_id) const {
     MPHIT_<S> dst;
 
-   if constexpr (std::is_same<MP3F, MP3F_<S>>::value
+    if constexpr (std::is_same<MP3F, MP3F_<S>>::value
                   and std::is_same<MP3x3SF, MP3x3SF_<S>>::value) { //just do a copy of the whole object
       dst.pos = this->pos;
       dst.cov = this->cov;
@@ -229,7 +260,6 @@ struct MPHIT {
     }
     return dst;
   }
-
 };
 
 
@@ -256,8 +286,9 @@ float randn(float mu, float sigma) {
   return (mu + sigma * (float) X1);
 }
 
+Kokkos::View<MPTRK*, MemSpace>::HostMirror prepareTracks(ATRK inputtrk, Kokkos::View<MPTRK*, MemSpace> trk ) {
 
-MPTRK* prepareTracks(ATRK inputtrk,MPTRK* result) {
+  auto result = Kokkos::create_mirror_view( trk );
 
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t ie=0;ie<nevts;++ie) {
@@ -265,14 +296,14 @@ MPTRK* prepareTracks(ATRK inputtrk,MPTRK* result) {
       for (size_t it=0;it<bsize;++it) {
 	      //par
 	      for (size_t ip=0;ip<6;++ip) {
-	        result[ib + nb*ie].par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
+	        result(ib + nb*ie).par.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.par[ip];
 	      }
 	      //cov
 	      for (size_t ip=0;ip<21;++ip) {
-	        result[ib + nb*ie].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
+	        result(ib + nb*ie).cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputtrk.cov[ip]*100;
 	      }
 	      //q
-	      result[ib + nb*ie].q.data[it] = inputtrk.q;//
+	      result(ib + nb*ie).q.data[it] = inputtrk.q;//
       }
     }
   }
@@ -280,8 +311,9 @@ MPTRK* prepareTracks(ATRK inputtrk,MPTRK* result) {
 }
 
 
-MPHIT* prepareHits(std::vector<AHIT>& inputhits,MPHIT* result) {
+Kokkos::View<MPHIT*, MemSpace>::HostMirror prepareHits(std::vector<AHIT> &inputhits, Kokkos::View<MPHIT*, MemSpace> hit) {
   
+  auto result = Kokkos::create_mirror_view( hit );
   // store in element order for bunches of bsize matrices (a la matriplex)
   for (size_t lay=0;lay<nlayer;++lay) {
 
@@ -297,11 +329,11 @@ MPHIT* prepareHits(std::vector<AHIT>& inputhits,MPHIT* result) {
         for (size_t it=0;it<bsize;++it) {
         	//pos
         	for (size_t ip=0;ip<3;++ip) {
-        	  result[lay+nlayer*(ib + nb*ie)].pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
+        	  result(lay+nlayer*(ib + nb*ie)).pos.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.pos[ip];
         	}
         	//cov
         	for (size_t ip=0;ip<6;++ip) {
-        	  result[lay+nlayer*(ib + nb*ie)].cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
+        	  result(lay+nlayer*(ib + nb*ie)).cov.data[it + ip*bsize] = (1+smear*randn(0,1))*inputhit.cov[ip];
         	}
         }
       }
@@ -393,12 +425,15 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 
 ////////////////////////////////////////////////////////////////////////
 ///MAIN compute kernels
-template<int N=1>
-ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> &c) {//ok
+template<size_t N=1,typename member_type>
+KOKKOS_INLINE_FUNCTION  void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> &c,const member_type& teamMember) {//ok
 
+  //#pragma unroll
   #pragma omp simd
   for (int it =0;it<N;it++)
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it) 
   {
+    //printf("league rank =  %i, team rank = %i, it =  %i, N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),it,N);
     c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
     c[ 1*N+it] = a[ 0*N+it]*b[ 1*N+it] + a[ 1*N+it]*b[ 2*N+it] + a[ 3*N+it]*b[ 7*N+it] + a[ 4*N+it]*b[11*N+it];
     c[ 2*N+it] = a[ 0*N+it]*b[ 3*N+it] + a[ 1*N+it]*b[ 4*N+it] + a[ 3*N+it]*b[ 8*N+it] + a[ 4*N+it]*b[12*N+it];
@@ -411,14 +446,14 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixProp(const MP6x6F_<N> &a, const MP6
     c[ 9*N+it] = a[ 6*N+it]*b[ 6*N+it] + a[ 7*N+it]*b[ 7*N+it] + a[ 9*N+it]*b[ 9*N+it] + a[10*N+it]*b[13*N+it];
     c[10*N+it] = a[ 6*N+it]*b[10*N+it] + a[ 7*N+it]*b[11*N+it] + a[ 9*N+it]*b[13*N+it] + a[10*N+it]*b[14*N+it];
     c[11*N+it] = a[ 6*N+it]*b[15*N+it] + a[ 7*N+it]*b[16*N+it] + a[ 9*N+it]*b[18*N+it] + a[10*N+it]*b[19*N+it];
-                                                                                                  
+    
     c[12*N+it] = a[12*N+it]*b[ 0*N+it] + a[13*N+it]*b[ 1*N+it] + b[ 3*N+it] + a[15*N+it]*b[ 6*N+it] + a[16*N+it]*b[10*N+it] + a[17*N+it]*b[15*N+it];
     c[13*N+it] = a[12*N+it]*b[ 1*N+it] + a[13*N+it]*b[ 2*N+it] + b[ 4*N+it] + a[15*N+it]*b[ 7*N+it] + a[16*N+it]*b[11*N+it] + a[17*N+it]*b[16*N+it];
     c[14*N+it] = a[12*N+it]*b[ 3*N+it] + a[13*N+it]*b[ 4*N+it] + b[ 5*N+it] + a[15*N+it]*b[ 8*N+it] + a[16*N+it]*b[12*N+it] + a[17*N+it]*b[17*N+it];
     c[15*N+it] = a[12*N+it]*b[ 6*N+it] + a[13*N+it]*b[ 7*N+it] + b[ 8*N+it] + a[15*N+it]*b[ 9*N+it] + a[16*N+it]*b[13*N+it] + a[17*N+it]*b[18*N+it];
     c[16*N+it] = a[12*N+it]*b[10*N+it] + a[13*N+it]*b[11*N+it] + b[12*N+it] + a[15*N+it]*b[13*N+it] + a[16*N+it]*b[14*N+it] + a[17*N+it]*b[19*N+it];
     c[17*N+it] = a[12*N+it]*b[15*N+it] + a[13*N+it]*b[16*N+it] + b[17*N+it] + a[15*N+it]*b[18*N+it] + a[16*N+it]*b[19*N+it] + a[17*N+it]*b[20*N+it];
-                                                                                                  
+    
     c[18*N+it] = a[18*N+it]*b[ 0*N+it] + a[19*N+it]*b[ 1*N+it] + a[21*N+it]*b[ 6*N+it] + a[22*N+it]*b[10*N+it];
     c[19*N+it] = a[18*N+it]*b[ 1*N+it] + a[19*N+it]*b[ 2*N+it] + a[21*N+it]*b[ 7*N+it] + a[22*N+it]*b[11*N+it];
     c[20*N+it] = a[18*N+it]*b[ 3*N+it] + a[19*N+it]*b[ 4*N+it] + a[21*N+it]*b[ 8*N+it] + a[22*N+it]*b[12*N+it];
@@ -437,15 +472,18 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixProp(const MP6x6F_<N> &a, const MP6
     c[33*N+it] = b[18*N+it];
     c[34*N+it] = b[19*N+it];
     c[35*N+it] = b[20*N+it];    
-  }
+  //});
+  };
   return;
 }
 
-template<int N=1>
-ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6SF_<N> &c) {//
+template<size_t N=1,typename member_type>
+KOKKOS_INLINE_FUNCTION  void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6SF_<N> &c, const member_type& teamMember) {//
 
+  //#pragma unroll
   #pragma omp simd
   for (int it=0;it<N;it++)
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it) 
   {
     
     c[ 0*N+it] = b[ 0*N+it]*a[ 0*N+it] + b[ 1*N+it]*a[ 1*N+it] + b[ 3*N+it]*a[ 3*N+it] + b[ 4*N+it]*a[ 4*N+it];
@@ -469,29 +507,31 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void MultHelixPropTransp(const MP6x6F_<N> &a, con
     c[18*N+it] = b[30*N+it]*a[18*N+it] + b[31*N+it]*a[19*N+it] + b[33*N+it]*a[21*N+it] + b[34*N+it]*a[22*N+it];
     c[19*N+it] = b[30*N+it]*a[24*N+it] + b[31*N+it]*a[25*N+it] + b[33*N+it]*a[27*N+it] + b[34*N+it]*a[28*N+it];
     c[20*N+it] = b[35*N+it];
-  }
+  };
   return;  
 }
 
-ALPAKA_FN_INLINE ALPAKA_FN_ACC float hipo(const float x, const float y) {return std::sqrt(x*x + y*y);}
+KOKKOS_INLINE_FUNCTION  float hipo(const float x, const float y) {return std::sqrt(x*x + y*y);}
 
-template<int N=1>
-ALPAKA_FN_ACC ALPAKA_FN_INLINE void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_, const MP3x3SF_<N> &hitErr_, const MP3F_<N> &msP_){	  
+template<size_t N=1,typename member_type>
+KOKKOS_INLINE_FUNCTION  void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> &inPar_, const MP3x3SF_<N> &hitErr_, const MP3F_<N> &msP_, const member_type& teamMember){	  
   
   MP1F_<N>    rotT00;
   MP1F_<N>    rotT01;
   MP2x2SF_<N> resErr_loc;
   //MP3x3SF resErr_glo;
+  #pragma omp simd
   for (size_t it = 0;it < N; ++it) {    
-    const auto msPX = msP_(iparX,it);
-    const auto msPY = msP_(iparY,it);
-    const auto inParX = inPar_(iparX,it);
-    const auto inParY = inPar_(iparY,it);          
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
+    const float msPX = msP_(iparX,it);
+    const float msPY = msP_(iparY,it);
+    const float inParX = inPar_(iparX,it);
+    const float inParY = inPar_(iparY,it);          
   
-    const auto r = hipo(msPX, msPY);
+    const float r = hipo(msPX, msPY);
     rotT00[it] = -(msPY + inParY) / (2*r);
     rotT01[it] =  (msPX + inParX) / (2*r);    
-
+    
     resErr_loc[ 0*N+it] = (rotT00[it]*(trkErr_[0*N+it] + hitErr_[0*N+it]) +
                            rotT01[it]*(trkErr_[1*N+it] + hitErr_[1*N+it]))*rotT00[it] +
                           (rotT00[it]*(trkErr_[1*N+it] + hitErr_[1*N+it]) +
@@ -508,13 +548,13 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> 
     resErr_loc[1*N+it] *= -s;
     resErr_loc[2*N+it]  = s * resErr_loc[0*N+it];
     resErr_loc[0*N+it]  = tmp;  
- 
   };     
   
   MP3x6_<N> kGain;
-  
+
   #pragma omp simd
   for (size_t it=0; it<N; ++it){
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
     kGain[ 0*N+it] = trkErr_[ 0*N+it]*(rotT00[0*N+it]*resErr_loc[ 0*N+it]) +
 	                        trkErr_[ 1*N+it]*(rotT01[0*N+it]*resErr_loc[ 0*N+it]) +
 	                        trkErr_[ 3*N+it]*resErr_loc[ 1*N+it];
@@ -557,11 +597,12 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> 
 	                        trkErr_[16*N+it]*(rotT01[0*N+it]*resErr_loc[ 1*N+it]) +
 	                        trkErr_[17*N+it]*resErr_loc[ 2*N+it];
     kGain[17*N+it] = 0;  
-  };
-    
+  }; 
+     
   MP2F_<N> res_loc;   
   #pragma omp simd
   for (size_t it=0 ;it<N ; ++it){
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
     const float msPX = msP_(iparX,it);
     const float msPY = msP_(iparY,it);
     const float msPZ = msP_(iparZ,it);    
@@ -587,6 +628,7 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> 
   MP6x6SF_<N> newErr;
   #pragma omp simd
   for (size_t it=0 ;it<N ; ++it){
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const size_t it){ 
      newErr[ 0*N+it] = kGain[ 0*N+it]*rotT00[0*N+it]*trkErr_[ 0*N+it] +
                          kGain[ 0*N+it]*rotT01[0*N+it]*trkErr_[ 1*N+it] +
                          kGain[ 1*N+it]*trkErr_[ 3*N+it];
@@ -655,7 +697,6 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> 
        trkErr_[ i*N+it] = trkErr_[ i*N+it] - newErr[ i*N+it];
      }
    };
- 
    //
    return;                 
 }
@@ -664,9 +705,9 @@ ALPAKA_FN_ACC ALPAKA_FN_INLINE void KalmanUpdate(MP6x6SF_<N> &trkErr_, MP6F_<N> 
 constexpr float kfact= 100/(-0.299792458*3.8112);
 constexpr int Niter=5;
 
-template<int N=1>
-ALPAKA_FN_INLINE ALPAKA_FN_ACC void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_<N> &inPar_, const MP1I_<N> &inChg_, 
-                  const MP3F_<N> &msP_, MP6x6SF_<N> &outErr_, MP6F_<N> &outPar_) {
+template <int N = 1,typename member_type>
+KOKKOS_INLINE_FUNCTION  void propagateToR(const MP6x6SF_<N> &inErr_, const MP6F_<N> &inPar_, const MP1I_<N> &inChg_, 
+                  const MP3F_<N> &msP_, MP6x6SF_<N> &outErr_, MP6F_<N> &outPar_,const member_type& teamMember) {
   //aux objects  
   MP6x6F_<N> errorProp;
   MP6x6F_<N> temp;
@@ -679,8 +720,12 @@ ALPAKA_FN_INLINE ALPAKA_FN_ACC void propagateToR(const MP6x6SF_<N> &inErr_, cons
     cos  = 1.f - 0.5f*x2 + 0.04166667f*x2*x2;
     sin  = x - 0.16666667f*x*x2;
   };
+ 
   #pragma omp simd
   for (size_t it = 0; it < N; ++it){ 
+  ///Thread vector range here : Loop over vector elements (1 for GPU, teamSize for CPU) 
+  //Kokkos::parallel_for( Kokkos::ThreadVectorRange(teamMember,N),[&] (const int it){ 
+    //printf("league rank =  %i, team rank = %i, it =  %i, N= %d \n",int(teamMember.league_rank()),int(teamMember.team_rank()),it,N);
     //initialize erroProp to identity matrix
     errorProp[PosInMtrx(0,0,6,N) + it] = 1.0f;
     errorProp[PosInMtrx(1,1,6,N) + it] = 1.0f;
@@ -840,55 +885,41 @@ ALPAKA_FN_INLINE ALPAKA_FN_ACC void propagateToR(const MP6x6SF_<N> &inErr_, cons
                                  
   };
   
-  MultHelixProp<N>(errorProp, inErr_, temp);
-  MultHelixPropTransp<N>(errorProp, temp, outErr_);  
+  MultHelixProp<N>(errorProp, inErr_, temp, teamMember);
+  MultHelixPropTransp<N>(errorProp, temp, outErr_, teamMember);  
   
   return;
 }
 
+template <int bSize, int layers, typename member_type, bool grid_stride = true>
+KOKKOS_FUNCTION void launch_p2r_kernel(MPTRK *obtracks_, MPTRK *btracks_, MPHIT *bhits_, const member_type& teamMember){
 
-struct GPUsequenceKernel
-{
-public:
-    template<typename TAcc>
-    ALPAKA_FN_ACC auto operator()(
-        TAcc const& acc,
-        MPTRK* btracks_,
-        MPHIT* bhits_,
-        MPTRK* obtracks_
-        ) const -> void
-    {
-       using Dim = alpaka::Dim<TAcc>;
-       using Idx = alpaka::Idx<TAcc>;
-       using Vec = alpaka::Vec<Dim, Idx>;
+     Kokkos::parallel_for(  Kokkos::TeamThreadRange(teamMember, teamMember.team_size()),[&] (const int& i_local){
+     int i = teamMember.league_rank () * teamMember.team_size () + i_local;
+     constexpr int  N             = use_gpu ? 1 : bSize;
 
-     //Global thread index
-     uint32_t const i(alpaka::getIdx<alpaka::Grid, alpaka::Threads>(acc)[0u]);
+     const int tid        = use_gpu ? i / bSize : i;
+     const int batch_id   = use_gpu ? i % bSize : 0;
 
-     // TODO: defin use_gpu based on accelerator
-     const bool use_gpu = false;
-     //
-     constexpr int  N             = use_gpu ? 1 : bsize;
-     const int tid        = use_gpu ? i / bsize : i;
-     const int batch_id   = use_gpu ? i % bsize : 0;
-     //
      MPTRK_<N> obtracks;
-
+     //printf("league rank =  %i, team rank = %i, N=%i,  i= %i \n",int(teamMember.league_rank()),int(teamMember.team_rank()),N,i);
+     //
+     //
      const auto& btracks = btracks_[tid].load_component<N>(batch_id);
      #pragma unroll //improved performance by 40-60 %   
-     for(int layer = 0; layer < nlayer; ++layer) {  
+     for(int layer = 0; layer < layers; ++layer) {  
        //
-       const auto& bhits = bhits_[layer+nlayer*tid].load_component<N>(batch_id);
+       const auto& bhits = bhits_[layer+layers*tid].load_component<N>(batch_id);
        //
-       propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par);
-       KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos);
+       propagateToR<N>(btracks.cov, btracks.par, btracks.q, bhits.pos, obtracks.cov, obtracks.par,teamMember);
+       KalmanUpdate<N>(obtracks.cov, obtracks.par, bhits.cov, bhits.pos,teamMember);
        //
      }
-     //
-     obtracks_[tid].save_component(obtracks, batch_id);
-
-    }
-};
+        //
+        obtracks_[tid].save_component<N>(obtracks, batch_id);
+     });
+  return;
+}
 
 int main (int argc, char* argv[]) {
 
@@ -916,86 +947,32 @@ int main (int argc, char* argv[]) {
    
    gettimeofday(&timecheck, NULL);
    setup_start = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
+   
+   Kokkos::initialize(argc, argv);
+   {
+
+
+   printf("After kokkos::init\n");
+   using ExecSpace = MemSpace::execution_space;
+   ExecSpace e;
+   e.print_configuration(std::cout, true);
 
    //auto dev_id = p2r_get_compute_device_id();
    //auto streams= p2r_get_streams(nstreams);
 
    //auto stream = streams[0];//with UVM, we use only one compute stream 
 
-   //switches accelerator based on CMAKE option 
-   using Dim = alpaka::DimInt<1u>;
-   using Idx = std::uint32_t;
-   using Acc = alpaka::ExampleDefaultAcc<Dim, Idx>;
-   using WorkDiv = alpaka::WorkDivMembers<Dim, Idx>;
-   using Vec = alpaka::Vec<Dim, Idx>;
- 
-   std::cout << "Using alpaka accelerator: " << alpaka::getAccName<Acc>() << std::endl;
+   Kokkos::View<MPTRK*, MemSpace>             outtrcks("outtrk",nevts*nb); // device pointer
+   Kokkos::View<MPTRK*, MemSpace>::HostMirror h_outtrk = Kokkos::create_mirror_view( outtrcks);
 
-   // Select the first device available on a system, for the chosen accelerator
-   auto const device = alpaka::getDevByIdx<Acc>(0u);
-   using DevHost = alpaka::DevCpu;
-   auto const devHost = alpaka::getDevByIdx<DevHost>(0u);
+   Kokkos::View<MPTRK*, MemSpace>            trcks("trk",nevts*nb); // device pointer
+   Kokkos::View<MPTRK*, MemSpace>::HostMirror h_trk = prepareTracks(inputtrk,trcks);  // host pointer
+   Kokkos::deep_copy( trcks , h_trk);
 
-   // prepare pointers
-   Idx const nMPHIT(nevts*nb*nlayer);   
-   Idx const nMPTRK(nevts*nb);   
-   alpaka::Vec<Dim, Idx> MPHITExtent(nMPHIT);
-   alpaka::Vec<Dim, Idx> MPTRKExtent(nMPTRK);
-    
-   //host buffer
-   auto trk_bufHost    = alpaka::allocBuf<MPTRK,Idx>(devHost, MPTRKExtent);
-   auto hit_bufHost    = alpaka::allocBuf<MPHIT,Idx>(devHost, MPHITExtent);
-   auto outtrk_bufHost = alpaka::allocBuf<MPTRK,Idx>(devHost, MPTRKExtent);
-
-   MPTRK* trk(alpaka::getPtrNative(trk_bufHost));
-   trk = prepareTracks(inputtrk,trk);
-
-   MPHIT* hit(alpaka::getPtrNative(hit_bufHost));
-   hit = prepareHits(inputhits,hit);
-
-   MPTRK* outtrk(alpaka::getPtrNative(outtrk_bufHost));
-
-   //device pointers
-   auto trk_bufDev    = alpaka::allocBuf<MPTRK,Idx>(device, MPTRKExtent);
-   auto outtrk_bufDev = alpaka::allocBuf<MPTRK,Idx>(device, MPTRKExtent);
-   auto hit_bufDev    = alpaka::allocBuf<MPHIT,Idx>(device, MPHITExtent);
-
-   MPTRK* trk_dev(alpaka::getPtrNative(trk_bufDev));
-   MPHIT* hit_dev(alpaka::getPtrNative(hit_bufDev));
-   MPTRK* outtrk_dev(alpaka::getPtrNative(outtrk_bufDev));
-
-   //work div
-   //Vec const globalThreadExtent(Vec::all(static_cast<Idx>(nevts*nb*bsize)));
-   Vec const elementsPerThread(Vec::all(static_cast<Idx>(elementsperthread)));
-   Vec const blocksPerGrid(Vec::all(static_cast<Idx>((nevts*nb))));
-   Vec const threadsPerBlock(Vec::all(static_cast<Idx>(threadsperblock)));
-
-   WorkDiv const workDiv = WorkDiv(blocksPerGrid,threadsPerBlock,elementsPerThread); 
-
-   //auto workDiv = alpaka::getValidWorkDiv<Acc>(
-   //  device,
-   //  globalThreadExtent, elementsPerThread,
-   //  false,
-   //  alpaka::GridBlockExtentSubDivRestrictions::Unrestricted);
-
-   //printout work div
-   std::cout << workDiv <<  std::endl;
-
-   // Define type for a queue with requested properties:
-   // in this example we require the queue to be blocking the host side
-   // while operations on the device (kernels, memory transfers) are running
-   using QueueAcc = alpaka::Queue<Acc, alpaka::Blocking>;
-   //using QueueAcc = alpaka::Queue<Acc, alpaka::NonBlocking>;
-   // Create a queue for the device
-   QueueAcc queue(device);
-
-   //prepareForAsyncCopy(trk_bufHost);
-   //prepareForAsyncCopy(hit_bufHost);
-   //prepareForAsyncCopy(outtrk_bufHost);
-
-   alpaka::memcpy(queue, trk_bufDev, trk_bufHost, MPTRKExtent);
-   alpaka::memcpy(queue, hit_bufDev, hit_bufHost, MPHITExtent);
-
+   Kokkos::View<MPHIT*, MemSpace>             hits("hit",nevts*nb*nlayer);
+   Kokkos::View<MPHIT*, MemSpace>::HostMirror  h_hit = prepareHits(inputhits,hits);
+   Kokkos::deep_copy( hits, h_hit );
+   
    gettimeofday(&timecheck, NULL);
    setup_stop = (long)timecheck.tv_sec * 1000 + (long)timecheck.tv_usec / 1000;
 
@@ -1005,41 +982,50 @@ int main (int argc, char* argv[]) {
    printf("Size of struct MPTRK outtrk[] = %ld\n", nevts*nb*sizeof(MPTRK));
    printf("Size of struct struct MPHIT hit[] = %ld\n", nevts*nb*sizeof(MPHIT));
 
-   GPUsequenceKernel GPUsequence;
-
-   auto const taskKernel(alpaka::createTaskKernel<Acc>(
-     workDiv,
-     GPUsequence,
-     trk_dev,
-     hit_dev,
-     outtrk_dev
-   ));
-
-
    const int phys_length      = nevts*nb;
-   const int outer_loop_range = phys_length*bsize;
-   //
-   double wall_time = 0.0;
+   const int outer_loop_range = phys_length*(use_gpu?bsize:1); // re-scale the exe domain for gpu backends
 
-   //sync 
-   alpaka::wait(queue);
+   typedef Kokkos::TeamPolicy<>               team_policy;
+   typedef Kokkos::TeamPolicy<>::member_type  member_type;
+   int team_policy_range = nevts*nb;  // number of teams
+   int team_size         = use_gpu?bsize:1;              // team size
+   int vector_size       = use_gpu?1:bsize;  // thread size
+   //
+   //dim3 blocks(threadsperblock, 1, 1);
+   //dim3 grid(((outer_loop_range + threadsperblock - 1)/ threadsperblock),1,1);
+   printf("team range =  %i, team size= %i, vector_size =  %i\n",team_policy_range,team_size,vector_size);
+
+   double wall_time = 0.0;
+   
+   // sync explicitly 
+   Kokkos::fence();
+
    for(int itr=0; itr<NITER; itr++) {
      auto wall_start = std::chrono::high_resolution_clock::now();
 
-     alpaka::enqueue(queue, taskKernel);
-     alpaka::wait(queue);
+     Kokkos::parallel_for("Kernel",
+                          //Kokkos::RangePolicy<ExecSpace>(0,outer_loop_range), 
+                          //KOKKOS_LAMBDA(const int i){
+                         team_policy(team_policy_range,team_size,vector_size),
+                         KOKKOS_LAMBDA( const member_type &teamMember){
+                             //printf("league rank =  %i, team rank = %i, i =  %i\n",int(teamMember.league_rank()),int(teamMember.team_rank()),i);
+                             launch_p2r_kernel<bsize, nlayer>(outtrcks.data(), trcks.data(), hits.data(),  teamMember); // kernel for 1 track
+                         });
+     //
+     Kokkos::fence();
      auto wall_stop = std::chrono::high_resolution_clock::now();
      //
      auto wall_diff = wall_stop - wall_start;
      //
      wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;
    } //end of itr loop
+   Kokkos::fence();
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, ntrks, wall_time, (setup_stop-setup_start)*0.001, -1);
 
-   alpaka::memcpy(queue, outtrk_bufHost, outtrk_bufDev, MPTRKExtent);
+   Kokkos::deep_copy( h_outtrk, outtrcks );
 
    int nnans = 0, nfail = 0;
    float avgx = 0, avgy = 0, avgz = 0, avgr = 0;
@@ -1048,13 +1034,13 @@ int main (int argc, char* argv[]) {
 
    for (int ie=0;ie<nevts;++ie) {
      for (int it=0;it<ntrks;++it) {
-       float x_ = x(outtrk,ie,it);
-       float y_ = y(outtrk,ie,it);
-       float z_ = z(outtrk,ie,it);
+       float x_ = x(h_outtrk.data(),ie,it);
+       float y_ = y(h_outtrk.data(),ie,it);
+       float z_ = z(h_outtrk.data(),ie,it);
        float r_ = sqrtf(x_*x_ + y_*y_);
-       float pt_ = std::abs(1./ipt(outtrk,ie,it));
-       float phi_ = phi(outtrk,ie,it);
-       float theta_ = theta(outtrk,ie,it);
+       float pt_ = std::abs(1./ipt(h_outtrk.data(),ie,it));
+       float phi_ = phi(h_outtrk.data(),ie,it);
+       float theta_ = theta(h_outtrk.data(),ie,it);
        float hx_ = inputhits[nlayer-1].pos[0];
        float hy_ = inputhits[nlayer-1].pos[1];
        float hz_ = inputhits[nlayer-1].pos[2];
@@ -1108,9 +1094,9 @@ int main (int argc, char* argv[]) {
    float stddx = 0, stddy = 0, stddz = 0, stddr = 0;
    for (int ie=0;ie<nevts;++ie) {
      for (int it=0;it<ntrks;++it) {
-       float x_ = x(outtrk,ie,it);
-       float y_ = y(outtrk,ie,it);
-       float z_ = z(outtrk,ie,it);
+       float x_ = x(h_outtrk.data(),ie,it);
+       float y_ = y(h_outtrk.data(),ie,it);
+       float z_ = z(h_outtrk.data(),ie,it);
        float r_ = sqrtf(x_*x_ + y_*y_);
        float hx_ = inputhits[nlayer-1].pos[0];
        float hy_ = inputhits[nlayer-1].pos[1];
@@ -1160,5 +1146,7 @@ int main (int argc, char* argv[]) {
    printf("track theta avg=%f\n", avgtheta);
    printf("number of tracks with nans=%i\n", nnans);
    printf("number of tracks failed=%i\n", nfail);
+   };
+   Kokkos::finalize();
    return 0;
 }

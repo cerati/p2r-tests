@@ -14,10 +14,21 @@ def main(options):
                #result.append( int(m.group("ntracks"))/float(m.group("time")))
                result.append( float(m.group("time"))/int(m.group("ntracks")))
     result = np.array(result)
-    print("result: ")
-    print("    n               = %s"%len(result))
-    print("    mean time/track = %.3e"%np.mean(result))
-    print("    std time/track  = %.2e"%np.std(result))
+    print(len(result))
+    if len(result)>20:
+        for i in [0,20,40,60,80]:
+            print("result: ",i)
+            print("    n               = %s"%len(result[i:i+20]))
+
+            print("    arr = ")
+            print(repr(result[i:i+20]))
+            print("    mean time/track = %.3e"%np.mean(result[i:i+20]))
+            print("    std time/track  = %.2e"%np.std(result[i:i+20]))
+    else:
+        print("result: ")
+        print("    n               = %s"%len(result))
+        print("    mean time/track = %.3e"%np.mean(result))
+        print("    std time/track  = %.2e"%np.std(result))
 
 
 if __name__ == "__main__":

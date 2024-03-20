@@ -481,8 +481,8 @@ void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitEr
   
   for (int it=0;it<N;++it) {
   
-    const float det = (float)resErr_loc[0*N+it] * resErr_loc[2*N+it] -
-                       (float)resErr_loc[1*N+it] * resErr_loc[1*N+it];
+    const double det = (double)resErr_loc[0*N+it] * resErr_loc[2*N+it] -
+                       (double)resErr_loc[1*N+it] * resErr_loc[1*N+it];
     const float s   = 1.f / det;
     const float tmp = s * resErr_loc[2*N+it];
     resErr_loc[1*N+it] *= -s;
@@ -669,21 +669,21 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
     errorProp[PosInMtrx(4,4,6, N) + it] = 1.0f;
     errorProp[PosInMtrx(5,5,6, N) + it] = 1.0f;
     //
-    const float xin = inPar(iparX, it);
-    const float yin = inPar(iparY, it);     
-    const float zin = inPar(iparZ, it); 
+    const auto xin = inPar(iparX, it);
+    const auto yin = inPar(iparY, it);     
+    const auto zin = inPar(iparZ, it); 
     
-    const float iptin   = inPar(iparIpt,   it);
-    const float phiin   = inPar(iparPhi,   it);
-    const float thetain = inPar(iparTheta, it); 
+    const auto iptin   = inPar(iparIpt,   it);
+    const auto phiin   = inPar(iparPhi,   it);
+    const auto thetain = inPar(iparTheta, it); 
     //
-    float r0 = hipo(xin, yin);
-    const float k = inChg[it]*kfact;
+    auto r0 = hipo(xin, yin);
+    const auto k = inChg[it]*kfact;
     
-    const float xmsP = msP(iparX, it);
-    const float ymsP = msP(iparY, it);
+    const auto xmsP = msP(iparX, it);
+    const auto ymsP = msP(iparY, it);
     
-    const float r = hipo(xmsP, ymsP);    
+    const auto r = hipo(xmsP, ymsP);    
     
     outPar(iparX,it) = xin;
     outPar(iparY,it) = yin;
@@ -693,26 +693,26 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
     outPar(iparPhi,it)   = phiin;
     outPar(iparTheta,it) = thetain;
  
-    const float kinv  = 1.f/k;
-    const float pt = 1.f/iptin;
+    const auto kinv  = 1.f/k;
+    const auto pt = 1.f/iptin;
 
-    float D = 0.f, cosa = 0.f, sina = 0.f, id = 0.f;
+    auto D = 0.f, cosa = 0.f, sina = 0.f, id = 0.f;
     //no trig approx here, phi can be large
-    float cosPorT = std::cos(phiin), sinPorT = std::sin(phiin);
-    float pxin = cosPorT*pt;
-    float pyin = sinPorT*pt;
+    auto cosPorT = std::cos(phiin), sinPorT = std::sin(phiin);
+    auto pxin = cosPorT*pt;
+    auto pyin = sinPorT*pt;
 
     //derivatives initialized to value for first iteration, i.e. distance = r-r0in
-    float dDdx = r0 > 0.f ? -xin/r0 : 0.f;
-    float dDdy = r0 > 0.f ? -yin/r0 : 0.f;
-    float dDdipt = 0.;
-    float dDdphi = 0.;  
+    auto dDdx = r0 > 0.f ? -xin/r0 : 0.f;
+    auto dDdy = r0 > 0.f ? -yin/r0 : 0.f;
+    auto dDdipt = 0.;
+    auto dDdphi = 0.;  
 #pragma unroll    
     for (int i = 0; i < Niter; ++i)
     {
      //compute distance and path for the current iteration
-      const float xout = outPar(iparX, it);
-      const float yout = outPar(iparY, it);     
+      const auto xout = outPar(iparX, it);
+      const auto yout = outPar(iparY, it);     
       
       r0 = hipo(xout, yout);
       id = (r-r0);
@@ -722,19 +722,19 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
       //update derivatives on total distance
       if (i+1 != Niter) {
 
-	const float oor0 = (r0>0.f && std::abs(r-r0)<0.0001f) ? 1.f/r0 : 0.f;
+	const auto oor0 = (r0>0.f && std::abs(r-r0)<0.0001f) ? 1.f/r0 : 0.f;
 
-	const float dadipt = id*kinv;
+	const auto dadipt = id*kinv;
 
-	const float dadx = -xout*iptin*kinv*oor0;
-	const float dady = -yout*iptin*kinv*oor0;
+	const auto dadx = -xout*iptin*kinv*oor0;
+	const auto dady = -yout*iptin*kinv*oor0;
 
-	const float pxca = pxin*cosa;
-	const float pxsa = pxin*sina;
-	const float pyca = pyin*cosa;
-	const float pysa = pyin*sina;
+	const auto pxca = pxin*cosa;
+	const auto pxsa = pxin*sina;
+	const auto pyca = pyin*cosa;
+	const auto pysa = pyin*sina;
 
-	float tmp = k*dadx;
+	auto tmp = k*dadx;
 	dDdx   -= ( xout*(1.f + tmp*(pxca - pysa)) + yout*tmp*(pyca + pxsa) )*oor0;
 	tmp = k*dady;
 	dDdy   -= ( xout*tmp*(pxca - pysa) + yout*(1.f + tmp*(pyca + pxsa)) )*oor0;
@@ -754,11 +754,11 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
   
     }
     //
-    const float alpha  = D*iptin*kinv;
-    const float dadx   = dDdx*iptin*kinv;
-    const float dady   = dDdy*iptin*kinv;
-    const float dadipt = (iptin*dDdipt + D)*kinv;
-    const float dadphi = dDdphi*iptin*kinv;
+    const auto alpha  = D*iptin*kinv;
+    const auto dadx   = dDdx*iptin*kinv;
+    const auto dady   = dDdy*iptin*kinv;
+    const auto dadipt = (iptin*dDdipt + D)*kinv;
+    const auto dadphi = dDdphi*iptin*kinv;
 
     sincos4(alpha, sina, cosa);
  
@@ -827,6 +827,11 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
 }
 
 
+void PrintTargetInfo(sycl::queue& q) {
+  auto device = q.get_device();
+  std::cout<< " Running on " << device.get_info<sycl::info::device::name>()<<"\n";
+}
+
 int main (int argc, char* argv[]) {
 
    #include "input_track.h"
@@ -852,11 +857,15 @@ int main (int argc, char* argv[]) {
    struct timeval timecheck;
    //
 #ifdef USE_CPU
-   sycl::queue cq(sycl::cpu_selector{});
    printf("WARNING: dpc++ generated x86 backend. For Intel GPUs use -DUSE_GPU option.\n");
+   sycl::queue cq(sycl::cpu_selector{});
+   PrintTargetInfo(cq);
+   //sycl::queue cq(sycl::cpu_selector_v());
    constexpr bool enable_gpu_backend = false;
 #else
    sycl::queue cq(sycl::gpu_selector{});
+   //sycl::queue cq(sycl::gpu_selector_v);
+   PrintTargetInfo(cq);
    constexpr bool enable_gpu_backend = true;
 #endif
    //
@@ -876,6 +885,10 @@ int main (int argc, char* argv[]) {
 
    const int phys_length      = nevts*nb;
    const int outer_loop_range = phys_length*(enable_gpu_backend ? bsize : 1);//re-scale the exe domain for the cuda backend!
+   const int local_loop_range = (enable_gpu_backend ? bsize : 1);
+
+   sycl::range<1> global_range(outer_loop_range);
+   sycl::range<1> local_range(bsize);
     
    auto p2r_kernels = [=,btracksPtr    = trcks.data(),
                          outtracksPtr  = outtrcks.data(),
@@ -891,6 +904,7 @@ int main (int argc, char* argv[]) {
                          //
                          constexpr int layers = nlayer;
                          //
+                        #pragma unroll //improved performance by 40-60 %   
                          for(int layer=0; layer<nlayer; ++layer) {
                            //
                            const auto& bhits = bhitsPtr[layer+layers*tid].template load<N>(batch_id);
@@ -915,30 +929,36 @@ int main (int argc, char* argv[]) {
    // A warmup run to migrate data on the device:
    try {
      cq.submit([&](sycl::handler &h){
-         h.parallel_for(sycl::range(outer_loop_range), p2r_kernels);
+         //h.parallel_for(sycl::range(outer_loop_range), p2r_kernels);
+         h.parallel_for(sycl::nd_range(global_range,local_range), p2r_kernels);
        });
    } catch (sycl::exception const& e) {
      std::cout << "Caught SYCL exception: " << e.what() << std::endl;	   
    }
-  
-   auto wall_start = std::chrono::high_resolution_clock::now();
+   
+   // wait before starting measurement
+   cq.wait();
+   double wall_time = 0.0;
 
    for(int itr=0; itr<NITER; itr++) {
      try {	   
+     auto wall_start = std::chrono::high_resolution_clock::now();
        cq.submit([&](sycl::handler &h){
-         h.parallel_for(sycl::range(outer_loop_range), p2r_kernels);
+         //h.parallel_for(sycl::range(outer_loop_range,local_loop_range), p2r_kernels);
+         h.parallel_for(sycl::nd_range(global_range,local_range), p2r_kernels);
        });
+       cq.wait();
+
+       auto wall_stop = std::chrono::high_resolution_clock::now();
+    
+       auto wall_diff = wall_stop - wall_start;
+        wall_time += static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;   
+
      } catch (sycl::exception const& e) {
        std::cout << "Caught SYCL exception: " << e.what() << std::endl; 	     
      }
    } //end of itr loop
 
-   cq.wait();
-   
-   auto wall_stop = std::chrono::high_resolution_clock::now();
-
-   auto wall_diff = wall_stop - wall_start;
-   auto wall_time = static_cast<double>(std::chrono::duration_cast<std::chrono::microseconds>(wall_diff).count()) / 1e6;   
 
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));

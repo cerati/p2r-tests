@@ -696,6 +696,8 @@ void propagateToR(const MP6x6SF* inErr, const MP6F* inPar, const MP1I* inChg,
     float dDdipt = 0.;
     float dDdphi = 0.;
 
+    
+    #pragma unroll    
     for (int i = 0; i < Niter; ++i)
     {
       //compute distance and path for the current iteration

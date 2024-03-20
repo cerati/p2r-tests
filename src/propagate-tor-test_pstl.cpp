@@ -444,7 +444,8 @@ float z(const MPHIT* hits, size_t ev, size_t tk)    { return Pos(hits, ev, tk, 2
 
 template<size_t N = 1>
 inline void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> &c) {//ok
-#pragma unroll
+//#pragma unroll
+  #pragma omp simd
   for (int it = 0;it < N; it++) {
     c[ 0*N+it] = a[ 0*N+it]*b[ 0*N+it] + a[ 1*N+it]*b[ 1*N+it] + a[ 3*N+it]*b[ 6*N+it] + a[ 4*N+it]*b[10*N+it];
     c[ 1*N+it] = a[ 0*N+it]*b[ 1*N+it] + a[ 1*N+it]*b[ 2*N+it] + a[ 3*N+it]*b[ 7*N+it] + a[ 4*N+it]*b[11*N+it];
@@ -490,7 +491,8 @@ inline void MultHelixProp(const MP6x6F_<N> &a, const MP6x6SF_<N> &b, MP6x6F_<N> 
 
 template<size_t N = 1>
 inline void MultHelixPropTransp(const MP6x6F_<N> &a, const MP6x6F_<N> &b, MP6x6SF_<N> &c) {//
-#pragma unroll
+//#pragma unroll
+  #pragma omp simd
   for (int it = 0;it < N; it++) {
     
     c[ 0*N+it] = b[ 0*N+it]*a[ 0*N+it] + b[ 1*N+it]*a[ 1*N+it] + b[ 3*N+it]*a[ 3*N+it] + b[ 4*N+it]*a[ 4*N+it];
@@ -528,6 +530,7 @@ void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitEr
   MP2x2SF_<N> resErr_loc;
   //MP3x3SF resErr_glo;
     
+  #pragma omp simd
   for (size_t it = 0;it < N; ++it) {   
     const auto msPX = msP(iparX, it);
     const auto msPY = msP(iparY, it);
@@ -600,6 +603,7 @@ void KalmanUpdate(MP6x6SF_<N> &trkErr, MP6F_<N> &inPar, const MP3x3SF_<N> &hitEr
   }  
      
   MP2F_<N> res_loc;   
+  #pragma omp simd
   for (size_t it = 0; it < N; ++it) {
     const auto msPX = msP(iparX, it);
     const auto msPY = msP(iparY, it);
@@ -681,6 +685,7 @@ void propagateToR(const MP6x6SF_<N> &inErr, const MP6F_<N> &inPar, const MP1I_<N
   MP6x6F_<N> errorProp;
   MP6x6F_<N> temp;
   
+  #pragma omp simd
   for (size_t it = 0; it < N; ++it) {
     //initialize erroProp to identity matrix
     //for (size_t i=0;i<6;++i) errorProp.data[bsize*PosInMtrx(i,i,6) + it] = 1.f; 
@@ -987,6 +992,9 @@ int main (int argc, char* argv[]) {
    printf("setup time time=%f (s)\n", (setup_stop-setup_start)*0.001);
    printf("done ntracks=%i tot time=%f (s) time/trk=%e (s)\n", nevts*ntrks*int(NITER), wall_time, wall_time/(nevts*ntrks*int(NITER)));
    printf("formatted %i %i %i %i %i %f 0 %f %i\n",int(NITER),nevts, ntrks, bsize, nb, wall_time, (setup_stop-setup_start)*0.001, -1);
+   printf("use_cuda      =  %i \n",use_cuda);
+   printf("phys_length      =  %i \n",phys_length);
+   printf("outer_loop_range =  %i \n",outer_loop_range);
 
    auto outtrk = outtrcks.data();
 
