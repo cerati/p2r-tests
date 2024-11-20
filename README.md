@@ -1,5 +1,22 @@
 # p2r-tests
 
+## Peer-reviewed publication
+
+Our results are published as "Exploring code portability solutions for HEP with a particle tracking test code", Front. Big Data, 22 October 2024, Sec. Big Data and AI in High Energy Physics, Volume 7 - 2024 (https://doi.org/10.3389/fdata.2024.1485344).
+
+Versions from this repository used in the paper figures are:
+* Figure 2,6,7:
+	* CUDA: [src/propagate-tor-test_cuda_uvm.cu](https://github.com/cerati/p2r-tests/blob/v1.0/src/propagate-tor-test_cuda_uvm.cu)
+	* Alpaka: [p2r_alpaka/src/propagate-tor-test_alpaka_local.cpp](https://github.com/cerati/p2r-tests/blob/v1.0/p2r_alpaka/src/propagate-tor-test_alpaka_local.cpp)
+	* Kokkos: [src/propagate-tor-test_kokkos_local_tvr.cpp](https://github.com/cerati/p2r-tests/blob/v1.0/src/propagate-tor-test_kokkos_local_tvr.cpp)
+	* SYCL: [src/propagate-tor-test_sycl.cpp](https://github.com/cerati/p2r-tests/blob/v1.0/src/propagate-tor-test_sycl.cpp)
+	* stdpar: [src/propagate-tor-test_pstl.cpp](https://github.com/cerati/p2r-tests/blob/v1.0/src/propagate-tor-test_pstl.cpp)
+	* TBB: [src/propagate-tor-test_tbb.cpp](https://github.com/cerati/p2r-tests/blob/v1.0/src/propagate-tor-test_tbb.cpp)
+	* OpenACC: [src/propagate-tor-test_acc.v3.cpp](https://github.com/cerati/p2r-tests/blob/v1.0/src/propagate-tor-test_acc.v3.cpp)
+	* HIP: [src/propagate-tor-test_hip_local.cu](https://github.com/cerati/p2r-tests/blob/v1.0/src/propagate-tor-test_hip_local.cu)
+
+Please find them as used in the paper at the tagged version of this repository: https://github.com/cerati/p2r-tests/releases/tag/v1.0. 
+
 ## Build instructions on JLSE
 
 ### Kokkos versions with CUDA backend:
